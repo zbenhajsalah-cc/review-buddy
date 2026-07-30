@@ -57,6 +57,11 @@ export interface RunningServer {
   token: string;
   /** Browser URL, loopback + token: http://127.0.0.1:<port>/?token=<token> */
   url: string;
+  /**
+   * Resolution notes from `ctx.review.warnings` — the agent-feedback channel
+   * (same list the viewer renders). Callers use this so they don't re-resolve.
+   */
+  warnings: readonly string[];
   done: Promise<DoneResult>;
   stop: () => void;
 }
@@ -216,6 +221,7 @@ export function startServer(ctx: ServerContext): RunningServer {
     port,
     token,
     url: `http://127.0.0.1:${port}/?token=${token}`,
+    warnings: ctx.review.warnings,
     done,
     stop: () => {
       server.stop(); // graceful: let any in-flight response finish

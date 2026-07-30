@@ -15,7 +15,11 @@
  */
 import { readFileSync } from "node:fs";
 import type { DoneResult } from "../server/http.ts";
-import { openReviewSession, requestChangesMessage } from "../server/session.ts";
+import {
+  openReviewSession,
+  requestChangesMessage,
+  resolutionNotesMessage,
+} from "../server/session.ts";
 import { validateAgentReview } from "../server/validate.ts";
 import type { AgentReview } from "../types/review.ts";
 
@@ -25,35 +29,51 @@ interface HookEvent {
   cwd?: string;
 }
 
+interface ServeResult {
+  done: DoneResult;
+  warnings: readonly string[];
+}
+
 /** Print a PreToolUse permission decision and exit. */
-function respond(permissionDecision: "allow" | "deny", reason: string): never {
-  process.stdout.write(
-    `${JSON.stringify({
-      hookSpecificOutput: {
-        hookEventName: "PreToolUse",
-        permissionDecision,
-        permissionDecisionReason: reason,
-      },
-    })}\n`,
-  );
+function respond(
+  permissionDecision: "allow" | "deny",
+  reason: string,
+  additionalContext?: string,
+): never {
+  const hookSpecificOutput: {
+    hookEventName: "PreToolUse";
+    permissionDecision: "allow" | "deny";
+    permissionDecisionReason: string;
+    additionalContext?: string;
+  } = {
+    hookEventName: "PreToolUse",
+    permissionDecision,
+    permissionDecisionReason: reason,
+  };
+  // Only emit the key when there is something to say — never undefined/null.
+  if (additionalContext !== undefined) {
+    hookSpecificOutput.additionalContext = additionalContext;
+  }
+  process.stdout.write(`${JSON.stringify({ hookSpecificOutput })}\n`);
   process.exit(0);
 }
 
 /** Let the agent proceed (Phase 1 default; also every fail-open path). */
-function allow(reason: string): never {
-  respond("allow", reason);
+function allow(reason: string, additionalContext?: string): never {
+  respond("allow", reason, additionalContext);
 }
 /** Block the tool call and hand the reason back to the agent (Phase 2 spike). */
-function deny(reason: string): never {
-  respond("deny", reason);
+function deny(reason: string, additionalContext?: string): never {
+  respond("deny", reason, additionalContext);
 }
 
 /** Open a session (capture/resolve/serve/browser) and block until Done. */
-async function serveAndBlock(agent: AgentReview, cwd: string): Promise<DoneResult> {
+async function serveAndBlock(agent: AgentReview, cwd: string): Promise<ServeResult> {
   const server = await openReviewSession(agent, cwd);
-  const result = await server.done;
+  const done = await server.done;
+  const { warnings } = server;
   server.stop();
-  return result;
+  return { done, warnings };
 }
 
 async function runOpenReview(): Promise<never> {
@@ -74,17 +94,18 @@ async function runOpenReview(): Promise<never> {
     allow("Review Buddy received no valid review payload; proceeding.");
   }
 
-  let result: DoneResult;
+  let result: ServeResult;
   try {
     result = await serveAndBlock(agent as AgentReview, cwd);
   } catch (err) {
     console.error(`[review-buddy] Viewer error: ${String(err)}`);
     allow("Review Buddy hit an error rendering the review; proceeding.");
   }
-  if (process.env.REVIEW_BUDDY_ROUNDTRIP && result?.verdict === "request_changes") {
-    deny(requestChangesMessage(result.summary));
+  const notes = resolutionNotesMessage(result.warnings);
+  if (process.env.REVIEW_BUDDY_ROUNDTRIP && result.done.verdict === "request_changes") {
+    deny(requestChangesMessage(result.done.summary), notes);
   }
-  allow("Review viewed by the human.");
+  allow("Review viewed by the human.", notes);
 }
 
 async function runDev(args: string[]): Promise<void> {

@@ -18,7 +18,11 @@
 import { isAbsolute } from "node:path";
 import { repoToplevel } from "../server/git.ts";
 import type { RunningServer } from "../server/http.ts";
-import { openReviewSession, requestChangesMessage } from "../server/session.ts";
+import {
+  openReviewSession,
+  requestChangesMessage,
+  resolutionNotesMessage,
+} from "../server/session.ts";
 import { validateAgentReview } from "../server/validate.ts";
 import type { AgentReview } from "../types/review.ts";
 import type { StandaloneMode } from "./mode.ts";
@@ -33,6 +37,12 @@ export interface ToolResult {
 const err = (text: string): ToolResult => ({ content: [{ type: "text", text }], isError: true });
 const ok = (text: string): ToolResult => ({ content: [{ type: "text", text }] });
 const errMsg = (e: unknown): string => (e instanceof Error ? e.message : String(e));
+
+/** Append resolution notes to a tool-result string when there are any. */
+function withNotes(text: string, warnings: readonly string[]): string {
+  const notes = resolutionNotesMessage(warnings);
+  return notes ? `${text}\n\n${notes}` : text;
+}
 
 // The live review's server — superseded (stopped) when a new review arrives,
 // so at most one viewer is live per MCP session. `stop()` also settles the
@@ -127,9 +137,12 @@ export async function handleStandaloneSubmit(
 
   if (mode === "detached") {
     return ok(
-      `Review opened in the reviewer's browser: ${server.url} — it stays available until the ` +
-        `next submit_review or the end of this session. Tell the user the review is ready ` +
-        `(include the URL in case no browser opened), then continue; no verdict is returned.`,
+      withNotes(
+        `Review opened in the reviewer's browser: ${server.url} — it stays available until the ` +
+          `next submit_review or the end of this session. Tell the user the review is ready ` +
+          `(include the URL in case no browser opened), then continue; no verdict is returned.`,
+        server.warnings,
+      ),
     );
   }
 
@@ -137,14 +150,17 @@ export async function handleStandaloneSubmit(
   // newer submit_review supersedes this one (stop() settles `done`).
   const result = await server.done;
   if (current === server) current = undefined;
+  const { warnings } = server;
   server.stop();
   if (result.superseded) {
+    // Superseded reviews were replaced before the reviewer finished — their
+    // resolution notes are noise for the agent that never got a verdict.
     return ok(
       "This review was superseded by a newer submit_review call; no verdict was collected.",
     );
   }
   if (result.verdict === "request_changes") {
-    return ok(requestChangesMessage(result.summary));
+    return ok(withNotes(requestChangesMessage(result.summary), warnings));
   }
-  return ok("Review complete — the reviewer finished walking through it.");
+  return ok(withNotes("Review complete — the reviewer finished walking through it.", warnings));
 }

@@ -183,6 +183,104 @@ test("open-review: non-string summary still emits a valid deny (no crash / fail-
   expect(decision.hookSpecificOutput.permissionDecisionReason).toContain("no details provided");
 }, 20_000);
 
+test("open-review: resolution warnings ride back as additionalContext", async () => {
+  // Chapter references a path absent from the diff → resolver warns.
+  const agent = sampleReview({
+    chapters: [
+      {
+        index: 1,
+        title: "Ghost file",
+        risk: "Low",
+        risk_reason: "tiny",
+        description: "points at a missing path",
+        files: [{ path: "missing.ts", change_type: "modified" }],
+      },
+    ],
+  });
+  const event = {
+    tool_name: "mcp__plugin_review-buddy_review-buddy__submit_review",
+    tool_input: agent,
+    cwd: dir,
+  };
+
+  const outPath = join(tmpdir(), `rb-cli-out-warn-${process.pid}.txt`);
+  const errPath = join(tmpdir(), `rb-cli-err-warn-${process.pid}.txt`);
+  const outFd = openSync(outPath, "w");
+  const errFd = openSync(errPath, "w");
+
+  const proc = Bun.spawn(["bun", "run", join(import.meta.dir, "index.ts"), "open-review"], {
+    cwd: dir,
+    env: { ...process.env, REVIEW_BUDDY_NO_OPEN: "1" },
+    stdin: "pipe",
+    stdout: outFd,
+    stderr: errFd,
+  });
+  proc.stdin.write(JSON.stringify(event));
+  proc.stdin.end();
+
+  let m: RegExpMatchArray | null = null;
+  for (let i = 0; i < 100 && !m; i++) {
+    m = readFileSync(errPath, "utf8").match(VIEWER_URL_RE);
+    if (!m) await Bun.sleep(50);
+  }
+  expect(m).not.toBeNull();
+  const api = (p: string) => `http://127.0.0.1:${m![1]!}/${p}?token=${m![2]!}`;
+  const curl = (...args: string[]) => execFileSync("curl", ["-s", ...args], { encoding: "utf8" });
+
+  curl("-X", "POST", api("api/done"), "-H", "content-type: application/json", "-d", "{}");
+  await proc.exited;
+  closeSync(outFd);
+  closeSync(errFd);
+
+  const decision = JSON.parse(readFileSync(outPath, "utf8"));
+  expect(decision.hookSpecificOutput.permissionDecision).toBe("allow");
+  expect(decision.hookSpecificOutput.additionalContext).toContain(
+    'file "missing.ts" not found in the diff',
+  );
+}, 20_000);
+
+test("open-review: clean review omits additionalContext from the decision JSON", async () => {
+  const agent = sampleReview();
+  const event = {
+    tool_name: "mcp__plugin_review-buddy_review-buddy__submit_review",
+    tool_input: agent,
+    cwd: dir,
+  };
+
+  const outPath = join(tmpdir(), `rb-cli-out-clean-${process.pid}.txt`);
+  const errPath = join(tmpdir(), `rb-cli-err-clean-${process.pid}.txt`);
+  const outFd = openSync(outPath, "w");
+  const errFd = openSync(errPath, "w");
+
+  const proc = Bun.spawn(["bun", "run", join(import.meta.dir, "index.ts"), "open-review"], {
+    cwd: dir,
+    env: { ...process.env, REVIEW_BUDDY_NO_OPEN: "1" },
+    stdin: "pipe",
+    stdout: outFd,
+    stderr: errFd,
+  });
+  proc.stdin.write(JSON.stringify(event));
+  proc.stdin.end();
+
+  let m: RegExpMatchArray | null = null;
+  for (let i = 0; i < 100 && !m; i++) {
+    m = readFileSync(errPath, "utf8").match(VIEWER_URL_RE);
+    if (!m) await Bun.sleep(50);
+  }
+  expect(m).not.toBeNull();
+  const api = (p: string) => `http://127.0.0.1:${m![1]!}/${p}?token=${m![2]!}`;
+  const curl = (...args: string[]) => execFileSync("curl", ["-s", ...args], { encoding: "utf8" });
+
+  curl("-X", "POST", api("api/done"), "-H", "content-type: application/json", "-d", "{}");
+  await proc.exited;
+  closeSync(outFd);
+  closeSync(errFd);
+
+  const decision = JSON.parse(readFileSync(outPath, "utf8"));
+  expect(decision.hookSpecificOutput.permissionDecision).toBe("allow");
+  expect("additionalContext" in decision.hookSpecificOutput).toBe(false);
+}, 20_000);
+
 test("open-review: source.type=branch captures the diff against the given base ref", async () => {
   // Commit the pending change, then review it against the base commit via a
   // branch source — exercises the source-routing added for PR/branch reviews.
