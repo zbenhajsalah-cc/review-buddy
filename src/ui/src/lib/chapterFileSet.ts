@@ -8,7 +8,7 @@
 import { useCallback } from "react";
 import { getReviewToken } from "../session.ts";
 import { chapterPathSet } from "./chapterPathSet.ts";
-import { usePersistedState } from "./usePersistedState.ts";
+import { parseStored, usePersistedState } from "./usePersistedState.ts";
 
 const PREFIXES = ["viewed", "collapsed"] as const;
 type Prefix = (typeof PREFIXES)[number];
@@ -39,6 +39,20 @@ function createChapterFileSet(prefix: Prefix) {
 
 export const useViewedFiles = createChapterFileSet("viewed");
 export const useCollapsedFiles = createChapterFileSet("collapsed");
+
+/**
+ * Snapshot of viewed `"chapterIndex:path"` entries for this review.
+ * A one-shot read is enough: App renders Overview and ChapterReview as
+ * alternatives, so returning from a chapter always remounts Overview.
+ * This is a deliberate design contract, not an accident.
+ */
+export function readViewedEntries(): readonly string[] {
+  try {
+    return parseStored(localStorage.getItem(key("viewed")), [] as string[]);
+  } catch {
+    return [];
+  }
+}
 
 /**
  * Drop THIS review's viewed + collapsed state. Called when the review is

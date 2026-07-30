@@ -66,6 +66,10 @@ Ordered, most foundational/highest-risk first. For each chapter:
   chapter, **omit** the `hunks` array (means "the whole file"). A file MAY appear in
   multiple chapters with different anchors.
 
+The tool automatically sets aside generated artifacts (lockfiles, minified bundles,
+source maps, snapshots, images, fonts) into a separate chapter. Don't spend chapters or
+analysis on them — skip them when grouping, and don't count them in your narrative.
+
 ## Critical rules
 
 - **Prose renders as markdown.** Every prose field (`why`, `what`, each `detail`,

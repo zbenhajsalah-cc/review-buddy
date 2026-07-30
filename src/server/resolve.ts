@@ -7,7 +7,8 @@
  *      (omitted `hunks` => attach all of that file's hunks).
  *   3. Recompute additions/deletions per file, per chapter, and overall.
  *   4. Any real hunk not claimed by any chapter => synthetic "Unsorted changes"
- *      chapter (never drop changes).
+ *      chapter, except noise files (lockfiles, images, …) which go into a
+ *      separate "Generated & noise files" chapter (never drop changes).
  *
  * The agent supplies judgment + grouping; git supplies the bytes.
  */
@@ -22,6 +23,7 @@ import type {
   ReviewStats,
 } from "../types/review.ts";
 import { languageOf, type ParsedFile, type ParsedHunk, parseDiff } from "./diff.ts";
+import { isNoiseFile } from "./noise.ts";
 
 export interface ResolveResult {
   review: ResolvedReview;
@@ -29,6 +31,7 @@ export interface ResolveResult {
 }
 
 const UNSORTED_TITLE = "Unsorted changes";
+const NOISE_TITLE = "Generated & noise files";
 
 function normalizePath(p: string): string {
   return p.replace(/^\.\//, "").replace(/^\/+/, "");
@@ -55,6 +58,27 @@ function resolvedFileFrom(file: ParsedFile, hunks: ParsedHunk[]): ResolvedFile {
     hunks: hunks.map(toResolvedHunk),
     ...(file.binary ? { binary: true } : {}),
     ...(file.changeType === "renamed" && file.oldPath ? { old_path: file.oldPath } : {}),
+  };
+}
+
+/** Synthetic leftover/noise chapter — same shape for both buckets. */
+function bucketChapter(
+  files: ResolvedFile[],
+  index: number,
+  title: string,
+  risk_reason: string,
+  description: string,
+): ResolvedChapter {
+  return {
+    index,
+    title,
+    risk: "Low",
+    risk_reason,
+    additions: files.reduce((n, f) => n + f.additions, 0),
+    deletions: files.reduce((n, f) => n + f.deletions, 0),
+    fileCount: files.length,
+    description,
+    files,
   };
 }
 
@@ -154,11 +178,12 @@ export function resolveReview(
 
       const anchored = !!af.hunks && af.hunks.length > 0;
       if (anchored && claimed.length === 0) {
+        const bucket = isNoiseFile(parsed.path) ? NOISE_TITLE : UNSORTED_TITLE;
         warnings.push(
           `Chapter ${ch.index}: none of the anchors for "${af.path}" matched — ` +
-            `its changes will appear under "Unsorted changes".`,
+            `its changes will appear under "${bucket}".`,
         );
-        continue; // no empty entry; unclaimed hunks fall through to Unsorted
+        continue; // no empty entry; unclaimed hunks fall through to Unsorted / noise
       }
       referenced.add(parsed);
 
@@ -192,33 +217,47 @@ export function resolveReview(
   }
 
   // Step 4 — bucket anything unclaimed so no change is dropped.
+  // Noise (lockfiles, images, …) gets its own chapter so it doesn't dilute
+  // "Unsorted changes" or fire a resolution warning.
   const unsortedFiles: ResolvedFile[] = [];
+  const noiseFiles: ResolvedFile[] = [];
   for (const f of parsedFiles) {
     const leftover = f.hunks.filter((h) => h.claimedBy === -1);
     const neverReferenced = !referenced.has(f);
     if (leftover.length > 0 || (neverReferenced && f.hunks.length === 0)) {
-      unsortedFiles.push(resolvedFileFrom(f, leftover));
+      const resolved = resolvedFileFrom(f, leftover);
+      if (isNoiseFile(f.path)) noiseFiles.push(resolved);
+      else unsortedFiles.push(resolved);
     }
   }
+  let nextIndex = chaptersInOrder.length + 1;
   if (unsortedFiles.length > 0) {
-    const nextIndex = chaptersInOrder.length + 1;
     warnings.push(
       `${unsortedFiles.length} file(s) had changes not grouped into any chapter — ` +
         `bucketed into "${UNSORTED_TITLE}".`,
     );
-    chapters.push({
-      index: nextIndex,
-      title: UNSORTED_TITLE,
-      risk: "Low",
-      risk_reason: "Changes the agent did not assign to a chapter.",
-      additions: unsortedFiles.reduce((n, f) => n + f.additions, 0),
-      deletions: unsortedFiles.reduce((n, f) => n + f.deletions, 0),
-      fileCount: unsortedFiles.length,
-      description:
+    chapters.push(
+      bucketChapter(
+        unsortedFiles,
+        nextIndex++,
+        UNSORTED_TITLE,
+        "Changes the agent did not assign to a chapter.",
         "These changes are present in the diff but were not grouped into a chapter by the agent. " +
-        "Review them directly.",
-      files: unsortedFiles,
-    });
+          "Review them directly.",
+      ),
+    );
+  }
+  if (noiseFiles.length > 0) {
+    chapters.push(
+      bucketChapter(
+        noiseFiles,
+        nextIndex,
+        NOISE_TITLE,
+        "Generated or binary artifacts — not hand-written code.",
+        "Lockfiles, minified bundles, snapshots, images, and similar artifacts set aside " +
+          "automatically. Included in full so nothing is hidden.",
+      ),
+    );
   }
 
   // Overall stats come from the FULL diff (authoritative), not just claimed hunks.

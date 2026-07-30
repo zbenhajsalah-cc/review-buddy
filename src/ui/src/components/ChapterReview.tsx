@@ -1,15 +1,18 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
-import type { ResolvedReview } from "../../../types/review.ts";
+import type { ResolvedChapter, ResolvedReview } from "../../../types/review.ts";
 import { fetchConfig, postDone } from "../api.ts";
 import { clearReviewFileState, useCollapsedFiles, useViewedFiles } from "../lib/chapterFileSet.ts";
+import { useChapterShortcuts } from "../lib/useChapterShortcuts.ts";
+import { useFileFocus } from "../lib/useFileFocus.ts";
 import { useDisplaySettings } from "../settings.ts";
 import { DiffStat } from "./DiffStat.tsx";
 import { DisplaySettingsBar } from "./DisplaySettingsBar.tsx";
 import { FileDiffCard } from "./FileDiffCard.tsx";
 import { Markdown } from "./Markdown.tsx";
 import { RiskBadge } from "./RiskBadge.tsx";
+import { ShortcutsDialog } from "./ShortcutsDialog.tsx";
 
 export function ChapterReview({
   review,
@@ -22,13 +25,37 @@ export function ChapterReview({
   onNavigate: (position: number) => void;
   onExit: () => void;
 }) {
+  const chapter = review.chapters[position];
+  if (!chapter) {
+    return <div className="p-10">No chapters to review.</div>;
+  }
+  return (
+    <ChapterReviewBody
+      review={review}
+      position={position}
+      onNavigate={onNavigate}
+      onExit={onExit}
+      chapter={chapter}
+    />
+  );
+}
+
+function ChapterReviewBody({
+  review,
+  position,
+  onNavigate,
+  onExit,
+  chapter,
+}: {
+  review: ResolvedReview;
+  position: number;
+  onNavigate: (position: number) => void;
+  onExit: () => void;
+  chapter: ResolvedChapter;
+}) {
   const [settings, updateSettings] = useDisplaySettings();
   const chapters = review.chapters;
-  // -1 only when there is no chapter at `position`; the `if (!chapter)` guard
-  // below returns before this bucket is ever read or toggled. The fallback
-  // exists solely to keep useViewedFiles unconditional (a hook can't run after
-  // that guard).
-  const chapterIndex = chapters[position]?.index ?? -1;
+  const chapterIndex = chapter.index;
   const [viewed, setViewed] = useViewedFiles(chapterIndex);
   const [collapsed, setCollapsed] = useCollapsedFiles(chapterIndex);
   // Product rule: marking a file viewed collapses it (and unmarking expands it) —
@@ -41,6 +68,7 @@ export function ChapterReview({
     [setViewed, setCollapsed],
   );
   const [filter, setFilter] = useState("");
+  const [shortcutsOpen, setShortcutsOpen] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [submitted, setSubmitted] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
@@ -49,7 +77,14 @@ export function ChapterReview({
   const [summary, setSummary] = useState("");
   const diffScrollRef = useRef<HTMLDivElement>(null);
 
-  const chapter = chapters[position];
+  const files = filter
+    ? chapter.files.filter((f) => f.path.toLowerCase().includes(filter.toLowerCase()))
+    : chapter.files;
+  const filePaths = files.map((f) => f.path);
+  const { focusedPath, focusedPathRef, focus, move } = useFileFocus(filePaths);
+  const prev = chapters[position - 1];
+  const next = chapters[position + 1];
+  const shortcutsActive = !submitted && !shortcutsOpen;
 
   // Verdict UI is gated by REVIEW_BUDDY_ROUNDTRIP; the server exposes it via /api/config.
   useEffect(() => {
@@ -64,22 +99,36 @@ export function ChapterReview({
     setFilter("");
   }, [chapterIndex]);
 
-  if (!chapter) {
-    return <div className="p-10">No chapters to review.</div>;
-  }
-
-  const files = filter
-    ? chapter.files.filter((f) => f.path.toLowerCase().includes(filter.toLowerCase()))
-    : chapter.files;
-
-  const prev = chapters[position - 1];
-  const next = chapters[position + 1];
+  // biome-ignore lint/correctness/useExhaustiveDependencies: reset focus when chapter or filter changes
+  useEffect(() => {
+    focus(null);
+  }, [chapterIndex, filter]);
 
   const scrollToFile = (path: string) => {
     document
       .querySelector(`[data-file-path="${CSS.escape(path)}"]`)
       ?.scrollIntoView({ behavior: "smooth", block: "start" });
   };
+
+  useChapterShortcuts({
+    hasChapter: !submitted,
+    shortcutsActive,
+    onShowShortcuts: () => setShortcutsOpen(true),
+    hasNext: !!next,
+    hasPrev: !!prev,
+    onNextChapter: () => onNavigate(position + 1),
+    onPrevChapter: () => onNavigate(position - 1),
+    onExit,
+    focusedPathRef,
+    focus,
+    move,
+    scrollToFile,
+    isCollapsed: (path) => collapsed.has(path),
+    setCollapsed,
+    chapterFilePaths: chapter.files.map((f) => f.path),
+    isViewed: (path) => viewed.has(path),
+    onViewedChange: handleViewedChange,
+  });
 
   const submit = async (result?: { verdict?: "approve" | "request_changes"; summary?: string }) => {
     setSubmitting(true);
@@ -119,6 +168,7 @@ export function ChapterReview({
             size="sm"
             onClick={() => prev && onNavigate(position - 1)}
             disabled={!prev}
+            title="←"
           >
             ← Prev
           </Button>
@@ -130,12 +180,22 @@ export function ChapterReview({
             size="sm"
             onClick={() => next && onNavigate(position + 1)}
             disabled={!next}
+            title="→"
           >
             Next →
           </Button>
         </div>
         <div className="flex flex-col items-end gap-1">
           <div className="flex items-center gap-2">
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              onClick={() => setShortcutsOpen(true)}
+              title="Keyboard shortcuts (?)"
+              aria-label="Keyboard shortcuts"
+            >
+              ?
+            </Button>
             {roundtrip && (
               <Button
                 variant="outline"
@@ -206,7 +266,10 @@ export function ChapterReview({
               <li key={f.path}>
                 <button
                   type="button"
-                  onClick={() => scrollToFile(f.path)}
+                  onClick={() => {
+                    focus(f.path);
+                    scrollToFile(f.path);
+                  }}
                   className="flex w-full items-center justify-between gap-2 rounded px-2 py-1 text-left text-xs hover:bg-background"
                 >
                   <span className={cn("truncate font-mono", viewed.has(f.path) && "opacity-50")}>
@@ -232,6 +295,7 @@ export function ChapterReview({
                     settings={settings}
                     viewed={viewed.has(f.path)}
                     collapsed={collapsed.has(f.path)}
+                    focused={focusedPath === f.path}
                     // Stable refs (useCallback in chapterFileSet / handleViewedChange)
                     // — pass them directly rather than re-wrapping in per-render
                     // arrow closures, which is what keeps FileDiffCard's memo alive.
@@ -250,6 +314,8 @@ export function ChapterReview({
           </div>
         </div>
       </div>
+
+      <ShortcutsDialog open={shortcutsOpen} onOpenChange={setShortcutsOpen} surface="chapter" />
     </div>
   );
 }
