@@ -33,6 +33,7 @@ export const FileDiffCard = memo(function FileDiffCard({
   settings,
   viewed,
   collapsed,
+  focused = false,
   onViewedChange,
   onSetCollapsed,
 }: {
@@ -40,6 +41,7 @@ export const FileDiffCard = memo(function FileDiffCard({
   settings: DisplaySettings;
   viewed: boolean;
   collapsed: boolean;
+  focused?: boolean;
   onViewedChange: (path: string, checked: boolean) => void;
   onSetCollapsed: (path: string, value: boolean) => void;
 }) {
@@ -106,7 +108,14 @@ export const FileDiffCard = memo(function FileDiffCard({
   };
 
   return (
-    <Card className={cn("gap-0 overflow-hidden py-0", viewed && "opacity-60")}>
+    <Card
+      data-focused={focused || undefined}
+      className={cn(
+        "gap-0 overflow-hidden py-0",
+        viewed && "opacity-60",
+        focused && "ring-2 ring-primary ring-offset-1",
+      )}
+    >
       {/* File header */}
       <header className="flex items-center justify-between gap-3 border-b border-border bg-card px-3 py-2">
         <div className="flex min-w-0 items-center gap-2">

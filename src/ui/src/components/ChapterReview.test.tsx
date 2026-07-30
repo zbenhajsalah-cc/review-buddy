@@ -1,6 +1,6 @@
 /// <reference types="bun-types" />
 import { afterEach, expect, mock, test } from "bun:test";
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { fakeResolvedReview } from "../stories/fixtures.ts";
 
 mock.module("../session.ts", () => ({
@@ -49,4 +49,125 @@ test("marking viewed collapses the card; caret re-expands while viewed stays che
 
   const viewedSwitch = screen.getByRole("switch", { name: "viewed" });
   expect(viewedSwitch.getAttribute("data-state")).toBe("checked");
+});
+
+test("ArrowRight / ArrowLeft call onNavigate and do nothing at the ends", () => {
+  const onNavigate = mock(() => {});
+  const { rerender } = render(
+    <ChapterReview
+      review={fakeResolvedReview}
+      position={0}
+      onNavigate={onNavigate}
+      onExit={() => {}}
+    />,
+  );
+
+  act(() => {
+    fireEvent.keyDown(document, { key: "ArrowLeft" });
+  });
+  expect(onNavigate).toHaveBeenCalledTimes(0);
+
+  act(() => {
+    fireEvent.keyDown(document, { key: "ArrowRight" });
+  });
+  expect(onNavigate).toHaveBeenCalledTimes(1);
+  expect(onNavigate).toHaveBeenCalledWith(1);
+
+  onNavigate.mockClear();
+  rerender(
+    <ChapterReview
+      review={fakeResolvedReview}
+      position={2}
+      onNavigate={onNavigate}
+      onExit={() => {}}
+    />,
+  );
+
+  act(() => {
+    fireEvent.keyDown(document, { key: "ArrowRight" });
+  });
+  expect(onNavigate).toHaveBeenCalledTimes(0);
+
+  act(() => {
+    fireEvent.keyDown(document, { key: "ArrowLeft" });
+  });
+  expect(onNavigate).toHaveBeenCalledTimes(1);
+  expect(onNavigate).toHaveBeenCalledWith(1);
+});
+
+test("j focuses the first file", () => {
+  render(
+    <ChapterReview
+      review={fakeResolvedReview}
+      position={1}
+      onNavigate={() => {}}
+      onExit={() => {}}
+    />,
+  );
+
+  expect(document.querySelector("[data-focused]")).toBeNull();
+
+  act(() => {
+    fireEvent.keyDown(document, { key: "j" });
+  });
+
+  const focused = document.querySelector("[data-focused]");
+  expect(focused).not.toBeNull();
+  expect(focused?.closest("[data-file-path]")?.getAttribute("data-file-path")).toBe(
+    "src/server/auth/middleware.ts",
+  );
+});
+
+test("v after j marks the first file viewed", () => {
+  render(
+    <ChapterReview
+      review={fakeResolvedReview}
+      position={1}
+      onNavigate={() => {}}
+      onExit={() => {}}
+    />,
+  );
+
+  act(() => {
+    fireEvent.keyDown(document, { key: "j" });
+    fireEvent.keyDown(document, { key: "v" });
+  });
+
+  const switches = screen.getAllByRole("switch", { name: "viewed" });
+  expect(switches[0]?.getAttribute("data-state")).toBe("checked");
+  expect(switches[1]?.getAttribute("data-state")).toBe("unchecked");
+});
+
+test("typing j inside the filter input does not move focus", () => {
+  render(
+    <ChapterReview
+      review={fakeResolvedReview}
+      position={1}
+      onNavigate={() => {}}
+      onExit={() => {}}
+    />,
+  );
+
+  const filter = screen.getByPlaceholderText("Filter files…");
+  act(() => {
+    fireEvent.keyDown(filter, { key: "j" });
+  });
+
+  expect(document.querySelector("[data-focused]")).toBeNull();
+});
+
+test("? opens the shortcuts dialog", () => {
+  render(
+    <ChapterReview
+      review={fakeResolvedReview}
+      position={0}
+      onNavigate={() => {}}
+      onExit={() => {}}
+    />,
+  );
+
+  act(() => {
+    fireEvent.keyDown(document, { key: "?" });
+  });
+  expect(screen.getByText("Keyboard shortcuts")).toBeTruthy();
 });

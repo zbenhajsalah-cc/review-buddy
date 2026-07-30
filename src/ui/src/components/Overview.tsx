@@ -5,9 +5,11 @@ import { cn } from "@/lib/utils";
 import type { ResolvedReview } from "../../../types/review.ts";
 import { readViewedEntries } from "../lib/chapterFileSet.ts";
 import { chapterPathSet } from "../lib/chapterPathSet.ts";
+import { useShortcuts } from "../lib/shortcuts.ts";
 import { DiffStat } from "./DiffStat.tsx";
 import { Markdown } from "./Markdown.tsx";
 import { RiskBadge } from "./RiskBadge.tsx";
+import { ShortcutsDialog } from "./ShortcutsDialog.tsx";
 
 type Tab = "prologue" | "description";
 
@@ -21,6 +23,7 @@ export function Overview({
   const [tab, setTab] = useState<Tab>("prologue");
   const { pr, meta, prologue, stats, chapters, warnings } = review;
   const [warningsOpen, setWarningsOpen] = useState(warnings.length <= 3);
+  const [shortcutsOpen, setShortcutsOpen] = useState(false);
   const [viewedEntries] = useState(readViewedEntries);
 
   const chapterProgress = useMemo(
@@ -38,11 +41,36 @@ export function Overview({
   );
   const completedCount = chapterProgress.filter((p) => p.complete).length;
 
+  useShortcuts({
+    SHOW_SHORTCUTS: {
+      handler: () => setShortcutsOpen(true),
+      enabled: !shortcutsOpen,
+    },
+    BEGIN_REVIEW: {
+      handler: () => {
+        if (chapters.length > 0) onBeginReview(0);
+      },
+      enabled: !shortcutsOpen && chapters.length > 0,
+    },
+  });
+
   return (
     <div className="mx-auto max-w-3xl px-6 py-10">
       {/* PR header */}
       <header className="mb-6">
-        <h1 className="text-2xl font-semibold tracking-tight">{pr.title || "Untitled review"}</h1>
+        <div className="flex items-start justify-between gap-3">
+          <h1 className="text-2xl font-semibold tracking-tight">{pr.title || "Untitled review"}</h1>
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            onClick={() => setShortcutsOpen(true)}
+            title="Keyboard shortcuts (?)"
+            aria-label="Keyboard shortcuts"
+            className="shrink-0 text-muted-foreground"
+          >
+            ?
+          </Button>
+        </div>
         <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-muted-foreground">
           <span>{pr.author || "unknown"}</span>
           <span aria-hidden>·</span>
@@ -215,6 +243,8 @@ export function Overview({
       >
         Begin review →
       </Button>
+
+      <ShortcutsDialog open={shortcutsOpen} onOpenChange={setShortcutsOpen} surface="overview" />
     </div>
   );
 }

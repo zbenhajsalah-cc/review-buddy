@@ -71,3 +71,34 @@ test("entry for a different chapter index does not leak into this chapter's coun
   expect(screen.queryByRole("progressbar")).toBeNull();
   expect(screen.getByRole("heading", { level: 2 }).textContent).toBe("3 chapters");
 });
+
+test("Enter on document.body begins review at chapter 0", () => {
+  const onBeginReview = mock(() => {});
+  render(<Overview review={fakeResolvedReview} onBeginReview={onBeginReview} />);
+
+  act(() => {
+    fireEvent.keyDown(document.body, { key: "Enter" });
+  });
+  expect(onBeginReview).toHaveBeenCalledTimes(1);
+  expect(onBeginReview).toHaveBeenCalledWith(0);
+});
+
+test("Enter on a chapter button does not fire the global Begin-review shortcut", () => {
+  const onBeginReview = mock(() => {});
+  render(<Overview review={fakeResolvedReview} onBeginReview={onBeginReview} />);
+
+  const secondChapter = screen.getByRole("button", { name: /Refactor auth middleware/ });
+  act(() => {
+    fireEvent.keyDown(secondChapter, { key: "Enter" });
+  });
+  // Global shortcut must not steal Enter and force chapter 0.
+  expect(onBeginReview).not.toHaveBeenCalledWith(0);
+});
+
+test("shortcuts dialog on overview does not list Next file", () => {
+  render(<Overview review={fakeResolvedReview} onBeginReview={() => {}} />);
+
+  fireEvent.click(screen.getByRole("button", { name: "Keyboard shortcuts" }));
+  expect(screen.getByText("Keyboard shortcuts")).toBeTruthy();
+  expect(screen.queryByText("Next file")).toBeNull();
+});
