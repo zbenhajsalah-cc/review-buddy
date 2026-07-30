@@ -126,11 +126,16 @@ describe("resolveReview", () => {
     const unsorted = review.chapters.find((c) => c.title === "Unsorted changes");
     expect(unsorted).toBeDefined();
     const paths = unsorted!.files.map((f) => f.path).sort();
-    // useSport hunk 2 (leftover) + gone.txt + logo.png (binary, never referenced)
-    expect(paths).toEqual(["gone.txt", "logo.png", "src/dashboard/useSport.ts"]);
+    // useSport hunk 2 (leftover) + gone.txt; logo.png is noise → separate chapter
+    expect(paths).toEqual(["gone.txt", "src/dashboard/useSport.ts"]);
     expect(unsorted!.index).toBe(3);
     expect(warnings.some((w) => w.includes("Unsorted"))).toBe(true);
     expect(review.warnings).toEqual(warnings);
+
+    const noise = review.chapters.find((c) => c.title === "Generated & noise files");
+    expect(noise).toBeDefined();
+    expect(noise!.files.map((f) => f.path)).toEqual(["logo.png"]);
+    expect(noise!.index).toBe(4);
   });
 
   test("overall stats reflect the entire diff", () => {
@@ -390,5 +395,146 @@ index 5555555..6666666 100644
     // Partial miss => per-anchor warning fires, but NOT the total-miss summary.
     expect(warnings.some((w) => w.includes("(old 999, new 999)"))).toBe(true);
     expect(warnings.some((w) => w.includes("none of the anchors"))).toBe(false);
+  });
+});
+
+describe("resolveReview — noise bucket", () => {
+  const LOCKFILE_DIFF = `diff --git a/package-lock.json b/package-lock.json
+index 1111111..2222222 100644
+--- a/package-lock.json
++++ b/package-lock.json
+@@ -1,2 +1,3 @@
+ {
+-  "lockfileVersion": 2
++  "lockfileVersion": 3,
++  "packages": {}
+ }
+`;
+
+  const SOURCE_DIFF = `diff --git a/src/util.ts b/src/util.ts
+index 1111111..2222222 100644
+--- a/src/util.ts
++++ b/src/util.ts
+@@ -1,2 +1,3 @@
+ export const x = 1;
++export const y = 2;
+`;
+
+  const BOTH_DIFF = LOCKFILE_DIFF + SOURCE_DIFF;
+
+  test("unclaimed lockfile goes to Generated & noise files, not Unsorted", () => {
+    const agent: AgentReview = {
+      prologue: AGENT.prologue,
+      chapters: [
+        {
+          index: 1,
+          title: "Only source",
+          risk: "Low",
+          risk_reason: "test",
+          description: "claims the source file",
+          files: [{ path: "src/util.ts", change_type: "modified" }],
+        },
+      ],
+    };
+    const { review, warnings } = resolveReview(agent, BOTH_DIFF, META, PR);
+
+    const noise = review.chapters.find((c) => c.title === "Generated & noise files");
+    expect(noise).toBeDefined();
+    expect(noise!.files.map((f) => f.path)).toEqual(["package-lock.json"]);
+    expect(noise!.risk).toBe("Low");
+    expect(noise!.risk_reason).toBe("Generated or binary artifacts — not hand-written code.");
+
+    const unsorted = review.chapters.find((c) => c.title === "Unsorted changes");
+    expect(unsorted).toBeUndefined();
+    expect(warnings.some((w) => w.includes("Unsorted"))).toBe(false);
+    expect(warnings.some((w) => w.includes("Generated") || w.includes("noise"))).toBe(false);
+  });
+
+  test("unclaimed .ts file still goes to Unsorted and still warns", () => {
+    const agent: AgentReview = {
+      prologue: AGENT.prologue,
+      chapters: [
+        {
+          index: 1,
+          title: "Empty claim",
+          risk: "Low",
+          risk_reason: "test",
+          description: "claims nothing real",
+          files: [{ path: "does-not-exist.ts", change_type: "modified" }],
+        },
+      ],
+    };
+    const { review, warnings } = resolveReview(agent, SOURCE_DIFF, META, PR);
+
+    const unsorted = review.chapters.find((c) => c.title === "Unsorted changes");
+    expect(unsorted).toBeDefined();
+    expect(unsorted!.files.map((f) => f.path)).toEqual(["src/util.ts"]);
+    expect(warnings.some((w) => w.includes("Unsorted"))).toBe(true);
+    expect(warnings.some((w) => w.includes("1 file(s)"))).toBe(true);
+
+    expect(review.chapters.find((c) => c.title === "Generated & noise files")).toBeUndefined();
+  });
+
+  test("agent-assigned lockfile stays in its chapter; no synthetic noise chapter", () => {
+    const agent: AgentReview = {
+      prologue: AGENT.prologue,
+      chapters: [
+        {
+          index: 1,
+          title: "Deps",
+          risk: "Low",
+          risk_reason: "lockfile bump",
+          description: "intentionally includes the lockfile",
+          files: [{ path: "package-lock.json", change_type: "modified" }],
+        },
+      ],
+    };
+    const { review, warnings } = resolveReview(agent, LOCKFILE_DIFF, META, PR);
+
+    const ch1 = review.chapters.find((c) => c.index === 1);
+    expect(ch1!.files.map((f) => f.path)).toEqual(["package-lock.json"]);
+    expect(review.chapters.find((c) => c.title === "Generated & noise files")).toBeUndefined();
+    expect(review.chapters.find((c) => c.title === "Unsorted changes")).toBeUndefined();
+    expect(warnings.some((w) => w.includes("Unsorted"))).toBe(false);
+    expect(warnings.some((w) => w.includes("Generated") || w.includes("noise"))).toBe(false);
+  });
+
+  test("both buckets non-empty => both chapters, sequential indices, noise last", () => {
+    const agent: AgentReview = {
+      prologue: AGENT.prologue,
+      chapters: [
+        {
+          index: 1,
+          title: "Placeholder",
+          risk: "Low",
+          risk_reason: "test",
+          description: "claims a missing file so both real files are unclaimed",
+          files: [{ path: "missing.ts", change_type: "modified" }],
+        },
+      ],
+    };
+    const { review, warnings } = resolveReview(agent, BOTH_DIFF, META, PR);
+
+    const unsorted = review.chapters.find((c) => c.title === "Unsorted changes");
+    const noise = review.chapters.find((c) => c.title === "Generated & noise files");
+    expect(unsorted).toBeDefined();
+    expect(noise).toBeDefined();
+    expect(unsorted!.files.map((f) => f.path)).toEqual(["src/util.ts"]);
+    expect(noise!.files.map((f) => f.path)).toEqual(["package-lock.json"]);
+    expect(unsorted!.index).toBe(2);
+    expect(noise!.index).toBe(3);
+
+    // warnings[] fires for unsorted only — never for the noise bucket
+    expect(warnings.filter((w) => w.includes("Unsorted"))).toHaveLength(1);
+    expect(warnings.some((w) => w.includes("Generated") || w.includes("noise"))).toBe(false);
+  });
+
+  test("warnings[] contains no entry for the noise bucket", () => {
+    const agent: AgentReview = {
+      prologue: AGENT.prologue,
+      chapters: [],
+    };
+    const { warnings } = resolveReview(agent, LOCKFILE_DIFF, META, PR);
+    expect(warnings).toEqual([]);
   });
 });
