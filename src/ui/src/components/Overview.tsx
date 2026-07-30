@@ -1,11 +1,13 @@
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import type { ResolvedReview } from "../../../types/review.ts";
 import { readViewedEntries } from "../lib/chapterFileSet.ts";
 import { chapterPathSet } from "../lib/chapterPathSet.ts";
+import { reviewToMarkdown } from "../lib/reviewMarkdown.ts";
 import { useShortcuts } from "../lib/shortcuts.ts";
+import { CopyMarkdownButton, type CopyMarkdownHandle } from "./CopyMarkdownButton.tsx";
 import { DiffStat } from "./DiffStat.tsx";
 import { Markdown } from "./Markdown.tsx";
 import { RiskBadge } from "./RiskBadge.tsx";
@@ -25,6 +27,7 @@ export function Overview({
   const [warningsOpen, setWarningsOpen] = useState(warnings.length <= 3);
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
   const [viewedEntries] = useState(readViewedEntries);
+  const copyRef = useRef<CopyMarkdownHandle>(null);
 
   const chapterProgress = useMemo(
     () =>
@@ -52,6 +55,10 @@ export function Overview({
       },
       enabled: !shortcutsOpen && chapters.length > 0,
     },
+    COPY_MARKDOWN: {
+      handler: () => copyRef.current?.copy(),
+      enabled: !shortcutsOpen,
+    },
   });
 
   return (
@@ -60,16 +67,26 @@ export function Overview({
       <header className="mb-6">
         <div className="flex items-start justify-between gap-3">
           <h1 className="text-2xl font-semibold tracking-tight">{pr.title || "Untitled review"}</h1>
-          <Button
-            variant="ghost"
-            size="icon-sm"
-            onClick={() => setShortcutsOpen(true)}
-            title="Keyboard shortcuts (?)"
-            aria-label="Keyboard shortcuts"
-            className="shrink-0 text-muted-foreground"
-          >
-            ?
-          </Button>
+          <div className="flex shrink-0 items-center gap-0.5">
+            <CopyMarkdownButton
+              ref={copyRef}
+              text={() => reviewToMarkdown(review)}
+              aria-label="Copy review as Markdown"
+              title="Copy review as Markdown (c)"
+              label="copy"
+              variant="ghost"
+            />
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              onClick={() => setShortcutsOpen(true)}
+              title="Keyboard shortcuts (?)"
+              aria-label="Keyboard shortcuts"
+              className="shrink-0 text-muted-foreground"
+            >
+              ?
+            </Button>
+          </div>
         </div>
         <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-muted-foreground">
           <span>{pr.author || "unknown"}</span>

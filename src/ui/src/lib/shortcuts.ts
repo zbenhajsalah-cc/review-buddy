@@ -84,6 +84,13 @@ export const SHORTCUTS = {
     group: "Review",
     surfaces: ["overview"],
   },
+  COPY_MARKDOWN: {
+    keys: ["c"],
+    label: "c",
+    description: "Copy current view as Markdown",
+    group: "General",
+    surfaces: ["overview", "chapter"],
+  },
 } as const satisfies Record<string, Shortcut>;
 
 export type ShortcutId = keyof typeof SHORTCUTS;

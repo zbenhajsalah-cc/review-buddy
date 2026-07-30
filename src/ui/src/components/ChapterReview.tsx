@@ -4,9 +4,11 @@ import { cn } from "@/lib/utils";
 import type { ResolvedChapter, ResolvedReview } from "../../../types/review.ts";
 import { fetchConfig, postDone } from "../api.ts";
 import { clearReviewFileState, useCollapsedFiles, useViewedFiles } from "../lib/chapterFileSet.ts";
+import { chapterToMarkdown } from "../lib/reviewMarkdown.ts";
 import { useChapterShortcuts } from "../lib/useChapterShortcuts.ts";
 import { useFileFocus } from "../lib/useFileFocus.ts";
 import { useDisplaySettings } from "../settings.ts";
+import { CopyMarkdownButton, type CopyMarkdownHandle } from "./CopyMarkdownButton.tsx";
 import { DiffStat } from "./DiffStat.tsx";
 import { DisplaySettingsBar } from "./DisplaySettingsBar.tsx";
 import { FileDiffCard } from "./FileDiffCard.tsx";
@@ -76,6 +78,7 @@ function ChapterReviewBody({
   const [requesting, setRequesting] = useState(false); // textarea open
   const [summary, setSummary] = useState("");
   const diffScrollRef = useRef<HTMLDivElement>(null);
+  const copyRef = useRef<CopyMarkdownHandle>(null);
 
   const files = filter
     ? chapter.files.filter((f) => f.path.toLowerCase().includes(filter.toLowerCase()))
@@ -111,9 +114,9 @@ function ChapterReviewBody({
   };
 
   useChapterShortcuts({
-    hasChapter: !submitted,
     shortcutsActive,
     onShowShortcuts: () => setShortcutsOpen(true),
+    onCopyMarkdown: () => copyRef.current?.copy(),
     hasNext: !!next,
     hasPrev: !!prev,
     onNextChapter: () => onNavigate(position + 1),
@@ -187,6 +190,14 @@ function ChapterReviewBody({
         </div>
         <div className="flex flex-col items-end gap-1">
           <div className="flex items-center gap-2">
+            <CopyMarkdownButton
+              ref={copyRef}
+              text={() => chapterToMarkdown(chapter)}
+              aria-label="Copy chapter as Markdown"
+              title="Copy chapter as Markdown (c)"
+              label="copy"
+              variant="ghost"
+            />
             <Button
               variant="ghost"
               size="icon-sm"

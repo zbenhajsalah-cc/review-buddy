@@ -102,3 +102,21 @@ test("shortcuts dialog on overview does not list Next file", () => {
   expect(screen.getByText("Keyboard shortcuts")).toBeTruthy();
   expect(screen.queryByText("Next file")).toBeNull();
 });
+
+test("clicking copy control writes the full review as Markdown", async () => {
+  const writeText = mock(() => Promise.resolve());
+  Object.defineProperty(navigator, "clipboard", {
+    configurable: true,
+    value: { writeText },
+  });
+
+  const { reviewToMarkdown } = await import("../lib/reviewMarkdown.ts");
+  render(<Overview review={fakeResolvedReview} onBeginReview={() => {}} />);
+
+  await act(async () => {
+    fireEvent.click(screen.getByRole("button", { name: "Copy review as Markdown" }));
+  });
+
+  expect(writeText).toHaveBeenCalledTimes(1);
+  expect(writeText).toHaveBeenCalledWith(reviewToMarkdown(fakeResolvedReview));
+});
