@@ -6,7 +6,7 @@ mock.module("../session.ts", () => ({
   getReviewToken: () => "testtoken",
 }));
 
-const { useViewedFiles, useCollapsedFiles, clearReviewFileState } = await import(
+const { useViewedFiles, useCollapsedFiles, readViewedEntries, clearReviewFileState } = await import(
   "./chapterFileSet.ts"
 );
 
@@ -87,4 +87,13 @@ test("clearReviewFileState removes both storage keys", () => {
   clearReviewFileState();
   expect(localStorage.getItem(VIEWED_KEY)).toBeNull();
   expect(localStorage.getItem(COLLAPSED_KEY)).toBeNull();
+});
+
+test("readViewedEntries returns what useViewedFiles wrote", () => {
+  render(<FlagHarness chapterIndex={1} flag="viewed" />);
+  fireEvent.click(screen.getByText("set-a-true"));
+  expect(JSON.parse(localStorage.getItem(VIEWED_KEY) ?? "[]")).toEqual(["1:a.ts"]);
+
+  cleanup();
+  expect(readViewedEntries()).toEqual(["1:a.ts"]);
 });

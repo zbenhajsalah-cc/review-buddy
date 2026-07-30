@@ -30,6 +30,10 @@ export function App() {
     );
   }
 
+  // Overview and ChapterReview are mutually exclusive branches, so returning
+  // from a chapter always remounts Overview. That remount is what makes
+  // Overview's mount-time readViewedEntries() snapshot sufficient — no live
+  // subscription. See readViewedEntries in chapterFileSet.ts.
   if (view.mode === "chapter") {
     return (
       <ChapterReview

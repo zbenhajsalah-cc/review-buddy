@@ -1,8 +1,10 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import type { ResolvedReview } from "../../../types/review.ts";
+import { readViewedEntries } from "../lib/chapterFileSet.ts";
+import { chapterPathSet } from "../lib/chapterPathSet.ts";
 import { DiffStat } from "./DiffStat.tsx";
 import { Markdown } from "./Markdown.tsx";
 import { RiskBadge } from "./RiskBadge.tsx";
@@ -19,6 +21,22 @@ export function Overview({
   const [tab, setTab] = useState<Tab>("prologue");
   const { pr, meta, prologue, stats, chapters, warnings } = review;
   const [warningsOpen, setWarningsOpen] = useState(warnings.length <= 3);
+  const [viewedEntries] = useState(readViewedEntries);
+
+  const chapterProgress = useMemo(
+    () =>
+      chapters.map((ch) => {
+        // Intersect with chapter files so stale entries for removed paths don't inflate the count.
+        const viewed = chapterPathSet(viewedEntries, ch.index);
+        const viewedCount = ch.files.filter((f) => viewed.has(f.path)).length;
+        return {
+          viewedCount,
+          complete: ch.fileCount > 0 && viewedCount === ch.fileCount,
+        };
+      }),
+    [chapters, viewedEntries],
+  );
+  const completedCount = chapterProgress.filter((p) => p.complete).length;
 
   return (
     <div className="mx-auto max-w-3xl px-6 py-10">
@@ -127,36 +145,66 @@ export function Overview({
       {/* Chapter list */}
       <h2 className="mt-10 mb-3 text-sm font-semibold uppercase tracking-wide text-muted-foreground">
         {chapters.length} chapter{chapters.length === 1 ? "" : "s"}
+        {completedCount > 0 && ` · ${completedCount} of ${chapters.length} complete`}
       </h2>
       <ol className="space-y-2.5">
-        {chapters.map((ch, i) => (
-          <li key={ch.index}>
-            <button
-              type="button"
-              onClick={() => onBeginReview(i)}
-              className="w-full rounded-xl border border-border bg-card p-4 text-left transition hover:shadow-sm"
-            >
-              <div className="flex items-center justify-between gap-3">
-                <div className="flex items-center gap-2.5">
-                  <span className="font-mono text-xs text-muted-foreground">
-                    {String(ch.index).padStart(2, "0")}
-                  </span>
-                  <RiskBadge risk={ch.risk} />
-                  <span className="font-medium">{ch.title}</span>
+        {chapters.map((ch, i) => {
+          const { viewedCount, complete } = chapterProgress[i] ?? {
+            viewedCount: 0,
+            complete: false,
+          };
+          return (
+            <li key={ch.index}>
+              <button
+                type="button"
+                onClick={() => onBeginReview(i)}
+                className="w-full rounded-xl border border-border bg-card p-4 text-left transition hover:shadow-sm"
+              >
+                <div className="flex items-center justify-between gap-3">
+                  <div className="flex items-center gap-2.5">
+                    <span className="font-mono text-xs text-muted-foreground">
+                      {String(ch.index).padStart(2, "0")}
+                    </span>
+                    <RiskBadge risk={ch.risk} />
+                    {complete && <span aria-hidden>✓</span>}
+                    <span className={cn("font-medium", complete && "text-muted-foreground")}>
+                      {ch.title}
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-3 whitespace-nowrap">
+                    <DiffStat additions={ch.additions} deletions={ch.deletions} />
+                    <span className="text-xs text-muted-foreground">
+                      {ch.fileCount} file{ch.fileCount === 1 ? "" : "s"}
+                    </span>
+                    {viewedCount > 0 && ch.fileCount > 0 && (
+                      <span className="text-xs text-muted-foreground">
+                        {viewedCount}/{ch.fileCount} viewed
+                      </span>
+                    )}
+                  </div>
                 </div>
-                <div className="flex items-center gap-3 whitespace-nowrap">
-                  <DiffStat additions={ch.additions} deletions={ch.deletions} />
-                  <span className="text-xs text-muted-foreground">
-                    {ch.fileCount} file{ch.fileCount === 1 ? "" : "s"}
-                  </span>
-                </div>
-              </div>
-              <p className="mt-2 line-clamp-2 text-sm text-muted-foreground">
-                <Markdown value={ch.description} variant="inline" className="inline" />
-              </p>
-            </button>
-          </li>
-        ))}
+                <p className="mt-2 line-clamp-2 text-sm text-muted-foreground">
+                  <Markdown value={ch.description} variant="inline" className="inline" />
+                </p>
+                {viewedCount > 0 && ch.fileCount > 0 && (
+                  <div
+                    role="progressbar"
+                    aria-valuemin={0}
+                    aria-valuemax={ch.fileCount}
+                    aria-valuenow={viewedCount}
+                    aria-label={`${ch.title}: ${viewedCount} of ${ch.fileCount} files viewed`}
+                    className="mt-3 h-0.5 w-full overflow-hidden rounded-full bg-muted"
+                  >
+                    <div
+                      className="h-full rounded-full bg-primary"
+                      style={{ width: `${(viewedCount / ch.fileCount) * 100}%` }}
+                    />
+                  </div>
+                )}
+              </button>
+            </li>
+          );
+        })}
       </ol>
 
       <Button
