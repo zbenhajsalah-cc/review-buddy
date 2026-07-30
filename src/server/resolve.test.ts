@@ -298,7 +298,10 @@ index 5555555..6666666 100644
     expect(sport).toBeDefined();
     expect(sport!.hunks).toHaveLength(2);
 
-    expect(warnings.some((w) => w.includes("none of the anchors"))).toBe(true);
+    expect(warnings).toContain(
+      'Chapter 1: none of the anchors for "src/dashboard/useSport.ts" matched — ' +
+        'its changes will appear under "Unsorted changes".',
+    );
   });
 
   test("binary file carry-through => binary flag, no Unsorted duplicate", () => {
@@ -536,5 +539,44 @@ index 1111111..2222222 100644
     };
     const { warnings } = resolveReview(agent, LOCKFILE_DIFF, META, PR);
     expect(warnings).toEqual([]);
+  });
+
+  test("all anchors miss on a noise file => warning names Generated & noise files", () => {
+    const agent: AgentReview = {
+      prologue: AGENT.prologue,
+      chapters: [
+        {
+          index: 1,
+          title: "Missed lockfile anchors",
+          risk: "Low",
+          risk_reason: "test",
+          description: "anchors do not match a noise file",
+          files: [
+            {
+              path: "package-lock.json",
+              change_type: "modified",
+              hunks: [{ old_start: 999, new_start: 999 }],
+            },
+          ],
+        },
+      ],
+    };
+    const { review, warnings } = resolveReview(agent, LOCKFILE_DIFF, META, PR);
+
+    const ch1 = review.chapters.find((c) => c.index === 1);
+    expect(ch1).toBeDefined();
+    expect(ch1!.fileCount).toBe(0);
+
+    const noise = review.chapters.find((c) => c.title === "Generated & noise files");
+    expect(noise).toBeDefined();
+    expect(noise!.files.map((f) => f.path)).toEqual(["package-lock.json"]);
+    expect(noise!.files[0]!.hunks).toHaveLength(1);
+
+    expect(review.chapters.find((c) => c.title === "Unsorted changes")).toBeUndefined();
+
+    expect(warnings).toContain(
+      'Chapter 1: none of the anchors for "package-lock.json" matched — ' +
+        'its changes will appear under "Generated & noise files".',
+    );
   });
 });

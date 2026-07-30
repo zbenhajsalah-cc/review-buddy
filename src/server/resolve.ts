@@ -178,11 +178,12 @@ export function resolveReview(
 
       const anchored = !!af.hunks && af.hunks.length > 0;
       if (anchored && claimed.length === 0) {
+        const bucket = isNoiseFile(parsed.path) ? NOISE_TITLE : UNSORTED_TITLE;
         warnings.push(
           `Chapter ${ch.index}: none of the anchors for "${af.path}" matched — ` +
-            `its changes will appear under "Unsorted changes".`,
+            `its changes will appear under "${bucket}".`,
         );
-        continue; // no empty entry; unclaimed hunks fall through to Unsorted
+        continue; // no empty entry; unclaimed hunks fall through to Unsorted / noise
       }
       referenced.add(parsed);
 
