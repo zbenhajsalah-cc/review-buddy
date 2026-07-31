@@ -1,6 +1,6 @@
 {
   "name": "review-buddy",
-  "version": "0.3.1",
+  "version": "0.4.0",
   "description": "AI-assisted narrative code review for Claude Code — an agent reads your PR, writes a Prologue, and segments it into risk-rated Chapters you walk through in the browser.",
   "author": { "name": "Zied Ben Haj Salah" },
   "mcpServers": {

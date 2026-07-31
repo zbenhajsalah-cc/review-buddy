@@ -1,6 +1,6 @@
 {
   "name": "review-buddy",
-  "version": "0.3.1",
+  "version": "0.4.0",
   "private": true,
   "description": "AI-assisted narrative code review for Claude Code — Prologue + risk-rated Chapters over a real git diff.",
   "type": "module",
