@@ -171,3 +171,55 @@ test("? opens the shortcuts dialog", () => {
   });
   expect(screen.getByText("Keyboard shortcuts")).toBeTruthy();
 });
+
+test("pressing c copies the current chapter as Markdown", async () => {
+  const writeText = mock(() => Promise.resolve());
+  Object.defineProperty(navigator, "clipboard", {
+    configurable: true,
+    value: { writeText },
+  });
+
+  const { chapterToMarkdown } = await import("../lib/reviewMarkdown.ts");
+  const chapter = fakeResolvedReview.chapters[1];
+  if (!chapter) throw new Error("expected chapter at position 1");
+
+  render(
+    <ChapterReview
+      review={fakeResolvedReview}
+      position={1}
+      onNavigate={() => {}}
+      onExit={() => {}}
+    />,
+  );
+
+  await act(async () => {
+    fireEvent.keyDown(document, { key: "c" });
+  });
+
+  expect(writeText).toHaveBeenCalledTimes(1);
+  expect(writeText).toHaveBeenCalledWith(chapterToMarkdown(chapter));
+});
+
+test("typing c inside the filter input does not copy", async () => {
+  const writeText = mock(() => Promise.resolve());
+  Object.defineProperty(navigator, "clipboard", {
+    configurable: true,
+    value: { writeText },
+  });
+
+  render(
+    <ChapterReview
+      review={fakeResolvedReview}
+      position={1}
+      onNavigate={() => {}}
+      onExit={() => {}}
+    />,
+  );
+
+  const filter = screen.getByPlaceholderText("Filter files…");
+  act(() => {
+    fireEvent.keyDown(filter, { key: "c" });
+  });
+
+  expect(writeText).toHaveBeenCalledTimes(0);
+});

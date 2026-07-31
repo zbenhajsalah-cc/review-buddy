@@ -173,3 +173,31 @@ test("blocking: a newer submit supersedes the pending review and unblocks its aw
   const alive = await fetch(`http://127.0.0.1:${m2[1]}/api/review?token=${m2[2]}`);
   expect(alive.status).toBe(200);
 });
+
+test("detached: resolution warnings are appended to the tool result text", async () => {
+  const agent = sampleReview({
+    cwd: dir,
+    chapters: [
+      {
+        index: 1,
+        title: "Ghost file",
+        risk: "Low",
+        risk_reason: "tiny",
+        description: "points at a missing path",
+        files: [{ path: "missing.ts", change_type: "modified" }],
+      },
+    ],
+  });
+  const res = await handleStandaloneSubmit(agent, "detached");
+  expect(res.isError).toBeUndefined();
+  const text = res.content[0]!.text;
+  expect(text).toContain("resolution note");
+  expect(text).toContain('file "missing.ts" not found in the diff');
+  expect(text).toContain("old_start");
+});
+
+test("detached: clean review has no resolution-notes block in the tool result", async () => {
+  const res = await handleStandaloneSubmit(review(dir), "detached");
+  expect(res.isError).toBeUndefined();
+  expect(res.content[0]!.text).not.toContain("resolution note");
+});

@@ -6,9 +6,9 @@ import { useShortcuts } from "./shortcuts.ts";
  * domain state and DOM scrolling; this hook only wires catalog ids to handlers.
  */
 export function useChapterShortcuts({
-  hasChapter,
   shortcutsActive,
   onShowShortcuts,
+  onCopyMarkdown,
   hasNext,
   hasPrev,
   onNextChapter,
@@ -24,9 +24,9 @@ export function useChapterShortcuts({
   isViewed,
   onViewedChange,
 }: {
-  hasChapter: boolean;
   shortcutsActive: boolean;
   onShowShortcuts: () => void;
+  onCopyMarkdown: () => void;
   hasNext: boolean;
   hasPrev: boolean;
   onNextChapter: () => void;
@@ -46,7 +46,11 @@ export function useChapterShortcuts({
   useShortcuts({
     SHOW_SHORTCUTS: {
       handler: onShowShortcuts,
-      enabled: hasChapter,
+      enabled: shortcutsActive,
+    },
+    COPY_MARKDOWN: {
+      handler: onCopyMarkdown,
+      enabled: shortcutsActive,
     },
     NEXT_CHAPTER: {
       handler: () => {
