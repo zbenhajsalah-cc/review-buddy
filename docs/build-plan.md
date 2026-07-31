@@ -62,6 +62,16 @@ to `src/server/session.ts` (shared with the hook); agent schema gained optional
 `cwd`; per-harness configs + ported prompts in `integrations/` (Cursor, VS Code
 Copilot, Codex); setup guide in `docs/HARNESSES.md`.
 
+**Viewer & feedback polish ✅ shipped** (post-Phase 1, v0.4.0): noise/generated files
+resolved into their own "Generated & noise files" chapter (`src/server/noise.ts`) instead
+of diluting the narrative; per-chapter review progress on the overview; a keyboard layer
+(`src/ui/src/lib/shortcuts.ts` — catalog + one document listener, `?` cheatsheet dialog);
+copy-as-Markdown for the whole review or one chapter (`src/ui/src/lib/reviewMarkdown.ts`,
+narrative + inventory only, never hunk bytes); and the **agent feedback loop** —
+`resolutionNotesMessage` in `src/server/session.ts` hands the resolver's warnings back
+through the hook's `hookSpecificOutput.additionalContext` (Claude Code) or the tool-result
+text (standalone), capped so it can't flood the agent's context.
+
 ## Phase 2 — Progress & round-trip
 
 - Persist viewed state (files/chapters) → `POST /api/file-viewed`; reflect in

@@ -77,6 +77,14 @@ review-buddy/
 
 Prologue + Description overview, chapter list, chapter review split-pane, and the diff viewer (unified/split, display settings, collapse "N unmodified lines", word-level granularity), with per-file controls (collapse / copy name / **expand full file** / mark viewed locally). "Expand full file" wires `/api/file-content` into the viewer via `@pierre/diffs`' full-file render path (`parseDiffFromFile` → `<FileDiff expandUnchanged>`); see `docs/DESIGN-expand-full-file.md`. Still open: "N unmodified lines" expanders *between* hunks, and rename base-side expansion (needs an endpoint allowlist change).
 
+Since then (still Phase 1): generated/noise files are set aside in their own chapter
+rather than diluting the narrative; the overview shows per-chapter review progress; the
+viewer is keyboard-driven (`?` opens the cheatsheet) and `c` copies the review or the
+current chapter as Markdown (narrative + file inventory only — the reference-not-reproduce
+rule applies to the clipboard too); and **resolution notes now travel back to the agent**
+(hook `additionalContext` on Claude Code, tool-result text standalone) so a review whose
+anchors missed can be corrected next time.
+
 **Deferred to later phases** (per PRD): viewed-state persistence round-trip, verdict submission, GitHub collaboration (open PR, copy branch, reviewers, CI), Activity view, Chat, conversational AI assistant.
 
 ## Reference implementation
