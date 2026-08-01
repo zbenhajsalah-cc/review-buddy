@@ -13,7 +13,7 @@
  * server stderr is the only stream that doesn't corrupt the stdio protocol.
  */
 import { existsSync } from "node:fs";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import type { AgentReview, ReviewMeta } from "../types/review.ts";
 import { openBrowser } from "./browser.ts";
 import {
@@ -28,11 +28,21 @@ import {
 import { type RunningServer, startServer } from "./http.ts";
 import { resolveReview } from "./resolve.ts";
 
-const repoRoot = join(import.meta.dir, "..", "..");
-
+/**
+ * Locate the prebuilt viewer by walking up from this module. One rule covers
+ * every layout it ships in: TS source (`src/server/` → 2 up), the bundled
+ * entry (`dist/` → 1 up), and the npm tarball (`dist/` inside the package).
+ */
 function uiDir(): string | undefined {
-  const dir = join(repoRoot, "src", "ui", "dist");
-  return existsSync(join(dir, "index.html")) ? dir : undefined;
+  let dir = import.meta.dirname;
+  for (let i = 0; i < 4; i++) {
+    const candidate = join(dir, "src", "ui", "dist");
+    if (existsSync(join(candidate, "index.html"))) return candidate;
+    const parent = dirname(dir);
+    if (parent === dir) break;
+    dir = parent;
+  }
+  return undefined;
 }
 
 function buildMeta(): ReviewMeta {
@@ -111,7 +121,7 @@ export async function openReviewSession(
     console.error("[review-buddy] PR head not fetchable — full-file expansion disabled.");
   }
 
-  const server = startServer({
+  const server = await startServer({
     review,
     cwd,
     baseRef: base,

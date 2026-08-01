@@ -3,3 +3,6 @@
 # signals to reviewers: verify the CI freshness check passed, do NOT review the
 # artifact bytes line-by-line. Rebuilt deterministically by CI + release.sh.
 src/ui/dist/** linguist-generated=true -diff
+
+# Same for the bundled backend entry (esbuild output of src/, ~1 MB).
+dist/** linguist-generated=true -diff

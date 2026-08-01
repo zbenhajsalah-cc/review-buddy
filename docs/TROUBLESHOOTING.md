@@ -47,35 +47,52 @@ locked by another process. It is usually **transient**.
 5. **Run the terminal as Administrator** and reinstall — last resort if a
    permission (not a lock) is the real cause.
 
-### MCP server "failed to connect", or the hook doesn't fire (`bun: command not found`)
+### MCP server "failed to connect", or the hook doesn't fire (`node: command not found`)
 
-The MCP server and the `PreToolUse` hook both run on **Bun** (see
-`.claude-plugin/plugin.json` and `hooks/hooks.json`). Node is not a substitute —
-the code uses Bun-specific APIs. Claude Code launches the MCP server with
-`command: "bun"`, so if `bun` isn't resolvable on the `PATH` of the process that
-started Claude Code, the server never comes up and shows as failed to connect.
+The MCP server and the `PreToolUse` hook both run the committed bundle
+`dist/cli.mjs` on **Node ≥ 20.11** (see `.claude-plugin/plugin.json` and
+`hooks/hooks.json`). Claude Code launches them with `command: "node"`, so if
+`node` isn't resolvable on the `PATH` of the process that started Claude Code,
+the server never comes up and shows as failed to connect.
 
-**Most common cause — Bun was just installed and the `PATH` is stale.** The Bun
-installer adds `bun` to your user `PATH`, but a process that's already running
-keeps the `PATH` it started with. Claude Code (and every child it spawns) inherits
-that stale `PATH`, so it can't find `bun` — even though a *new* terminal can.
+**Most common cause — a stale `PATH`.** A version manager (nvm, fnm, volta,
+asdf) puts `node` on the `PATH` of *new* shells only; a process that's already
+running keeps the `PATH` it started with. Claude Code — and every child it
+spawns — inherits that stale `PATH`, so it can't find `node` even though a new
+terminal can.
 
 **Fix:**
 
 1. **Fully quit Claude Code and close the terminal it was launched from.**
    Reloading plugins inside the old session is not enough — the stale `PATH` is
    already baked into the running process.
-2. Open a **brand-new** terminal and confirm Bun resolves:
+2. Open a **brand-new** terminal and confirm Node resolves at a supported
+   version:
    ```
-   bun --version
+   node --version
    ```
-   If that prints a version, start Claude Code from this fresh terminal and the
-   MCP server will connect.
-3. If `bun` is still "not recognized" in a new terminal, the installer's `PATH`
-   change hasn't propagated — sign out/in of Windows (or reboot), then retry.
-4. Make sure Bun is actually installed (≥ 1.3): the
-   [Windows installer](https://bun.sh), or `curl -fsSL https://bun.sh/install | bash`
-   on macOS/Linux.
+   If that prints `v20.11` or newer, start Claude Code from this fresh terminal
+   and the MCP server will connect.
+3. GUI-launched apps (Dock, Start menu) often don't see a version manager's
+   `PATH` at all. Either launch Claude Code from a terminal, or install a
+   system-wide Node (the [nodejs.org](https://nodejs.org) installer, `brew
+   install node`, or your distro's package) so `/usr/local/bin/node` exists for
+   every process.
+4. On Node older than 20.11 the server starts and then fails on
+   `import.meta.dirname` — upgrade rather than pinning back.
+
+### `npx review-buddy` can't reach the network (Cursor / Copilot / Codex)
+
+`npx -y review-buddy@latest` downloads the package on first use and caches it.
+In an offline or proxied environment that first launch fails. Install it once
+while you have network access:
+
+```bash
+npm install -g review-buddy
+```
+
+then change the MCP config's `command` to `review-buddy` with
+`args: ["mcp", "--standalone"]` — no network needed at launch.
 
 ---
 

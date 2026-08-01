@@ -56,7 +56,7 @@ beforeAll(async () => {
   };
   const pr: PrMetadata = capturePr(dir, base);
   const { review } = resolveReview(agent, await captureDiff(dir, base), META, pr);
-  server = startServer({ review, cwd: dir, baseRef: base });
+  server = await startServer({ review, cwd: dir, baseRef: base });
 });
 
 afterAll(() => {
@@ -102,7 +102,7 @@ describe("HTTP server", () => {
     };
     const pr = capturePr(dir, base);
     const { review } = resolveReview(agent, await captureDiff(dir, base), META, pr);
-    const s = startServer({ review, cwd: dir, baseRef: base, roundtrip: true });
+    const s = await startServer({ review, cwd: dir, baseRef: base, roundtrip: true });
     try {
       const res = await fetch(`http://127.0.0.1:${s.port}/api/config`, {
         headers: { "x-review-buddy-token": s.token },
@@ -157,7 +157,7 @@ describe("HTTP server", () => {
     };
     const pr: PrMetadata = capturePr(dir, base);
     const { review } = resolveReview(agent, await captureDiff(dir, base), META, pr);
-    const s = startServer({ review, cwd: dir, baseRef: base, headRef: null });
+    const s = await startServer({ review, cwd: dir, baseRef: base, headRef: null });
     try {
       const res = await fetch(`http://127.0.0.1:${s.port}/api/file-content?path=app.ts&side=head`, {
         headers: { "x-review-buddy-token": s.token },
@@ -252,7 +252,7 @@ describe("HTTP server", () => {
     };
     const pr: PrMetadata = capturePr(dir, base);
     const { review } = resolveReview(agent, await captureDiff(dir, base), META, pr);
-    const s = startServer({ review, cwd: dir, baseRef: base });
+    const s = await startServer({ review, cwd: dir, baseRef: base });
     try {
       // fetch overwrites Content-Length from the real body — curl can forge it.
       const proc = Bun.spawn([
@@ -306,7 +306,7 @@ describe("HTTP server", () => {
     };
     const pr: PrMetadata = capturePr(dir, base);
     const { review } = resolveReview(agent, await captureDiff(dir, base), META, pr);
-    return startServer({ review, cwd: dir, baseRef: base, uiDir });
+    return await startServer({ review, cwd: dir, baseRef: base, uiDir });
   }
 
   test("serves index and assets from uiDir", async () => {
@@ -412,7 +412,7 @@ describe("HTTP server", () => {
     };
     const pr: PrMetadata = capturePr(dir, base);
     const { review } = resolveReview(agent, await captureDiff(dir, base), META, pr);
-    const s = startServer({ review, cwd: dir, baseRef: base, uiDir });
+    const s = await startServer({ review, cwd: dir, baseRef: base, uiDir });
     try {
       const proc = Bun.spawn([
         "curl",

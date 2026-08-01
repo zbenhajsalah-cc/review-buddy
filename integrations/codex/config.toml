@@ -1,14 +1,16 @@
 # Merge into ~/.codex/config.toml (or .codex/config.toml in a trusted project).
-# Replace /ABSOLUTE/PATH/TO with where you cloned review-buddy.
+# No clone and no absolute paths — npx fetches the published package, and
+# Node >= 20.11 is the only prerequisite. Swap @latest for a pinned version
+# (e.g. review-buddy@0.4.0) if you want reproducible startups.
 
 [mcp_servers.review-buddy]
-command = "bun"
-args = ["run", "/ABSOLUTE/PATH/TO/review-buddy/src/mcp/server.ts", "--standalone"]
+command = "npx"
+args = ["-y", "review-buddy@latest", "mcp", "--standalone"]
 
 # Optional: blocking mode — submit_review holds the turn until the reviewer
 # clicks Done and returns their verdict (approve / request changes) to the
 # agent. Codex is the only harness whose per-tool-call timeout is configurable,
 # which is what makes this possible. Swap the args line above for:
 #
-# args = ["run", "/ABSOLUTE/PATH/TO/review-buddy/src/mcp/server.ts", "--standalone=blocking"]
+# args = ["-y", "review-buddy@latest", "mcp", "--standalone=blocking"]
 # tool_timeout_sec = 86400

@@ -17,6 +17,8 @@
 # - pushes develop, main, and the tag to origin in one atomic push
 # - creates a GitHub Release for the tag with auto-generated notes (if gh is
 #   installed and authenticated; skipped with --no-github or when unavailable)
+# - publishes the package to npm — the install path for Cursor / VS Code Copilot
+#   / Codex (skipped with --no-npm or when npm isn't authenticated)
 #
 # Release model:
 # This repo is linear — work lands on develop and main trails as a
@@ -50,6 +52,7 @@ trap 'echo ""; echo -e "  ${RED}✘ Command failed at line $LINENO: $BASH_COMMAN
 DRY_RUN=false
 SKIP_CONFIRM=false
 USE_GITHUB=true
+USE_NPM=true
 
 # Resolve the repo root from the script location so it works from anywhere.
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -110,6 +113,7 @@ show_usage() {
   echo "  -n, --dry-run    Print the release steps without changing anything"
   echo "  -y, --yes        Skip the confirmation prompt"
   echo "      --no-github  Push the tag only; do not create a GitHub Release"
+  echo "      --no-npm     Skip publishing the package to npm"
   echo "  -h, --help       Show this help message"
   echo ""
   echo "This script will:"
@@ -119,6 +123,7 @@ show_usage() {
   echo "  4. Fast-forward main to the release commit and tag it v<version>"
   echo "  5. Push develop, main, and the tag to origin"
   echo "  6. Create a GitHub Release for the tag with auto-generated notes"
+  echo "  7. Publish the package to npm (the install path for Cursor/Copilot/Codex)"
 }
 
 require_command() {
@@ -133,6 +138,11 @@ require_command() {
 # gh resolves the repo from the origin remote itself, so we only gate on auth.
 github_available() {
   command -v gh >/dev/null 2>&1 && gh auth status >/dev/null 2>&1
+}
+
+# True when the package can be published: npm is installed and authenticated.
+npm_available() {
+  command -v npm >/dev/null 2>&1 && npm whoami >/dev/null 2>&1
 }
 
 # ---------------------------------------------------------------------------
@@ -192,6 +202,7 @@ main() {
       -n|--dry-run) DRY_RUN=true ;;
       -y|--yes) SKIP_CONFIRM=true ;;
       --no-github) USE_GITHUB=false ;;
+      --no-npm) USE_NPM=false ;;
       -h|--help) show_usage; exit 0 ;;
       --)
         shift
@@ -323,6 +334,13 @@ main() {
     else
       step "Skip GitHub Release (gh not installed or not authenticated)"
     fi
+    if [ "$USE_NPM" = false ]; then
+      step "Skip npm publish (--no-npm)"
+    elif npm_available; then
+      step "Publish review-buddy@${version} to npm"
+    else
+      step "Skip npm publish (npm not installed or not logged in)"
+    fi
   else
     # Rebuild the committed viewer so every release ships current bytes. The
     # build is deterministic (content-hashed chunks), so this is a no-op stage
@@ -332,6 +350,11 @@ main() {
     require_command bun
     (cd "$REPO_ROOT/src/ui" && bun install --frozen-lockfile) && bun run build:ui
     step "Rebuild the committed viewer (src/ui/dist)"
+
+    # Same contract for the backend bundle: dist/cli.mjs is what the plugin and
+    # the npm package actually execute, so a release must ship current bytes.
+    bun run build:dist
+    step "Rebuild the committed bundle (dist/cli.mjs)"
 
     for f in "${VERSION_FILES[@]}"; do
       write_version_to "$f" "$version"
@@ -344,7 +367,7 @@ main() {
     done
     step "Verify every version file agrees"
 
-    git add "${VERSION_FILES[@]}" src/ui/dist
+    git add "${VERSION_FILES[@]}" src/ui/dist dist
     if git diff --cached --quiet; then
       log_error "No staged changes — files may already be at $version"
       exit 1
@@ -373,6 +396,21 @@ main() {
     else
       echo -e "  ${YELLOW}⚠ GitHub Release not created — run: gh release create ${tag_name} --generate-notes${NC}"
     fi
+
+    # npm is the install path for Cursor / VS Code Copilot / Codex (their MCP
+    # configs run `npx -y review-buddy@latest`), so a release that skips this
+    # ships the plugin but leaves every other harness on the previous version.
+    # Best-effort like the GitHub Release: the git tag is already pushed.
+    if [ "$USE_NPM" = false ]; then
+      echo -e "  ${YELLOW}○ Skipped npm publish (--no-npm)${NC}"
+    elif ! npm_available; then
+      echo -e "  ${YELLOW}○ Skipped npm publish — npm not installed or not logged in (npm login)${NC}"
+    elif npm publish --access public >/dev/null 2>&1; then
+      step "Publish review-buddy@${version} to npm"
+      npm_published=true
+    else
+      echo -e "  ${YELLOW}⚠ npm publish failed — run: npm publish --access public${NC}"
+    fi
   fi
 
   # -- Summary --------------------------------------------------------------
@@ -393,6 +431,9 @@ main() {
     echo -e "  Tag: ${tag_name}"
     if [ -n "${release_url:-}" ]; then
       echo -e "  GitHub Release: ${release_url}"
+    fi
+    if [ "${npm_published:-false}" = true ]; then
+      echo -e "  npm: https://www.npmjs.com/package/review-buddy/v/${version}"
     fi
     echo -e "  ${YELLOW}Note:${NC} the README status line is prose — update it by hand if this release changes what's shipped."
   fi

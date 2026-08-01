@@ -16,6 +16,7 @@ import { join, resolve, sep } from "node:path";
 import type { ResolvedReview } from "../types/review.ts";
 import { languageOf } from "./diff.ts";
 import { fileContent } from "./git.ts";
+import { fileResponse, serveFetch } from "./node-http.ts";
 
 /** True iff `rel` resolves lexically inside `root` (blocks `..` only; does not dereference symlinks — link escape is guarded at read time in fileContent). */
 function isInside(root: string, rel: string): boolean {
@@ -105,7 +106,7 @@ const json = (data: unknown, status = 200) =>
     },
   });
 
-export function startServer(ctx: ServerContext): RunningServer {
+export async function startServer(ctx: ServerContext): Promise<RunningServer> {
   let resolveDone!: (r: DoneResult) => void;
   const done = new Promise<DoneResult>((res) => {
     resolveDone = res;
@@ -120,14 +121,8 @@ export function startServer(ctx: ServerContext): RunningServer {
 
   const token = crypto.randomUUID();
 
-  const server = Bun.serve({
-    port: 0,
+  const server = await serveFetch({
     hostname: "127.0.0.1", // loopback only — never exposed on the LAN
-    // Max keep-alive idle (seconds). The reviewer's browser reconnects per
-    // request, so this doesn't cap the (potentially multi-day) hook block; it
-    // just avoids tearing down connections mid-review. NOT 0 — in Bun, 0 closes
-    // idle connections immediately rather than disabling the timeout.
-    idleTimeout: 240,
     async fetch(req) {
       const url = new URL(req.url);
       const { pathname } = url;
@@ -194,10 +189,10 @@ export function startServer(ctx: ServerContext): RunningServer {
         // Reject traversal before touching the filesystem.
         const safe = !rel.split("/").includes("..") && isInside(ctx.uiDir, rel);
         const file = join(ctx.uiDir, rel);
-        if (safe && existsSync(file)) return withViewerHeaders(new Response(Bun.file(file)));
+        if (safe && existsSync(file)) return withViewerHeaders(fileResponse(file));
         // SPA fallback.
         const index = join(ctx.uiDir, "index.html");
-        if (existsSync(index)) return withViewerHeaders(new Response(Bun.file(index)));
+        if (existsSync(index)) return withViewerHeaders(fileResponse(index));
       }
 
       if (pathname === "/") {
@@ -216,7 +211,7 @@ export function startServer(ctx: ServerContext): RunningServer {
     },
   });
 
-  const port = server.port ?? 0; // assigned once listening
+  const { port } = server; // assigned once listening
   return {
     port,
     token,

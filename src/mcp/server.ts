@@ -19,20 +19,21 @@
  * (a user-configured .mcp.json server would use `mcp__review-buddy__submit_review`).
  * The PreToolUse hook matcher in hooks/hooks.json covers both forms.
  */
-import { readFileSync } from "node:fs";
-import { join } from "node:path";
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { CallToolRequestSchema, ListToolsRequestSchema } from "@modelcontextprotocol/sdk/types.js";
+// Imported, not read from disk: the bundled entry (dist/) sits at a different
+// depth than this source file, and inlining removes runtime path guessing.
+import pkg from "../../package.json" with { type: "json" };
+import reviewSchema from "../../schemas/review.schema.json" with { type: "json" };
 // Only the flag parser is imported eagerly — the standalone handler (and the
 // whole review-session stack behind it) loads lazily, so the default Claude
 // Code mode pays nothing for machinery only other harnesses use.
 import { standaloneMode } from "./mode.ts";
 
-// Load the JSON Schema as the single source of truth; strip JSON-Schema meta
+// The JSON Schema is the single source of truth; strip the JSON-Schema meta
 // keywords MCP inputSchema doesn't need.
-const schemaPath = join(import.meta.dir, "..", "..", "schemas", "review.schema.json");
-const { $schema, $id, title, ...inputSchema } = JSON.parse(readFileSync(schemaPath, "utf8"));
+const { $schema, $id, title, ...inputSchema } = reviewSchema as Record<string, unknown>;
 void $schema;
 void $id;
 void title;
@@ -57,9 +58,6 @@ const TOOL_DESCRIPTION = [
 
 // Version comes from package.json so release.sh's bump covers this too —
 // a hardcoded string here was the one version site the release script missed.
-const pkgPath = join(import.meta.dir, "..", "..", "package.json");
-const pkg = JSON.parse(readFileSync(pkgPath, "utf8")) as { version?: string };
-
 const server = new Server(
   { name: "review-buddy", version: pkg.version ?? "0.0.0" },
   { capabilities: { tools: {} } },

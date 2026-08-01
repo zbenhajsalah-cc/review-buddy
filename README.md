@@ -31,45 +31,27 @@ Review Buddy is a **Claude Code plugin**. It registers an MCP server (`review-bu
 ### Prerequisites
 
 - [Claude Code](https://docs.claude.com/en/docs/claude-code)
-- [Bun](https://bun.sh) ≥ 1.3 — the MCP server and hook run on it (`curl -fsSL https://bun.sh/install | bash`)
+- [Node.js](https://nodejs.org) ≥ 20.11 — the MCP server and hook run on it
 - `git` — reviews are built from your working-tree diff
 - *(optional)* [GitHub CLI](https://cli.github.com) (`gh`), authenticated — only needed to review a GitHub **PR** instead of the local diff
 
-### Install
-
-The viewer ships **prebuilt** in the repo, so there's no build step on either path.
-
-#### Quick install (from GitHub)
-
-Claude Code can add the marketplace directly from GitHub — it clones the repo into its local plugin cache for you. No manual `git clone` and no `bun install` needed.
+### Install (Claude Code)
 
 ```text
 /plugin marketplace add ziedhajsalah/review-buddy
 /plugin install review-buddy@review-buddy
 ```
 
-[Bun](https://bun.sh) is still required — the plugin's MCP server and hook run on it. The cached copy has no `node_modules`; Bun auto-installs the two runtime dependencies (`@modelcontextprotocol/sdk`, `zod`) on first launch, so that first launch needs network access and may take a few extra seconds.
+Claude Code clones the repo into its plugin cache for you. Both the viewer and the backend ship **prebuilt** (`src/ui/dist/` and `dist/cli.mjs`, the latter an esbuild bundle carrying its own dependencies), so there is no build step, no `node_modules`, and nothing fetched on first launch.
 
 Restart Claude Code (or reload plugins) if prompted, so the MCP server and hook load.
 
-#### Install from a local clone
-
-For development, or if you'll also use the standalone harnesses (Cursor / Copilot / Codex — see below), clone the repo and install deps yourself:
-
-```bash
-# 1. Clone and install the backend deps (for the MCP server + hook)
-git clone https://github.com/ziedhajsalah/review-buddy
-cd review-buddy
-bun install
-```
+Developing on Review Buddy itself? Point the marketplace at a clone instead:
 
 ```text
-# 2. In Claude Code, register and install the plugin (use the absolute path from step 1)
 /plugin marketplace add /absolute/path/to/review-buddy
 /plugin install review-buddy@review-buddy
 ```
-
-Restart Claude Code (or reload plugins) if prompted, so the MCP server and hook load.
 
 ### Use it
 
@@ -86,20 +68,35 @@ The agent tells the hook what it reviewed (working tree vs PR) so the hook captu
 
 ### Other harnesses (Cursor / VS Code Copilot / Codex)
 
-There's no plugin or hook outside Claude Code — instead you register the same MCP server with the `--standalone` flag, and `submit_review` itself captures the diff and opens the viewer. The **Install from a local clone** path above is the one you need. Copy the MCP config and review prompt for your harness from [`integrations/`](integrations) and follow the per-harness steps in [`docs/HARNESSES.md`](docs/HARNESSES.md).
+There's no plugin or hook outside Claude Code — instead you register the same MCP server with the `--standalone` flag, and `submit_review` itself captures the diff and opens the viewer. It's published to npm, so there is nothing to clone:
+
+```json
+{
+  "mcpServers": {
+    "review-buddy": {
+      "command": "npx",
+      "args": ["-y", "review-buddy@latest", "mcp", "--standalone"]
+    }
+  }
+}
+```
+
+That's the Cursor shape; Copilot and Codex want the same command in their own format. Copy the ready-made config **and** the review prompt for your harness from [`integrations/`](integrations), then follow the per-harness steps in [`docs/HARNESSES.md`](docs/HARNESSES.md).
+
+Prefer a global install? `npm install -g review-buddy`, then use `"command": "review-buddy"` with `"args": ["mcp", "--standalone"]`.
 
 ### Update / uninstall
 
 ```text
-/plugin marketplace update review-buddy    # viewer is prebuilt — no rebuild
+/plugin marketplace update review-buddy    # everything is prebuilt — no rebuild
 /plugin uninstall review-buddy@review-buddy
 ```
 
-GitHub-sourced installs refresh from GitHub directly. Path-sourced installs (local clone): `git pull` first.
+GitHub-sourced installs refresh from GitHub directly. Path-sourced installs (local clone): `git pull` first. On the npm path, `@latest` picks up new versions on the next `npx` cache miss; a global install updates with `npm update -g review-buddy`.
 
 ### Troubleshooting
 
-Hitting an install or runtime snag (e.g. a Windows `EPERM` on install, `bun: command not found`, the browser not opening)? See [`docs/TROUBLESHOOTING.md`](docs/TROUBLESHOOTING.md).
+Hitting an install or runtime snag (e.g. a Windows `EPERM` on install, `node: command not found`, the browser not opening)? See [`docs/TROUBLESHOOTING.md`](docs/TROUBLESHOOTING.md).
 
 ## Layout
 
@@ -118,7 +115,7 @@ integrations/        # Cursor / VS Code Copilot / Codex configs + review prompts
 
 ## Development
 
-Backend runs on [Bun](https://bun.sh); the viewer is a separate Vite package.
+Backend **ships** as a Node bundle (`dist/cli.mjs`, Node ≥ 20.11) but is **developed** on [Bun](https://bun.sh) — test runner, typecheck driver, and the esbuild build. Contributors need Bun; users don't. The viewer is a separate Vite package.
 
 `bun run verify` is the fast local loop (tests + both typechecks); `bun run verify:ci` is the exact gate CI runs on every pull request and on pushes to `main`/`develop` (it adds the UI production build). Run `bun run verify:ci` before opening a PR. Note that `verify` assumes deps are already installed in both packages (run the `bun install` steps first).
 
@@ -137,7 +134,7 @@ bun run build          # typecheck + production build (writes the committed src/
 
 Component stories live in `src/ui`. Run `cd src/ui && bun run storybook` for the dev catalog on port 6006, or `bun run build-storybook` for a static build.
 
-> **Contributors:** `src/ui/dist` is a **committed** prebuilt artifact (so installs need no build). If you change viewer source, rebuild (`cd src/ui && bun run build`) and commit the updated `src/ui/dist` in the same PR — CI fails otherwise. The build is deterministic and grammar chunks are content-hashed, so a typical UI change only rewrites the small core chunk. Reviewers verify the CI freshness check rather than reviewing the artifact bytes.
+> **Contributors:** `src/ui/dist` **and** `dist/cli.mjs` are **committed** prebuilt artifacts (so installs need no build). If you change backend source, rebuild (`bun run build:dist`) and commit `dist/` in the same PR; if you change viewer source, rebuild (`cd src/ui && bun run build`) and commit the updated `src/ui/dist` in the same PR — CI fails otherwise. The build is deterministic and grammar chunks are content-hashed, so a typical UI change only rewrites the small core chunk. Reviewers verify the CI freshness check rather than reviewing the artifact bytes.
 
 See `docs/build-plan.md` for the phased task breakdown and `docs/review-contract.md` for the agent vs UI/server contracts.
 

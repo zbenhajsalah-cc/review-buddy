@@ -15,3 +15,10 @@ storybook-static
 # chunk, not the ~300 syntax grammars. Treated as generated in .gitattributes.
 !src/ui/dist/
 !src/ui/dist/**
+
+# Bundled backend entry — committed for the same reason: `/plugin install` is a
+# git clone, and the plugin runs `node dist/cli.mjs` with no install step and no
+# node_modules. Rebuilt by `bun run build:dist`, CI, and scripts/release.sh.
+# Treated as generated in .gitattributes.
+!/dist/
+!/dist/**

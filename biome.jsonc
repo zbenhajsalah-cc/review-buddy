@@ -12,6 +12,8 @@
       "!!docs/**/*.html",
       "!!**/node_modules",
       "!!src/ui/dist",
+      // Committed build outputs, not source — see .gitattributes.
+      "!!dist",
       "!!storybook-static",
       "!!**/*.tsbuildinfo",
       "!!bun.lock",

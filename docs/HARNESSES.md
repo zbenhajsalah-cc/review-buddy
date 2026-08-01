@@ -43,9 +43,9 @@ Claude Code plugin's MCP server — where the hook has already served the review
 
 | Server args | Behavior |
 |---|---|
-| *(no flag)* | Claude Code mode: handler is an ack; the hook does the work |
-| `--standalone` | Detached: capture + serve + open browser, return URL immediately |
-| `--standalone=blocking` | Same, but await the reviewer's verdict before returning |
+| `mcp` *(no flag)* | Claude Code mode: handler is an ack; the hook does the work |
+| `mcp --standalone` | Detached: capture + serve + open browser, return URL immediately |
+| `mcp --standalone=blocking` | Same, but await the reviewer's verdict before returning |
 
 `REVIEW_BUDDY_CWD` — repo root fallback when the agent doesn't pass `cwd`
 (VS Code can set it to `${workspaceFolder}`). Resolution order for the repo:
@@ -60,23 +60,40 @@ purpose.
 
 ## Prerequisites (all harnesses)
 
-- [Bun](https://bun.sh) ≥ 1.3 on your PATH (runs the MCP server and viewer).
-- A clone of this repo with backend deps installed: `bun install` (the viewer
-  ships prebuilt in `src/ui/dist/`, so there is no build step).
+- [Node.js](https://nodejs.org) ≥ 20.11 on your PATH — that's it. The package
+  is published to npm as [`review-buddy`](https://www.npmjs.com/package/review-buddy)
+  with its dependencies and the prebuilt viewer inside, so there is nothing to
+  clone, install, or build.
+- `git`, obviously — reviews are built from a real diff.
 - `gh` CLI authenticated if you want PR reviews (`source.type = "pr"`).
+
+Every config below runs the server as:
+
+```bash
+npx -y review-buddy@latest mcp --standalone
+```
+
+`npx` caches the download, so only the first launch touches the network.
+Prefer a fixed version? Install it once and drop the `npx`:
+
+```bash
+npm install -g review-buddy
+```
+
+then use `"command": "review-buddy", "args": ["mcp", "--standalone"]`.
 
 ## Cursor
 
 1. Merge `integrations/cursor/mcp.json` into `.cursor/mcp.json` (project) or
-   `~/.cursor/mcp.json` (global), fixing the absolute path.
+   `~/.cursor/mcp.json` (global).
 2. Copy `integrations/cursor/commands/review-buddy.md` into `.cursor/commands/`
    (project) or `~/.cursor/commands/` (global).
 3. In chat: `/review-buddy` (optionally followed by a PR number/URL or base ref).
 
 ## VS Code + GitHub Copilot (agent mode)
 
-1. Save `integrations/vscode-copilot/mcp.json` as `.vscode/mcp.json`, fixing the
-   absolute path. `REVIEW_BUDDY_CWD: "${workspaceFolder}"` makes the repo
+1. Save `integrations/vscode-copilot/mcp.json` as `.vscode/mcp.json` (or add via
+   'MCP: Add Server'). `REVIEW_BUDDY_CWD: "${workspaceFolder}"` makes the repo
    location robust even if the model omits `cwd`.
 2. Copy `integrations/vscode-copilot/prompts/review-buddy.prompt.md` into
    `.github/prompts/`.
@@ -86,11 +103,13 @@ purpose.
 
 ## Codex (CLI / IDE extension)
 
-1. Merge `integrations/codex/config.toml` into `~/.codex/config.toml`, fixing
-   the absolute path. For verdict round-trip, use the `blocking` variant in
-   that file's comments.
+1. Merge `integrations/codex/config.toml` into `~/.codex/config.toml`. For
+   verdict round-trip, use the `blocking` variant in that file's comments.
 2. Copy `integrations/codex/prompts/review-buddy.md` into `~/.codex/prompts/`.
 3. In Codex: `/review-buddy` (arguments become `$ARGUMENTS`).
+
+The prompt files still live in this repo — grab them from
+[`integrations/`](../integrations) on GitHub; you don't need a full clone.
 
 ## How the pieces map
 

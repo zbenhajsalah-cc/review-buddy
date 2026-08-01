@@ -29,6 +29,7 @@ This mirrors how Plannotator (`~/code/plannotator`, the inspiration) intercepts 
 3. **One-way viewer first**, round-trip to the agent later. Build/test rendering first; keep the blocking hook so round-trip is a drop-in later (swap the "Done" response for "approve / request-changes + annotations").
 4. **JSON = runtime state, served over REST.** One prebuilt React app fetches the review from a local server (`GET /api/review`). No per-review codegen/compile. (Plannotator's model.)
 5. **The agent REFERENCES the diff; it does NOT reproduce it.** This is load-bearing — see below.
+6. **Ships as a Node bundle; two install channels, one codebase.** Source is TypeScript run under Bun in development, but what ships is `dist/cli.mjs` — a committed esbuild bundle with its dependencies (and `schemas/review.schema.json`) inlined, running on plain **Node ≥ 20.11**. No Bun-specific API may enter `src/` outside tests: `Bun.serve` is wrapped by `src/server/node-http.ts`, which keeps the `Request → Response` handler shape. One entry, three modes (`open-review` / `mcp` / `dev`). Claude Code installs the **plugin** (a git clone; the committed bundle means no install step); every other harness installs from **npm** (`npx -y review-buddy@latest mcp --standalone`) — no clone, no absolute paths in their MCP config.
 
 ## The three data sources (critical mental model)
 
@@ -51,7 +52,7 @@ review-buddy/
 ├── CLAUDE.md                  # you are here — orientation + decisions
 ├── README.md                  # human overview: install, dev, status
 ├── .claude-plugin/            # plugin.json + marketplace.json (Claude Code plugin manifest)
-├── bin/review-buddy.js        # plugin entry shim → src/cli
+├── dist/cli.mjs               # COMMITTED esbuild bundle — the shipped entry (node dist/cli.mjs [open-review|mcp|dev])
 ├── hooks/hooks.json           # the real PreToolUse hook wiring
 ├── skills/review/SKILL.md     # the /review skill — the structuring prompt (source of truth)
 ├── src/
@@ -61,7 +62,8 @@ review-buddy/
 │   ├── server/                # diff capture, chapter resolution, session lifecycle, local HTTP server, browser open
 │   ├── ui/                    # Vite + React 19 + Tailwind v4 viewer (@pierre/diffs)
 │   └── types/review.ts        # shared agent + UI/server contracts
-├── schemas/review.schema.json # JSON Schema = submit_review inputSchema
+├── schemas/review.schema.json # JSON Schema = submit_review inputSchema (inlined into the bundle)
+├── scripts/build-dist.ts      # esbuild → dist/cli.mjs
 ├── integrations/              # Cursor / VS Code Copilot / Codex MCP configs + review prompts
 ├── docs/
 │   ├── PRD.md                 # product requirements (source of truth for UX)

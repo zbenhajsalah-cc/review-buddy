@@ -1,9 +1,9 @@
 {
-  "_comment": "Merge into .cursor/mcp.json (project) or ~/.cursor/mcp.json (global). Replace /ABSOLUTE/PATH/TO with where you cloned review-buddy. --standalone = detached: submit_review returns the URL immediately (Cursor cancels MCP calls after ~5 minutes, so the tool must not block on the human review).",
+  "_comment": "Merge into .cursor/mcp.json (project) or ~/.cursor/mcp.json (global). No clone and no absolute paths — npx fetches the published package, and Node >= 20.11 is the only prerequisite. --standalone = detached: submit_review returns the URL immediately (Cursor cancels MCP calls after ~5 minutes, so the tool must not block on the human review). Swap @latest for a pinned version (e.g. review-buddy@0.4.0) if you want reproducible startups.",
   "mcpServers": {
     "review-buddy": {
-      "command": "bun",
-      "args": ["run", "/ABSOLUTE/PATH/TO/review-buddy/src/mcp/server.ts", "--standalone"]
+      "command": "npx",
+      "args": ["-y", "review-buddy@latest", "mcp", "--standalone"]
     }
   }
 }

@@ -1,5 +1,5 @@
 {
-  "_comment": "Example Claude Code plugin hook config. The PreToolUse hook intercepts the custom submit_review MCP tool, captures the real diff, opens the review UI, and blocks until the reviewer is done. Long timeout (345600s = 4 days) so the human is never rushed. Adjust 'command' to your built binary/script. NOTE: a plugin-bundled MCP server names its tools mcp__plugin_<plugin>_<server>__<tool>, so the matcher below is an alternation covering both the plugin form and the mcp__<server>__<tool> form used by a user-configured .mcp.json server. See docs/ARCHITECTURE.md.",
+  "_comment": "Example Claude Code plugin hook config. The PreToolUse hook intercepts the custom submit_review MCP tool, captures the real diff, opens the review UI, and blocks until the reviewer is done. Long timeout (345600s = 4 days) so the human is never rushed. This is the installed-binary form (npm install -g review-buddy); the plugin itself runs the committed bundle directly — see hooks/hooks.json for that wiring. NOTE: a plugin-bundled MCP server names its tools mcp__plugin_<plugin>_<server>__<tool>, so the matcher below is an alternation covering both the plugin form and the mcp__<server>__<tool> form used by a user-configured .mcp.json server. See docs/ARCHITECTURE.md.",
   "hooks": {
     "PreToolUse": [
       {

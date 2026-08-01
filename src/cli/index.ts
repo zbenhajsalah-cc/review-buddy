@@ -9,6 +9,10 @@
  *                          Returns permissionDecision "allow" (Phase 1); with
  *                          REVIEW_BUDDY_ROUNDTRIP set, a "request changes"
  *                          verdict returns "deny" + the reviewer's note (Phase 2 spike).
+ *   mcp [--standalone]     Run the MCP server (src/mcp/server.ts) on this same
+ *                          binary, so the published npm package exposes one
+ *                          command: `review-buddy mcp --standalone`. See
+ *                          docs/HARNESSES.md.
  *   dev --review <file>    Load an agent review JSON from a file and run the
  *                          same viewer against the current repo — for testing
  *                          the UI without going through the agent/hook.
@@ -22,6 +26,13 @@ import {
 } from "../server/session.ts";
 import { validateAgentReview } from "../server/validate.ts";
 import type { AgentReview } from "../types/review.ts";
+
+/** The whole hook event as text (Node has no `Bun.stdin.text()`). */
+async function readStdin(): Promise<string> {
+  const chunks: Buffer[] = [];
+  for await (const chunk of process.stdin) chunks.push(chunk as Buffer);
+  return Buffer.concat(chunks).toString("utf8");
+}
 
 interface HookEvent {
   tool_name?: string;
@@ -79,8 +90,7 @@ async function serveAndBlock(agent: AgentReview, cwd: string): Promise<ServeResu
 async function runOpenReview(): Promise<never> {
   let event: HookEvent;
   try {
-    const raw = await Bun.stdin.text();
-    event = JSON.parse(raw) as HookEvent;
+    event = JSON.parse(await readStdin()) as HookEvent;
   } catch (err) {
     console.error(`[review-buddy] Failed to read hook event: ${String(err)}`);
     allow("Review Buddy could not read the hook event; proceeding.");
@@ -123,7 +133,11 @@ async function runDev(args: string[]): Promise<void> {
 }
 
 const [, , mode, ...rest] = process.argv;
-if (mode === "dev") {
+if (mode === "mcp") {
+  // Imported lazily so the hook path never loads the MCP SDK. The module runs
+  // the server on import and reads its own flags off process.argv.
+  await import("../mcp/server.ts");
+} else if (mode === "dev") {
   await runDev(rest);
 } else {
   await runOpenReview();
