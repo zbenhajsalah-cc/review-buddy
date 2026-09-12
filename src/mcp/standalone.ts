@@ -15,7 +15,7 @@
  *
  * No flag = off: the handler is the Phase-1 ack for the hook flow.
  */
-import { isAbsolute } from "node:path";
+import { isAbsolute, resolve, sep } from "node:path";
 import { repoToplevel } from "../server/git.ts";
 import type { RunningServer } from "../server/http.ts";
 import {
@@ -95,6 +95,21 @@ export function resolveStandaloneCwd(agentCwd?: string): string {
   const envCwd = process.env.REVIEW_BUDDY_CWD;
   if (envCwd) return requireRepo(envCwd, "REVIEW_BUDDY_CWD");
   const top = repoToplevel(process.cwd());
+  // Under the Agent Plugins layout the process cwd defaults to the plugin
+  // install dir — `git rev-parse` then happily resolves the repo that merely
+  // HOSTS this package (or review-buddy itself, from a source checkout), so
+  // we'd silently review the wrong thing. Only the ambient fallback is
+  // suspect; an explicit `cwd` above is the agent's stated intent.
+  const selfRoot = resolve(import.meta.dir, "..", "..");
+  if (top && (top === selfRoot || selfRoot.startsWith(top + sep))) {
+    throw new Error(
+      `Could not locate the repository: the MCP server's working directory ` +
+        `(${process.cwd()}) resolves to ${top}, which is the repo hosting the ` +
+        `Review Buddy package — not your project's repo. Pass the repo root ` +
+        `in the review's \`cwd\` field (run \`git rev-parse --show-toplevel\`), ` +
+        `or set REVIEW_BUDDY_CWD in the MCP server config.`,
+    );
+  }
   if (top) return top;
   throw new Error(
     "Could not locate the repository: pass the repo root in the review's `cwd` field " +

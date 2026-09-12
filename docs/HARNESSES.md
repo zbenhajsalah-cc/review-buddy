@@ -1,112 +1,130 @@
-# Using Review Buddy outside Claude Code
+# Harnesses
 
-Review Buddy started Claude Code-only because its transport leaned on two
-Claude-specific mechanisms: a plugin-bundled MCP tool and a `PreToolUse` hook
-that intercepts the tool call, renders the review, and **blocks** the agent's
-turn until the human is done. Other harnesses have no `PreToolUse` equivalent —
-but they all speak MCP, so the same MCP server now has a **standalone mode**
-where `submit_review` itself does what the hook does: validate the payload,
-capture the authoritative diff, serve the viewer, and open the browser.
+Running Review Buddy outside Claude Code: one portable **Agent Plugin** that
+any conformant client (Cursor, VS Code Copilot, Codex) loads — instead of the
+old per-harness `mcp.json` + copied prompt files.
 
+> For the Claude Code plugin (the `PreToolUse` hook + `/review` skill), see
+> `README.md` — it is a separate package and unchanged by anything here.
+
+## What the plugin is
+
+`integrations/agent-plugin/` in this repo is the authoring input;
+`bun run build:plugin` assembles the installable directory into
+`dist/agent-plugin/review-buddy/`:
+
+| Piece | What it does |
+| --- | --- |
+| `plugin.json` | Agent Plugins 1.0 manifest (`name: "review-buddy"`) |
+| `mcp.json` | registers the `review-buddy` MCP server: `bun run ${PLUGIN_ROOT}/src/mcp/server.js --standalone` |
+| `skills/review-buddy/` | the structuring prompt — the portable equivalent of `/review` |
+| `src/mcp/server.js` + `node_modules/zod/` | the MCP runtime, self-contained (no install step) |
+| `src/ui/dist/` | the same prebuilt viewer the Claude Code plugin serves |
+
+`--standalone` means **detached**: `submit_review` itself captures the real
+`git diff`, resolves the agent's chapter anchors onto the real hunks, serves
+the viewer on `127.0.0.1`, opens the browser, and **returns the URL
+immediately** — because Cursor cancels MCP calls at ~5 min and VS Code
+Copilot's tool timeout is unconfigurable; a human review can't fit inside a
+tool call. The viewer lives inside the long-lived MCP server process; a new
+`submit_review` supersedes the previous one, and the server stops the viewer
+when the client disconnects.
+
+**Prerequisites:** `bun` and `git` on `PATH`; `gh` (authenticated) only for
+PR reviews. Nothing else — the package carries its own dependencies.
+
+## Install
+
+**Get the package** — either way produces the `review-buddy/` directory:
+
+- From a clone: `bun install && bun run build:plugin` → `dist/agent-plugin/review-buddy/`
+- From a release: download `review-buddy-<version>.tar.gz` from the GitHub
+  release and extract it (`shasum -a 256 -c review-buddy-<version>.tar.gz.sha256`
+  to verify).
+
+**Enable it in your client:**
+
+| Client | Install path |
+| --- | --- |
+| Cursor | Copy the `review-buddy/` directory into your [local plugin location](https://cursor.com/docs/plugins) and reload; the skill and MCP server should appear together. Cursor loads Agent Plugins natively. |
+| VS Code Copilot | Register the directory through the [`chat.pluginLocations`](https://code.visualstudio.com/docs/agent-customization/agent-plugins) setting, then confirm the skill + MCP server are discovered. |
+| Codex | Codex maps a root `plugin.json` into its plugin manifest (skills + `mcp.json`). Place the directory where your Codex version loads plugins and confirm the skill + server appear. |
+
+> **Verify before relying on it:** after enabling, ask the client to list its
+> MCP tools — `submit_review` must appear — and check that the `review-buddy`
+> skill is discoverable. Exact menus vary by client version; if your version
+> lacks an Agent Plugins loader, see the legacy fallback below.
+
+## Using it
+
+Invoke the review skill the way your client surfaces skills (slash command,
+skill picker, or just asking for a review), optionally naming the target:
+
+- nothing → the local working tree
+- a PR number/URL → `gh pr diff <ref>` (requires `gh` auth)
+- a base branch/ref → `git diff <base>`
+
+The agent resolves your repo root (`git rev-parse --show-toplevel`) and passes
+it as `cwd` to `submit_review` — **this field is load-bearing**: the MCP
+server's working directory is the plugin install dir, not your project. If the
+agent skips it, the server refuses rather than risk reviewing the wrong repo
+(or replies that it can't find the repo — same fix: pass `cwd`).
+
+The tool returns the review URL immediately. The review walks Prologue →
+risk-rated Chapters in your browser; the agent gets resolution notes back if
+any anchors missed, so a second submit fixes them.
+
+## Blocking mode (verdict round-trip)
+
+The portable `mcp.json` can't express a client-side tool timeout, so it ships
+detached only. `--standalone=blocking` still exists in the runtime: the tool
+call holds until the reviewer finishes and returns their verdict (including a
+**request changes** note the agent can act on). To use it, register the
+server natively instead of via the plugin — e.g. Codex:
+
+```toml
+# ~/.codex/config.toml
+[mcp_servers.review-buddy]
+command = "bun"
+args = ["run", "/absolute/path/to/review-buddy/src/mcp/server.js", "--standalone=blocking"]
+# the plugin's detached mode returns instantly; blocking needs a long timeout
+tool_timeout_sec = 345600
 ```
-Claude Code   : submit_review ──PreToolUse hook──> capture + serve + BLOCK ──> ack
-Standalone    : submit_review ───────────────────> capture + serve ──> returns URL
-                (viewer keeps running inside the long-lived MCP server process)
-```
 
-## Why standalone mode doesn't block (except on Codex)
+and keep the plugin's skill available for the prompt (or keep the old
+`~/.codex/prompts/review-buddy.md` prompt — see legacy below).
 
-A human review takes minutes to hours; a tool call gets nowhere near that:
+## Environment variables
 
-| Harness | MCP tool-call budget |
-|---|---|
-| Cursor | cancels MCP requests after ~5 minutes (not configurable) |
-| VS Code Copilot | not configurable; cancellations reported around 60 s |
-| Codex | `tool_timeout_sec` per server (default 60 s, raise as needed) |
+Resolution order for the repo directory: the review's `cwd` field →
+`REVIEW_BUDDY_CWD` → the MCP server's own cwd (which, under a plugin install,
+must not resolve to the repo hosting the package — the server refuses rather
+than review the wrong thing). `REVIEW_BUDDY_CWD` is the escape hatch for
+clients that can inject the workspace path into `env`.
 
-So standalone mode defaults to **detached**: `submit_review` returns the viewer
-URL immediately and the review server keeps running inside the MCP server
-process (which lives as long as your editor session). Submitting a new review
-supersedes the previous one. There is no verdict round-trip in detached mode —
-it's the Phase 1 one-way viewer.
+`REVIEW_BUDDY_BASE` (custom worktree base), `REVIEW_BUDDY_NO_OPEN` (don't open
+a browser), `REVIEW_BUDDY_ROUNDTRIP` (verdict UI outside blocking mode), and
+`REVIEW_BUDDY_MODEL` work the same in every mode.
 
-On Codex you can opt into **blocking** mode (`--standalone=blocking` plus a
-large `tool_timeout_sec`): the tool call holds the turn and returns the
-reviewer's verdict — including "request changes" notes — straight to the agent.
+## Migrating from the manual setup
 
-## Mode selection (server command flag)
+Earlier versions registered the server with hand-copied files:
 
-The mode is a **CLI flag on the MCP server command**, deliberately not an env
-var: env is ambient, and a globally exported variable would leak into the
-Claude Code plugin's MCP server — where the hook has already served the review
-— and open every review twice.
+- `.cursor/mcp.json` + `.cursor/commands/review-buddy.md`
+- `.vscode/mcp.json` + `.github/prompts/review-buddy.prompt.md`
+- `~/.codex/config.toml` + `~/.codex/prompts/review-buddy.md`
 
-| Server args | Behavior |
-|---|---|
-| *(no flag)* | Claude Code mode: handler is an ack; the hook does the work |
-| `--standalone` | Detached: capture + serve + open browser, return URL immediately |
-| `--standalone=blocking` | Same, but await the reviewer's verdict before returning |
+To migrate: **disable/remove the old `review-buddy` MCP registration and the
+copied prompt**, then enable the plugin — otherwise the server and the review
+command appear twice. Leave other MCP entries alone. Rollback: disable the
+plugin and restore the old registration (the last pre-plugin release's
+`integrations/` tree still has the files — see the repo's tagged releases).
 
-`REVIEW_BUDDY_CWD` — repo root fallback when the agent doesn't pass `cwd`
-(VS Code can set it to `${workspaceFolder}`). Resolution order for the repo:
-the review's `cwd` field → `REVIEW_BUDDY_CWD` → the MCP server's own cwd.
-Whichever wins must be inside a git work tree.
+## Legacy fallback (clients without Agent Plugins support)
 
-The env vars (`REVIEW_BUDDY_BASE`, `REVIEW_BUDDY_NO_OPEN`,
-`REVIEW_BUDDY_ROUNDTRIP`, `REVIEW_BUDDY_MODEL`) work the same in every mode,
-with one exception: `--standalone=blocking` forces the verdict UI on (no need
-to also set `REVIEW_BUDDY_ROUNDTRIP`) — returning the verdict is the mode's
-purpose.
-
-## Prerequisites (all harnesses)
-
-- [Bun](https://bun.sh) ≥ 1.3 on your PATH (runs the MCP server and viewer).
-- A clone of this repo with backend deps installed: `bun install` (the viewer
-  ships prebuilt in `src/ui/dist/`, so there is no build step).
-- `gh` CLI authenticated if you want PR reviews (`source.type = "pr"`).
-
-## Cursor
-
-1. Merge `integrations/cursor/mcp.json` into `.cursor/mcp.json` (project) or
-   `~/.cursor/mcp.json` (global), fixing the absolute path.
-2. Copy `integrations/cursor/commands/review-buddy.md` into `.cursor/commands/`
-   (project) or `~/.cursor/commands/` (global).
-3. In chat: `/review-buddy` (optionally followed by a PR number/URL or base ref).
-
-## VS Code + GitHub Copilot (agent mode)
-
-1. Save `integrations/vscode-copilot/mcp.json` as `.vscode/mcp.json`, fixing the
-   absolute path. `REVIEW_BUDDY_CWD: "${workspaceFolder}"` makes the repo
-   location robust even if the model omits `cwd`.
-2. Copy `integrations/vscode-copilot/prompts/review-buddy.prompt.md` into
-   `.github/prompts/`.
-3. In Copilot Chat (agent mode): `/review-buddy`. Note: prompt files work in
-   VS Code / Visual Studio / JetBrains — the Copilot CLI doesn't support custom
-   slash commands yet.
-
-## Codex (CLI / IDE extension)
-
-1. Merge `integrations/codex/config.toml` into `~/.codex/config.toml`, fixing
-   the absolute path. For verdict round-trip, use the `blocking` variant in
-   that file's comments.
-2. Copy `integrations/codex/prompts/review-buddy.md` into `~/.codex/prompts/`.
-3. In Codex: `/review-buddy` (arguments become `$ARGUMENTS`).
-
-## How the pieces map
-
-| Claude Code | Cursor | VS Code Copilot | Codex |
-|---|---|---|---|
-| plugin MCP server | `.cursor/mcp.json` | `.vscode/mcp.json` | `~/.codex/config.toml` |
-| `/review` skill | `.cursor/commands/review-buddy.md` | `.github/prompts/review-buddy.prompt.md` | `~/.codex/prompts/review-buddy.md` |
-| `PreToolUse` hook (blocks) | standalone detached | standalone detached | standalone detached or blocking |
-| hook event `cwd` | agent-passed `cwd` | `cwd` or `${workspaceFolder}` | agent-passed `cwd` |
-
-Two behavioral differences vs Claude Code to be aware of:
-
-- **Schema enforcement**: Claude Code validates the tool input against
-  `schemas/review.schema.json` before the call; other harnesses may not, so the
-  standalone handler validates itself and returns the reason as a tool error
-  for the model to fix and retry.
-- **Turn semantics**: in detached mode the agent's turn continues immediately —
-  the prompt tells it to relay the viewer URL and stop. Only Claude Code (hook)
-  and Codex-blocking hold the turn during the human review.
+If your client can't load Agent Plugins, the old mechanism still works and is
+the same server: register `bun run <repo>/src/mcp/server.ts --standalone` (or
+`--standalone=blocking` where the client supports a long tool timeout) as a
+stdio MCP server from a local clone (`bun install` first), and copy the
+review prompt from the previous release's `integrations/` tree. The runtime,
+schema, and viewer are identical — only the packaging differs.

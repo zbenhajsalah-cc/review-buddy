@@ -1,3 +1,9 @@
+---
+name: review-buddy
+description: Turn the current working-tree diff (or a GitHub PR / branch) into a narrative code review — a Prologue plus risk-rated, theme-grouped Chapters — and open it in the reviewer's browser via the review-buddy MCP server's submit_review tool. Use when asked to review changes, a PR, or a branch.
+compatibility: Requires bun and git on PATH; gh CLI (authenticated) for PR reviews.
+---
+
 # Review Buddy — structuring agent
 
 Turn the current working-tree diff (or a GitHub PR / branch) into a narrative
@@ -13,14 +19,18 @@ line content.
 
 First run `git rev-parse --show-toplevel` and remember the absolute repo root —
 you will pass it as `cwd` in Step 4 (the tool runs outside your shell and must
-know where the repo is).
+know where the repo is; do not assume the MCP server's own working directory is
+your repo).
 
-Review target: `$ARGUMENTS` (empty = the local working tree). **Remember
-which**, because in Step 4 you must tell the tool via `source` so it
-re-captures the *same* diff (the tool only sees your `submit_review` payload):
+Determine what to review from the user's request (nothing = the local working
+tree). **Remember which**, because in Step 4 you must tell the tool via
+`source` so it re-captures the *same* diff (the tool only sees your
+`submit_review` payload):
 
 - **Nothing specified** → review the local working tree; `source = { "type": "worktree" }`. Run:
-  - `git diff` — tracked changes (the tool captures the same, so your anchors line up)
+  - `git diff HEAD` — staged + unstaged tracked changes vs HEAD (the tool captures
+    the same, so your anchors line up). If the repo has no commits yet, use
+    `git diff --cached` for staged changes instead.
   - `git status --short` — note any untracked files (new files the diff above may not show)
   - For each untracked file you intend to include, `git diff --no-index -- /dev/null <file>` to see it as a new-file diff.
 - **A PR number or URL** → `source = { "type": "pr", "ref": "<arg>" }`. Run `gh pr diff <arg>`
@@ -83,11 +93,13 @@ analysis on them — skip them when grouping, and don't count them in your narra
 
 ## Step 4 — Submit
 
-Call the **`submit_review`** tool on the `review-buddy` MCP server with
+Call the **`submit_review`** tool exposed by the `review-buddy` MCP server with
 `{ cwd, source, prologue, chapters }` — `cwd` is the absolute repo root from
 Step 0, and `source` is what you determined there (`worktree` / `pr` /
-`branch`). For a PR, `source` is REQUIRED — omitting it makes the tool fall
-back to the local working tree, and the viewer shows an empty diff.
+`branch`). The tool's exact namespaced name varies by client; use whatever
+spelling your client exposes for this server's tool. For a PR, `source` is
+REQUIRED — omitting it makes the tool fall back to the local working tree, and
+the viewer shows an empty diff.
 
 The tool opens the review in the reviewer's browser and returns its URL
 immediately. Relay the URL to the user (in case no browser window opened) and

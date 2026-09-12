@@ -81,6 +81,24 @@ that stale `PATH`, so it can't find `bun` — even though a *new* terminal can.
 
 ## Runtime
 
+### Agent Plugin: `submit_review` says it can't locate the repository
+
+Outside Claude Code the MCP server runs **standalone**: its working directory
+is the plugin install dir, not your project. The repo location comes from the
+review's `cwd` field — the skill tells the agent to pass
+`git rev-parse --show-toplevel`. If it skipped that, you get either
+
+- "Could not locate the repository: pass the repo root in the review's `cwd`
+  field…", or
+- "…resolves to `<path>`, which is the repo hosting the Review Buddy package —
+  not your project's repo." — deliberate: the plugin dir sits inside a git
+  repo and the ambient fallback refused to silently review the host.
+
+Both mean the same thing: ask the agent to run `git rev-parse --show-toplevel`
+and pass the result as `cwd`. On clients that can inject env into MCP servers,
+`REVIEW_BUDDY_CWD` is the fallback. (The `bun: command not found` cause above
+applies to the plugin's `mcp.json` too — it also launches `bun`.)
+
 ### The browser tab doesn't open
 
 Opening the browser is best-effort (`src/server/browser.ts`). If it fails (headless

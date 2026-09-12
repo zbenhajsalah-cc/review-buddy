@@ -59,8 +59,19 @@ path (`parseDiffFromFile` → `<FileDiff expandUnchanged>`); see
 captures + serves — detached (returns the viewer URL immediately; viewer lives
 in the MCP process) or blocking (Codex + `tool_timeout_sec`). Session lifecycle extracted
 to `src/server/session.ts` (shared with the hook); agent schema gained optional
-`cwd`; per-harness configs + ported prompts in `integrations/` (Cursor, VS Code
-Copilot, Codex); setup guide in `docs/HARNESSES.md`.
+`cwd`; setup guide in `docs/HARNESSES.md`.
+
+**Portable Agent Plugin ✅ shipped** (post-v0.4.0): the standalone harnesses moved
+off per-client MCP configs + generated prompts onto a single
+[Agent Plugins](https://agent-plugins.org) 1.0 package — authoring inputs in
+`integrations/agent-plugin/` (manifest, `mcp.json`, the `review-buddy` skill that
+replaced `prompt-template.md`), assembled by `scripts/build-agent-plugin.ts` into
+self-contained `dist/agent-plugin/review-buddy/` (Bun-targeted server bundle with
+`zod` vendored — bundling it breaks the MCP SDK's lazy init — plus committed
+viewer, schema, and dependency notices) with a tar.gz + sha256 release artifact.
+The ambient cwd fallback now refuses to resolve the repo hosting the package
+itself. Claude Code plugin untouched. See `docs/PLAN-agent-plugins.md` +
+`docs/HARNESSES.md`.
 
 **Viewer & feedback polish ✅ shipped** (post-Phase 1, v0.4.0): noise/generated files
 resolved into their own "Generated & noise files" chapter (`src/server/noise.ts`) instead

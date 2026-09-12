@@ -54,7 +54,7 @@ Restart Claude Code (or reload plugins) if prompted, so the MCP server and hook 
 
 #### Install from a local clone
 
-For development, or if you'll also use the standalone harnesses (Cursor / Copilot / Codex — see below), clone the repo and install deps yourself:
+For development, or if you'll also use the portable Agent Plugin (Cursor / Copilot / Codex — see below), clone the repo and install deps yourself:
 
 ```bash
 # 1. Clone and install the backend deps (for the MCP server + hook)
@@ -86,7 +86,7 @@ The agent tells the hook what it reviewed (working tree vs PR) so the hook captu
 
 ### Other harnesses (Cursor / VS Code Copilot / Codex)
 
-There's no plugin or hook outside Claude Code — instead you register the same MCP server with the `--standalone` flag, and `submit_review` itself captures the diff and opens the viewer. The **Install from a local clone** path above is the one you need. Copy the MCP config and review prompt for your harness from [`integrations/`](integrations) and follow the per-harness steps in [`docs/HARNESSES.md`](docs/HARNESSES.md).
+Outside Claude Code, Review Buddy ships as a portable **Agent Plugin** — one self-contained directory carrying the same MCP server (in `--standalone` mode, where `submit_review` itself captures the diff and opens the viewer), the structuring skill, and the prebuilt viewer. Get the package by cloning and running `bun install && bun run build:plugin` (output: `dist/agent-plugin/review-buddy/`) or by extracting the `review-buddy-*.tar.gz` attached to a GitHub release, then enable it through your client's plugin mechanism. Per-client steps, blocking mode, and migration from the old manual configs: [`docs/HARNESSES.md`](docs/HARNESSES.md).
 
 ### Update / uninstall
 
@@ -112,8 +112,8 @@ src/
   types/review.ts    # shared agent + UI/server contracts
 docs/                # PRD, ARCHITECTURE, review-contract, build-plan, HARNESSES
 schemas/             # review.schema.json = submit_review input schema
+integrations/agent-plugin/  # Agent Plugins authoring input → bun run build:plugin
 examples/hooks.json  # example Claude Code plugin hook config
-integrations/        # Cursor / VS Code Copilot / Codex configs + review prompts
 ```
 
 ## Development

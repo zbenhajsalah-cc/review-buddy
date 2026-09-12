@@ -1,11 +1,16 @@
 import { afterAll, afterEach, beforeAll, expect, test } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { makeTempRepo, sampleReview, VIEWER_URL_RE } from "../test-helpers.ts";
+import { join, resolve } from "node:path";
+import { makeTempRepo, sampleReview, testGit, VIEWER_URL_RE } from "../test-helpers.ts";
 import type { AgentReview } from "../types/review.ts";
 import { standaloneMode } from "./mode.ts";
-import { handleStandaloneSubmit, makeShutdown, stopCurrentSession } from "./standalone.ts";
+import {
+  handleStandaloneSubmit,
+  makeShutdown,
+  resolveStandaloneCwd,
+  stopCurrentSession,
+} from "./standalone.ts";
 
 // Capture each session URL from the console.error the session module emits —
 // lets blocking-mode tests reach the pending review without module internals.
@@ -121,6 +126,38 @@ test("relative cwd returns isError", async () => {
   const res = await handleStandaloneSubmit(review("./somewhere"), "detached");
   expect(res.isError).toBe(true);
   expect(res.content[0]!.text).toContain("absolute path");
+});
+
+test("cwd fallback: a normal repo still resolves from the process cwd", () => {
+  const savedCwd = process.cwd();
+  const savedEnv = process.env.REVIEW_BUDDY_CWD;
+  delete process.env.REVIEW_BUDDY_CWD;
+  const repo = makeTempRepo("rb-cwdfallback-");
+  process.chdir(repo);
+  try {
+    // git canonicalizes the toplevel (e.g. /var → /private/var on macOS).
+    expect(resolveStandaloneCwd()).toBe(testGit(repo, "rev-parse", "--show-toplevel").trim());
+  } finally {
+    process.chdir(savedCwd);
+    if (savedEnv !== undefined) process.env.REVIEW_BUDDY_CWD = savedEnv;
+    rmSync(repo, { recursive: true, force: true });
+  }
+});
+
+test("cwd fallback refuses the repo that hosts the package", () => {
+  const savedCwd = process.cwd();
+  const savedEnv = process.env.REVIEW_BUDDY_CWD;
+  delete process.env.REVIEW_BUDDY_CWD;
+  // Standalone servers start with cwd = the package dir (plugin install or
+  // source checkout); inside a git repo the ambient fallback must refuse
+  // rather than silently review the host repo.
+  process.chdir(resolve(import.meta.dir, "..", ".."));
+  try {
+    expect(() => resolveStandaloneCwd()).toThrow("hosting the Review Buddy package");
+  } finally {
+    process.chdir(savedCwd);
+    if (savedEnv !== undefined) process.env.REVIEW_BUDDY_CWD = savedEnv;
+  }
 });
 
 test("blocking: forces the verdict UI on and returns the request-changes note", async () => {

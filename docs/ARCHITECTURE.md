@@ -2,7 +2,7 @@
 
 How the PRD's product requirements map onto a concrete, buildable system. Read `CLAUDE.md` first for the high-level decisions; this doc is the engineering detail. For a visual walkthrough of the same system, open [`architecture.html`](./architecture.html) in a browser (hand-maintained — keep it in sync with this doc).
 
-> This doc describes the Claude Code flow (hook-driven, blocking). In other harnesses (Cursor / VS Code Copilot / Codex) the same MCP server runs in **standalone mode**: no hook — `submit_review` itself does the capture → merge → serve steps below and returns the viewer URL immediately. See [`HARNESSES.md`](./HARNESSES.md).
+> This doc describes the Claude Code flow (hook-driven, blocking). Other harnesses (Cursor / VS Code Copilot / Codex) load the **Agent Plugin** package (`integrations/agent-plugin/` → `dist/agent-plugin/review-buddy/`): the same MCP server in **standalone mode**, no hook — `submit_review` itself does the capture → merge → serve steps below and returns the viewer URL immediately. See [`HARNESSES.md`](./HARNESSES.md).
 
 ## Data flow
 

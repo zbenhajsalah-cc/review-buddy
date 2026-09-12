@@ -18,13 +18,13 @@ Hook command: capture git diff + PR metadata, start a local server, open the bro
 Prebuilt React app loads → GET /api/review → renders Prologue + Chapters + diffs
 ```
 
-**Standalone (Cursor / VS Code Copilot / Codex):** same flow, but there is no `PreToolUse` — the MCP server runs with the `--standalone` flag and `submit_review` itself does the capture + serve, returning the viewer URL immediately (the viewer lives inside the long-lived MCP process). See `docs/HARNESSES.md`.
+**Standalone (Cursor / VS Code Copilot / Codex):** same flow, but there is no `PreToolUse` — the MCP server runs with the `--standalone` flag and `submit_review` itself does the capture + serve, returning the viewer URL immediately (the viewer lives inside the long-lived MCP process). It's packaged as a portable **Agent Plugin** (`integrations/agent-plugin/` → `bun run build:plugin` → self-contained `dist/agent-plugin/review-buddy/`). See `docs/HARNESSES.md`.
 
 This mirrors how Plannotator (`~/code/plannotator`, the inspiration) intercepts `ExitPlanMode` — except here we intercept **our own** MCP tool, because there is no built-in "review" tool.
 
 ## The decisions that shape everything (already made — do not re-litigate)
 
-1. **Claude Code first; other harnesses via standalone MCP mode.** Claude Code gets the richest flow (hook blocks the turn). Cursor / VS Code Copilot / Codex reuse the SAME MCP server launched with the `--standalone` flag (a flag, not an env var — ambient env would leak into the Claude Code plugin's server and double-open reviews): `submit_review` itself captures + serves and returns the viewer URL immediately — their MCP tool-call timeouts (Cursor ~5 min hard, Copilot unconfigurable) can't hold a human review; Codex can opt into `--standalone=blocking` paired with `tool_timeout_sec`. See `docs/HARNESSES.md` + `integrations/`.
+1. **Claude Code first; other harnesses via a portable Agent Plugin.** Claude Code gets the richest flow (hook blocks the turn). Cursor / VS Code Copilot / Codex get one self-contained [Agent Plugins](https://agent-plugins.org) package (`integrations/agent-plugin/` → `bun run build:plugin` → `dist/agent-plugin/review-buddy/`) carrying the SAME MCP server launched with the `--standalone` flag (a flag, not an env var — ambient env would leak into the Claude Code plugin's server and double-open reviews): `submit_review` itself captures + serves and returns the viewer URL immediately — their MCP tool-call timeouts (Cursor ~5 min hard, Copilot unconfigurable) can't hold a human review; Codex can opt into `--standalone=blocking` paired with `tool_timeout_sec` via a native registration. See `docs/HARNESSES.md` + `docs/PLAN-agent-plugins.md`.
 2. **Transport = custom MCP tool + `PreToolUse` hook** (Claude Code). The agent calls `submit_review(...)`; a `PreToolUse` hook intercepts it (chosen over `PermissionRequest` because `PreToolUse` always fires, even in auto-accept modes). The hook **blocks** the turn (long timeout) while the human reviews.
 3. **One-way viewer first**, round-trip to the agent later. Build/test rendering first; keep the blocking hook so round-trip is a drop-in later (swap the "Done" response for "approve / request-changes + annotations").
 4. **JSON = runtime state, served over REST.** One prebuilt React app fetches the review from a local server (`GET /api/review`). No per-review codegen/compile. (Plannotator's model.)
@@ -62,7 +62,8 @@ review-buddy/
 │   ├── ui/                    # Vite + React 19 + Tailwind v4 viewer (@pierre/diffs)
 │   └── types/review.ts        # shared agent + UI/server contracts
 ├── schemas/review.schema.json # JSON Schema = submit_review inputSchema
-├── integrations/              # Cursor / VS Code Copilot / Codex MCP configs + review prompts
+├── integrations/agent-plugin/ # Agent Plugins authoring input (plugin.json, mcp.json, skill)
+├── scripts/build-agent-plugin.ts # assembles dist/agent-plugin/review-buddy/ (bundled runtime)
 ├── docs/
 │   ├── PRD.md                 # product requirements (source of truth for UX)
 │   ├── ARCHITECTURE.md        # data sources, flow, hook+server, endpoints, phasing

@@ -1,0 +1,10 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "review-buddy",
+  "version": "0.4.0",
+  "description": "AI-assisted narrative code review — an agent reads your diff, writes a Prologue, and segments it into risk-rated Chapters you walk through in the browser.",
+  "author": { "name": "Zied Ben Haj Salah" },
+  "homepage": "https://github.com/ziedhajsalah/review-buddy",
+  "repository": "https://github.com/ziedhajsalah/review-buddy",
+  "keywords": ["code-review", "diff", "mcp", "narrative-review"]
+}

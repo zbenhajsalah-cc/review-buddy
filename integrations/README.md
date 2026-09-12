@@ -1,21 +1,21 @@
 # Harness integrations
 
-Ready-to-copy MCP configs and review prompts for running Review Buddy outside
-Claude Code. Setup instructions: [`../docs/HARNESSES.md`](../docs/HARNESSES.md).
+`agent-plugin/` holds the authoring input for the portable [Agent Plugins](https://agent-plugins.org)
+package — `plugin.json`, `mcp.json`, and the `review-buddy` skill that replaced
+the old per-harness MCP configs and copied prompts (Cursor `.cursor/mcp.json` +
+command, VS Code `.vscode/mcp.json` + prompt, Codex `config.toml` + prompt;
+removed after the migration — see the previous release's `integrations/` tree
+for them).
 
-```
-cursor/mcp.json                          → merge into .cursor/mcp.json
-cursor/commands/review-buddy.md          → copy into .cursor/commands/
-vscode-copilot/mcp.json                  → save as .vscode/mcp.json
-vscode-copilot/prompts/review-buddy.prompt.md → copy into .github/prompts/
-codex/config.toml                        → merge into ~/.codex/config.toml
-codex/prompts/review-buddy.md            → copy into ~/.codex/prompts/
-```
+`agent-plugin/` alone is **not** installable — it lacks the runtime and viewer.
+`bun run build:plugin` (`scripts/build-agent-plugin.ts`) assembles the
+self-contained package into `dist/agent-plugin/review-buddy/` (bundled server,
+vendored `zod`, committed viewer, review schema, dependency notices) plus a
+`review-buddy-<version>.tar.gz` + `.sha256` for release attachment.
 
-> **Generated files — don't edit the three prompts by hand.** They are emitted
-> from `prompt-template.md` by `bun run gen:prompts` (varying only frontmatter,
-> the Step 0 target line, and Codex's blocking-verdict section); CI's
-> `verify:prompts-fresh` fails on drift. The template itself is the standalone
-> port of `skills/review/SKILL.md` (the structuring-prompt source of truth) —
-> when you change the skill's Steps 1–3 or Critical rules, port the change into
-> the template and regenerate.
+Install/migration instructions: [`../docs/HARNESSES.md`](../docs/HARNESSES.md).
+Design rationale: [`../docs/PLAN-agent-plugins.md`](../docs/PLAN-agent-plugins.md).
+
+> When you change `skills/review/SKILL.md`'s Steps 1–3 or Critical rules (the
+> structuring-prompt source of truth), port the change into
+> `agent-plugin/skills/review-buddy/SKILL.md` — there is no generator anymore.

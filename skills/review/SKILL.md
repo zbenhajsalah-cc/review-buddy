@@ -19,7 +19,7 @@ you must tell the tool via `source` so the hook re-captures the *same* diff (the
 hook never sees `$ARGUMENTS` — only your `submit_review` payload):
 
 - **No arguments** → review the local working tree; `source = { "type": "worktree" }`. Run:
-  - `git diff` — tracked changes (the hook captures the same, so your anchors line up)
+  - `git diff HEAD` — staged + unstaged tracked changes vs HEAD (the hook captures the same, so your anchors line up). If the repo has no commits yet, use `git diff --cached` for staged changes instead.
   - `git status --short` — note any untracked files (new files the diff above may not show)
   - For each untracked file you intend to include, `git diff --no-index -- /dev/null <file>` to see it as a new-file diff.
 - **A PR number or URL** → `source = { "type": "pr", "ref": "<arg>" }`. Run `gh pr diff <arg>`

@@ -61,6 +61,7 @@ VERSION_FILES=(
   "package.json"
   ".claude-plugin/plugin.json"
   "src/ui/package.json"
+  "integrations/agent-plugin/plugin.json"
 )
 
 # Blockers are collected during preflight so a dry run can show them all at once.
@@ -116,9 +117,10 @@ show_usage() {
   echo "  1. Verify the tree is clean, on develop, in sync with origin, main fast-forwardable"
   echo "  2. Write the new version into: ${VERSION_FILES[*]}"
   echo "  3. Verify every file agrees, then commit on develop"
-  echo "  4. Fast-forward main to the release commit and tag it v<version>"
-  echo "  5. Push develop, main, and the tag to origin"
-  echo "  6. Create a GitHub Release for the tag with auto-generated notes"
+  echo "  4. Build + validate the Agent Plugin package (dist/agent-plugin)"
+  echo "  5. Fast-forward main to the release commit and tag it v<version>"
+  echo "  6. Push develop, main, and the tag to origin"
+  echo "  7. Create a GitHub Release with the package archive + checksum attached"
 }
 
 require_command() {
@@ -312,16 +314,17 @@ main() {
     step "Rebuild the committed viewer (src/ui/dist) and stage it with the release"
     step "Write ${version} into ${VERSION_FILES[*]}"
     step "Verify every version file agrees"
+    step "Build + validate the Agent Plugin package (dist/agent-plugin, incl. tar.gz + sha256)"
     step "Commit on ${develop_branch}: chore(release): ${tag_name}"
     step "Fast-forward ${master_branch} to the release commit"
     step "Tag ${tag_name} (annotated)"
     step "Push ${develop_branch}, ${master_branch}, and ${tag_name} to origin"
     if [ "$USE_GITHUB" = false ]; then
-      step "Skip GitHub Release (--no-github)"
+      step "Skip GitHub Release (--no-github) — package archive stays in dist/agent-plugin/"
     elif github_available; then
-      step "Create GitHub Release ${tag_name} (--generate-notes)"
+      step "Create GitHub Release ${tag_name} (--generate-notes, package archive attached)"
     else
-      step "Skip GitHub Release (gh not installed or not authenticated)"
+      step "Skip GitHub Release (gh not installed or not authenticated) — package archive stays in dist/agent-plugin/"
     fi
   else
     # Rebuild the committed viewer so every release ships current bytes. The
@@ -343,6 +346,14 @@ main() {
       [ "$fv" = "$version" ] || { log_error "Version mismatch in $f (got $fv)"; exit 1; }
     done
     step "Verify every version file agrees"
+
+    # Build + validate the portable Agent Plugin now that the version files
+    # agree — build-agent-plugin.ts fails if plugin.json drifts from
+    # package.json, so this also double-checks the sync before we commit/tag.
+    # The artifact (tar.gz + .sha256) is produced even when the GitHub Release
+    # step is skipped, so a manual upload stays possible.
+    bun run build:plugin
+    step "Build + validate the Agent Plugin package (dist/agent-plugin)"
 
     git add "${VERSION_FILES[@]}" src/ui/dist
     if git diff --cached --quiet; then
@@ -368,10 +379,14 @@ main() {
       echo -e "  ${YELLOW}○ Skipped GitHub Release (--no-github)${NC}"
     elif ! github_available; then
       echo -e "  ${YELLOW}○ Skipped GitHub Release — gh not installed or not authenticated${NC}"
-    elif release_url="$(gh release create "$tag_name" --title "$tag_name" --generate-notes --verify-tag --latest 2>/dev/null)"; then
-      step "Create GitHub Release ${tag_name}"
+    elif release_url="$(gh release create "$tag_name" \
+        "dist/agent-plugin/review-buddy-${version}.tar.gz" \
+        "dist/agent-plugin/review-buddy-${version}.tar.gz.sha256" \
+        --title "$tag_name" --generate-notes --verify-tag --latest 2>/dev/null)"; then
+      step "Create GitHub Release ${tag_name} (package archive attached)"
     else
       echo -e "  ${YELLOW}⚠ GitHub Release not created — run: gh release create ${tag_name} --generate-notes${NC}"
+      echo -e "  ${YELLOW}  The package archive is still in dist/agent-plugin/ for a manual upload.${NC}"
     fi
   fi
 
