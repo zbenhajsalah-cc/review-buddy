@@ -254,7 +254,8 @@ release notes.
 
 ## 6. Suggested order
 
-Each step keeps `verify:ci` green and the plugin behaving the same.
+Each step keeps `verify:ci` green and the plugin behaving the same. The
+detailed user stories are in `backlog-desktop-app.md`.
 
 1. **pnpm workspace + `packages/core`.** Add `pnpm-workspace.yaml`, move the
    pure modules and their tests to `packages/core`, switch installs to pnpm. The
