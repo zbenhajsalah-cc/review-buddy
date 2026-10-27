@@ -10,10 +10,10 @@
 import { readFile } from "node:fs/promises";
 import { extname, join } from "node:path";
 import desktopPrompt from "@review-buddy/core/prompts/review-desktop.md?raw";
-import { app, BrowserWindow, net, protocol, safeStorage, session, shell } from "electron";
+import { app, BrowserWindow, dialog, net, protocol, safeStorage, session, shell } from "electron";
 import { FIXTURE_REVIEW_KEY, IPC } from "../shared/ipc.ts";
 import { type AgentCheckResult, runAgentCheck } from "./agent/check.ts";
-import { claudeExecutablePath } from "./agent/executable.ts";
+import { ClaudeCode } from "./agent/claude-code.ts";
 import { ReviewJobs } from "./agent/review-job.ts";
 import { loadFixtureReview } from "./fixture/index.ts";
 import { openGitHubPr, prFileReader } from "./github/api-source.ts";
@@ -23,7 +23,7 @@ import { parsePrArg, runPrCheck } from "./github/pr-check.ts";
 import { GitHubPulls } from "./github/pulls.ts";
 import { GitHubRepos } from "./github/repos.ts";
 import { TokenStore } from "./github/token-store.ts";
-import { registerGitHubIpc, registerReviewIpc } from "./ipc.ts";
+import { registerClaudeIpc, registerGitHubIpc, registerReviewIpc } from "./ipc.ts";
 import { ReviewCache } from "./review-cache.ts";
 import { ReviewStore } from "./reviews.ts";
 import {
@@ -141,13 +141,17 @@ async function agentCheck(): Promise<void> {
   const { query } = await import("@anthropic-ai/claude-agent-sdk");
   let result: AgentCheckResult;
   try {
-    result = await runAgentCheck(query, {
-      pathToClaudeCodeExecutable: claudeExecutablePath(),
-      clientApp: `review-buddy-desktop/${app.getVersion()}`,
-    });
+    const claude = await createClaudeCode(appSettings()).ready();
+    result = {
+      ...(await runAgentCheck(query, {
+        pathToClaudeCodeExecutable: claude.path,
+        clientApp: `review-buddy-desktop/${app.getVersion()}`,
+      })),
+      claudePath: claude.path,
+    };
   } catch (e) {
-    // claudeExecutablePath throws when the platform binary is missing.
-    result = { ok: false, durationMs: 0, error: String(e) };
+    // No usable Claude Code (US-21): the message says what to do.
+    result = { ok: false, durationMs: 0, error: e instanceof Error ? e.message : String(e) };
   }
   console.log(`[review-buddy] agent-check ${JSON.stringify(result)}`);
   app.exit(result.ok ? 0 : 1);
@@ -187,6 +191,38 @@ function atMostEvery(ms: number, fn: () => void): () => void {
       fn();
     }, ms);
   };
+}
+
+/**
+ * The user's installed Claude Code (US-21), at least the SDK's version; the
+ * one chosen in Settings is kept in the app settings.
+ */
+function createClaudeCode(settings: SettingsFile): ClaudeCode {
+  return new ClaudeCode({
+    minVersion: __CLAUDE_CODE_MIN_VERSION__,
+    chosen: {
+      get: async () => {
+        const path = (await settings.read()).claudePath;
+        return typeof path === "string" && path ? path : undefined;
+      },
+      set: (claudePath) => settings.update({ claudePath }),
+    },
+  });
+}
+
+/** Settings → Choose…: a file dialog in main (the renderer never sends a path). */
+async function chooseClaudePath(): Promise<string | undefined> {
+  const options: Electron.OpenDialogOptions = {
+    title: "Choose your Claude Code (claude)",
+    properties: ["openFile", "showHiddenFiles"],
+    // A .cmd shim (npm on Windows) cannot be started without a shell.
+    filters: process.platform === "win32" ? [{ name: "Claude Code", extensions: ["exe"] }] : [],
+  };
+  const win = BrowserWindow.getFocusedWindow();
+  const answer = win
+    ? await dialog.showOpenDialog(win, options)
+    : await dialog.showOpenDialog(options);
+  return answer.canceled ? undefined : answer.filePaths[0];
 }
 
 /** Small app settings (never secrets) in the userData folder. */
@@ -232,7 +268,12 @@ function recentList(value: unknown): string[] {
  * review tools. The SDK is loaded on the first run only. A PR that opens makes
  * its repository "recently used".
  */
-function createReviewJobs(store: ReviewStore, github: GitHubAuth, repos: GitHubRepos): ReviewJobs {
+function createReviewJobs(
+  store: ReviewStore,
+  github: GitHubAuth,
+  repos: GitHubRepos,
+  claudeCode: ClaudeCode,
+): ReviewJobs {
   const jobs: ReviewJobs = new ReviewJobs({
     store,
     open: async (ref, signal) => {
@@ -249,19 +290,26 @@ function createReviewJobs(store: ReviewStore, github: GitHubAuth, repos: GitHubR
       return source;
     },
     run: async (source, label, onProgress, signal) => {
+      // Checked again before each run: it may have been updated or removed
+      // (throws a "claude" error that says what to do).
+      const claude = await claudeCode.ready();
       const [{ query }, { runReview }] = await Promise.all([
         import("@anthropic-ai/claude-agent-sdk"),
         import("./agent/runner.ts"),
       ]);
-      return runReview(query, {
+      const result = await runReview(query, {
         label,
         source,
         systemPrompt: desktopPrompt,
-        pathToClaudeCodeExecutable: claudeExecutablePath(),
+        pathToClaudeCodeExecutable: claude.path,
         clientApp: `review-buddy-desktop/${app.getVersion()}`,
         onProgress,
         signal,
       });
+      if (!result.ok && result.error && result.errorKind !== "stopped") {
+        result.error += `\n(Claude Code ${claude.version}, ${claude.path})`;
+      }
+      return result;
     },
     log: (line) => console.log(`[review-buddy] review-run ${line}`),
     // Progress events (US-15): the whole list, to our own page only, at most
@@ -307,7 +355,12 @@ app.whenReady().then(async () => {
   for (const warning of fixture.warnings) console.warn(`[review-buddy] fixture: ${warning}`);
   store.add(FIXTURE_REVIEW_KEY, fixture.review, fixture.source);
   const repos = createGitHubRepos(settings, github);
-  const jobs = createReviewJobs(store, github, repos);
+  const claudeCode = createClaudeCode(settings);
+  void claudeCode.check().then((status) => {
+    const found = status.state === "ok" ? `${status.version} at ${status.path}` : status.message;
+    console.log(`[review-buddy] claude code: ${status.state}: ${found}`);
+  });
+  const jobs = createReviewJobs(store, github, repos, claudeCode);
   const pulls = new GitHubPulls({
     fetch: (url, init) => net.fetch(url, init),
     auth: github,
@@ -320,6 +373,7 @@ app.whenReady().then(async () => {
   serveRenderer();
   registerReviewIpc(store, jobs, isTrustedPage);
   registerGitHubIpc(github, repos, pulls, isTrustedPage);
+  registerClaudeIpc(claudeCode, chooseClaudePath, isTrustedPage);
   createWindow();
 
   // `--review-pr=<owner/repo#123 | PR URL>`: start reviewing that PR at once.

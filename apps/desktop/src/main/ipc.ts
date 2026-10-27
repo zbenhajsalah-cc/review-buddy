@@ -1,5 +1,6 @@
 import { type IpcMainInvokeEvent, ipcMain } from "electron";
 import { IPC } from "../shared/ipc.ts";
+import type { ClaudeCode } from "./agent/claude-code.ts";
 import type { ReviewJobs } from "./agent/review-job.ts";
 import type { GitHubAuth } from "./github/auth.ts";
 import type { GitHubPulls } from "./github/pulls.ts";
@@ -71,4 +72,23 @@ export function registerGitHubIpc(
   handle(IPC.githubRepos, isTrusted, (page) => repos.list(page));
   handle(IPC.githubMarkRepoUsed, isTrusted, (fullName) => repos.markUsed(fullName));
   handle(IPC.githubPulls, isTrusted, (fullName, page) => pulls.list(fullName, page));
+}
+
+/**
+ * The installed Claude Code (US-21). The renderer never sends a path: the
+ * file dialog runs in main (`choosePath`), so a page cannot make main run a
+ * program of its choice.
+ */
+export function registerClaudeIpc(
+  claude: ClaudeCode,
+  choosePath: () => Promise<string | undefined>,
+  isTrusted: (url: string) => boolean,
+): void {
+  handle(IPC.claudeStatus, isTrusted, () => claude.status());
+  handle(IPC.claudeCheck, isTrusted, () => claude.check());
+  handle(IPC.claudeChoose, isTrusted, async () => {
+    const path = await choosePath();
+    return path ? claude.choose(path) : claude.status();
+  });
+  handle(IPC.claudeSearch, isTrusted, () => claude.choose(undefined));
 }

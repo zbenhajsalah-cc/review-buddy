@@ -579,6 +579,31 @@ Acceptance criteria:
   fake `claude`. The real-agent e2e (`scripts/review-e2e.ts`) passes with an
   installed `claude`, in dev and in the AppImage. `--agent-check` reports the
   `claude` it used.
+- Decisions made while building it:
+  - `src/main/agent/claude-code.ts` finds and checks `claude`; with several
+    found, the first one that is new enough wins (an old npm copy early in
+    the PATH does not hide a newer native install). A chosen path is the
+    only one checked; **Search for it instead** forgets it.
+  - The file dialog of **Choose…** runs in main: the renderer never sends a
+    path, so a page cannot make main run a program of its choice.
+  - The minimum version comes from the SDK's `package.json` at build time
+    (`sdk-version.ts` → `__CLAUDE_CODE_MIN_VERSION__` in
+    `electron.vite.config.ts`).
+  - The check before a run is inside the job's Claude step: a saved review of
+    the PR's head still opens without Claude Code. A failed check ends the
+    job with the `claude` error kind; the renderer then reads the new status.
+  - While Claude Code is not usable, a bar above every screen (except
+    Settings) says why, with a button to the settings; Review, Review
+    selected, Run again, Review again and Try again are off with the reason
+    as their tooltip. Open review stays on.
+  - A failed run's error ends with "(Claude Code <version>, <path>)".
+  - Installers: `electron-builder.yml` leaves out the SDK's platform packages;
+    `asarUnpack`, `signIgnore` and `executable.ts` are gone. The Linux
+    AppImage went from about 243 MB to about 129 MB.
+  - Checked on Linux with SDK 0.3.296 (Claude Code 2.1.296) and an installed
+    Claude Code 2.1.311: `--agent-check` and the real-agent e2e, in dev and
+    in the AppImage. The smoke test uses a fake `claude` chosen in the
+    settings, so a `claude` installed on the machine does not change it.
 
 ## Epic D: Later
 

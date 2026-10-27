@@ -5,7 +5,8 @@
  * hold, links go to the system browser, and "Done" reaches main. The GitHub
  * login and the repository and PR lists run against a fake GitHub. The agent review
  * of a PR is checked up to the point where Claude would start
- * (scripts/review-e2e.ts runs the real agent).
+ * (scripts/review-e2e.ts runs the real agent), with a fake `claude` chosen
+ * in the settings (US-21): too old at first, then new enough.
  *
  *   pnpm --filter desktop smoke     (builds first; on Linux without a display,
  *                                    run it under `xvfb-run -a`)
@@ -16,7 +17,7 @@
 /// <reference lib="dom.iterable" />
 /// <reference path="../src/renderer/src/env.d.ts" />
 // (page.evaluate callbacks run in the renderer: DOM types and window.reviewBuddy.)
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -94,6 +95,17 @@ const OLD_5 = "e".repeat(40);
   }
   writeFileSync(join(dir, "index.json"), JSON.stringify(index));
 }
+// The Claude Code the app uses (US-21): a fake `claude` that prints the
+// version in a file, chosen in the settings, so only it is checked (not one
+// installed on this machine). The test changes the version to "update" it.
+const fakeClaude = join(userDataDir, "fake-claude", "claude");
+const fakeClaudeVersion = join(userDataDir, "fake-claude", "version");
+mkdirSync(join(userDataDir, "fake-claude"));
+writeFileSync(fakeClaudeVersion, "2.1.0 (Claude Code)\n");
+writeFileSync(fakeClaude, `#!/bin/sh\ncat "${fakeClaudeVersion}"\n`);
+chmodSync(fakeClaude, 0o755);
+writeFileSync(join(userDataDir, "settings.json"), JSON.stringify({ claudePath: fakeClaude }));
+
 const app: ElectronApplication = await _electron.launch({
   executablePath: packaged ?? electronPath,
   // Chromium refuses to run as root with its sandbox on (CI containers).
@@ -123,6 +135,35 @@ try {
   await page.getByRole("button", { name: "Sample review", exact: true }).click();
   await page.getByText("Friendlier greetings and calmer retries").first().waitFor();
   check(true, "the sample review is one click away");
+
+  // Claude Code (US-21): too old, so reviews cannot run, and the app says why.
+  const banner = page.getByRole("alert").filter({ hasText: "Reviews cannot run." });
+  await banner
+    .getByText(/Claude Code 2\.1\.0 is too old for this app \(needs \d+\.\d+\.\d+ or newer\)/)
+    .waitFor();
+  await page.getByLabel("Pull request").fill("octo-org/widgets#12");
+  const barReview = page.getByRole("button", { name: "Review", exact: true });
+  check(
+    (await barReview.isDisabled()) &&
+      ((await barReview.getAttribute("title")) ?? "").includes("claude update"),
+    "a too-old Claude Code: a banner says why, and Review is off",
+  );
+  await banner.getByRole("button", { name: "Claude Code settings" }).click();
+  const claudeStatus = page.getByRole("status", { name: "Claude Code status" });
+  await claudeStatus.getByText("Claude Code 2.1.0 is too old", { exact: true }).waitFor();
+  check(
+    (await claudeStatus.innerText()).includes(`${fakeClaude} (chosen)`),
+    "the settings show the Claude Code in use, its path, and that it was chosen",
+  );
+  writeFileSync(fakeClaudeVersion, "99.0.0 (Claude Code)\n"); // `claude update`
+  await page.getByRole("button", { name: "Check again" }).click();
+  await claudeStatus.getByText("✓ Claude Code 99.0.0").waitFor();
+  await page.getByRole("button", { name: "Back", exact: true }).click();
+  check(
+    (await banner.count()) === 0 && (await barReview.isEnabled()),
+    "after an update and Check again, reviews can run",
+  );
+  await page.getByLabel("Pull request").fill("");
 
   // Security settings, as main applied them and as the page sees them.
   const prefs = await app.evaluate(({ BrowserWindow }) => {
@@ -603,8 +644,8 @@ try {
   check(inPage.noNode, "no Node globals in the renderer");
   check(
     inPage.bridge.join() ===
-      "github.markRepoUsed,github.pulls,github.repos,github.signInWithToken,github.signOut,github.status,github.useGh,review.deleteAllSaved,review.deleteSaved,review.done,review.getConfig,review.getFileContent,review.getReview,review.jobs,review.onJobs,review.saved,review.start,review.stop",
-    `preload exposes only the review and GitHub calls (${inPage.bridge.join()})`,
+      "claude.check,claude.choose,claude.search,claude.status,github.markRepoUsed,github.pulls,github.repos,github.signInWithToken,github.signOut,github.status,github.useGh,review.deleteAllSaved,review.deleteSaved,review.done,review.getConfig,review.getFileContent,review.getReview,review.jobs,review.onJobs,review.saved,review.start,review.stop",
+    `preload exposes only the review, GitHub and Claude Code calls (${inPage.bridge.join()})`,
   );
   check(inPage.inlineBlocked, "CSP blocks inline scripts");
   check(inPage.remoteFetch === "blocked", "CSP blocks fetching remote hosts");

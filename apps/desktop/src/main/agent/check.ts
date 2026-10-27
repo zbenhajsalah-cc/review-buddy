@@ -17,6 +17,8 @@ export interface AgentCheckResult {
   answer?: string;
   model?: string;
   claudeCodeVersion?: string;
+  /** The installed Claude Code that answered (US-21). */
+  claudePath?: string;
   /**
    * Where the credential came from (see SDKSystemMessage.apiKeySource):
    * "none" with an Anthropic account = the user's Claude login (OAuth);
