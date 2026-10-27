@@ -87,7 +87,7 @@ later as the fallback for very large PRs. A large PR must fail clearly, never
 render a partial diff as complete ("never fabricate changes").
 
 `git.ts` itself moves to `packages/core` (as a `node`-only subpath export, for
-example `@review-buddy/core/git`) so both apps import the same file. Its guards
+example `@review-buddy/core/node/git`) so both apps import the same file. Its guards
 (`assertSafeRef`, `assertPrRef`, symlink check) move with it.
 
 ### 2.2 The viewer: `packages/viewer`
@@ -143,8 +143,7 @@ The template moves to `packages/core/prompts/`.
 ## 3. Plugin only: `apps/plugin`
 
 `src/mcp/*`, `src/cli/index.ts`, `src/server/http.ts` (the loopback server),
-`src/server/browser.ts`, the local part of `session.ts` (`captureForSource`,
-`openReviewSession`), `hooks/hooks.json`, `bin/review-buddy.js`,
+`src/server/browser.ts`, the local part of `session.ts` (`openReviewSession`), `hooks/hooks.json`, `bin/review-buddy.js`,
 `.claude-plugin/plugin.json`, `skills/`, `integrations/`, `examples/`.
 
 ## 4. Desktop only: `apps/desktop`

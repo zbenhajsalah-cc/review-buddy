@@ -15,18 +15,10 @@
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { buildMeta } from "@review-buddy/core/meta";
+import { localGitSource } from "@review-buddy/core/node/local-source";
 import { resolveReview } from "@review-buddy/core/resolve";
 import type { AgentReview } from "@review-buddy/core/types";
 import { openBrowser } from "./browser.ts";
-import {
-  assertSafeRef,
-  captureDiff,
-  capturePr,
-  capturePrDiff,
-  ensureCommit,
-  prBaseRef,
-  resolveBase,
-} from "./git.ts";
 import { type RunningServer, startServer } from "./http.ts";
 
 const repoRoot = join(import.meta.dir, "..", "..");
@@ -34,47 +26,6 @@ const repoRoot = join(import.meta.dir, "..", "..");
 function uiDir(): string | undefined {
   const dir = join(repoRoot, "src", "ui", "dist");
   return existsSync(join(dir, "index.html")) ? dir : undefined;
-}
-
-/**
- * Capture the authoritative diff (source B) matching what the agent reviewed.
- * `agent.source` tells us which — the tool/hook can't see `/review`'s
- * arguments, so without this a PR review would re-capture the local working
- * tree (empty) and render no hunks. `base` is the ref used for full-file
- * expansion (source C).
- */
-export async function captureForSource(
-  agent: AgentReview,
-  cwd: string,
-): Promise<{
-  diff: string;
-  pr: ReturnType<typeof capturePr>;
-  base: string;
-  headRef?: string | null;
-}> {
-  const source = agent.source ?? { type: "worktree" };
-
-  if (source.type === "pr" && source.ref) {
-    const pr = capturePr(cwd, "HEAD", source.ref);
-    // The PR's reviewed state is a commit, not the local working tree. Fetch it
-    // once (at session startup, not per-request); null = unavailable, in which
-    // case full-file expansion is disabled rather than leaking worktree bytes.
-    const headRef =
-      pr.headRefOid && ensureCommit(cwd, pr.headRefOid, source.ref) ? pr.headRefOid : null;
-    // Base side: merge-base of the PR head and its base branch when we have the
-    // head SHA; otherwise keep the base branch name.
-    const base = typeof headRef === "string" ? prBaseRef(cwd, headRef, pr.base) : pr.base;
-    return { diff: capturePrDiff(cwd, source.ref), pr, base, headRef };
-  }
-
-  let base: string;
-  if (source.type === "branch" && source.ref) {
-    assertSafeRef(source.ref); // ref flows into `git diff <ref>` — block flag smuggling
-    base = source.ref;
-  } else {
-    base = resolveBase(cwd, process.env.REVIEW_BUDDY_BASE);
-  }
-  return { diff: await captureDiff(cwd, base), pr: capturePr(cwd, base), base };
 }
 
 export interface SessionOptions {
@@ -96,7 +47,11 @@ export async function openReviewSession(
   cwd: string,
   opts: SessionOptions = {},
 ): Promise<RunningServer> {
-  const { diff, pr, base, headRef } = await captureForSource(agent, cwd);
+  // Capture the authoritative diff (source B) matching what the agent reviewed;
+  // the same source then serves full-file reads (source C).
+  const source = localGitSource(cwd, agent.source, process.env.REVIEW_BUDDY_BASE);
+  const diff = await source.diff();
+  const pr = await source.pr();
   const { review, warnings } = resolveReview(
     agent,
     diff,
@@ -104,15 +59,14 @@ export async function openReviewSession(
     pr,
   );
   for (const w of warnings) console.error(`[review-buddy] ${w}`);
-  if (headRef === null) {
+  if (source.headRef === null) {
     console.error("[review-buddy] PR head not fetchable — full-file expansion disabled.");
   }
 
   const server = startServer({
     review,
     cwd,
-    baseRef: base,
-    headRef,
+    source,
     uiDir: uiDir(),
     roundtrip: opts.roundtrip ?? !!process.env.REVIEW_BUDDY_ROUNDTRIP,
   });

@@ -3,9 +3,10 @@ import { execFileSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { captureDiff, capturePr, fileContent, resolveBase } from "@review-buddy/core/node/git";
+import { localGitSource } from "@review-buddy/core/node/local-source";
 import { resolveReview } from "@review-buddy/core/resolve";
 import type { AgentReview, PrMetadata, ReviewMeta } from "@review-buddy/core/types";
-import { captureDiff, capturePr, resolveBase } from "./git.ts";
 import { type RunningServer, startServer } from "./http.ts";
 
 let dir: string;
@@ -56,7 +57,7 @@ beforeAll(async () => {
   };
   const pr: PrMetadata = capturePr(dir, base);
   const { review } = resolveReview(agent, await captureDiff(dir, base), META, pr);
-  server = startServer({ review, cwd: dir, baseRef: base });
+  server = startServer({ review, cwd: dir, source: localGitSource(dir) });
 });
 
 afterAll(() => {
@@ -102,7 +103,7 @@ describe("HTTP server", () => {
     };
     const pr = capturePr(dir, base);
     const { review } = resolveReview(agent, await captureDiff(dir, base), META, pr);
-    const s = startServer({ review, cwd: dir, baseRef: base, roundtrip: true });
+    const s = startServer({ review, cwd: dir, source: localGitSource(dir), roundtrip: true });
     try {
       const res = await fetch(`http://127.0.0.1:${s.port}/api/config`, {
         headers: { "x-review-buddy-token": s.token },
@@ -157,7 +158,12 @@ describe("HTTP server", () => {
     };
     const pr: PrMetadata = capturePr(dir, base);
     const { review } = resolveReview(agent, await captureDiff(dir, base), META, pr);
-    const s = startServer({ review, cwd: dir, baseRef: base, headRef: null });
+    const s = startServer({
+      review,
+      cwd: dir,
+      // PR mode with the head commit unavailable (LocalGitSource headRef: null).
+      source: { fileContent: async (p, side) => fileContent(dir, p, side, base, null) },
+    });
     try {
       const res = await fetch(`http://127.0.0.1:${s.port}/api/file-content?path=app.ts&side=head`, {
         headers: { "x-review-buddy-token": s.token },
@@ -252,7 +258,7 @@ describe("HTTP server", () => {
     };
     const pr: PrMetadata = capturePr(dir, base);
     const { review } = resolveReview(agent, await captureDiff(dir, base), META, pr);
-    const s = startServer({ review, cwd: dir, baseRef: base });
+    const s = startServer({ review, cwd: dir, source: localGitSource(dir) });
     try {
       // fetch overwrites Content-Length from the real body — curl can forge it.
       const proc = Bun.spawn([
@@ -306,7 +312,7 @@ describe("HTTP server", () => {
     };
     const pr: PrMetadata = capturePr(dir, base);
     const { review } = resolveReview(agent, await captureDiff(dir, base), META, pr);
-    return startServer({ review, cwd: dir, baseRef: base, uiDir });
+    return startServer({ review, cwd: dir, source: localGitSource(dir), uiDir });
   }
 
   test("serves index and assets from uiDir", async () => {
@@ -412,7 +418,7 @@ describe("HTTP server", () => {
     };
     const pr: PrMetadata = capturePr(dir, base);
     const { review } = resolveReview(agent, await captureDiff(dir, base), META, pr);
-    const s = startServer({ review, cwd: dir, baseRef: base, uiDir });
+    const s = startServer({ review, cwd: dir, source: localGitSource(dir), uiDir });
     try {
       const proc = Bun.spawn([
         "curl",

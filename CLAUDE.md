@@ -62,12 +62,14 @@ review-buddy/
 │   ├── src/validate.ts        # zod backstop for the agent payload
 │   ├── src/messages.ts        # agent-facing feedback text (resolution notes, request-changes)
 │   ├── src/meta.ts            # review meta
+│   ├── src/source.ts          # ReviewDataSource: where the diff, PR metadata, and file bytes come from
+│   ├── src/node/              # Node-only (no Bun APIs): git/gh capture + LocalGitSource; own tsconfig.node.json
 │   └── schemas/review.schema.json # JSON Schema = submit_review inputSchema
 ├── src/
 │   ├── mcp/server.ts          # MCP server exposing submit_review (+ standalone dispatch)
 │   ├── mcp/standalone.ts      # non-Claude harnesses: submit_review does capture+serve itself
 │   ├── cli/index.ts           # PreToolUse hook entry (open-review)
-│   ├── server/                # git capture, session lifecycle, local HTTP server, browser open
+│   ├── server/                # session lifecycle, local HTTP server, browser open
 │   └── ui/                    # Vite + React 19 + Tailwind v4 viewer (@pierre/diffs)
 ├── integrations/              # Cursor / VS Code Copilot / Codex MCP configs + review prompts
 ├── docs/

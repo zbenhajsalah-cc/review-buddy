@@ -1,0 +1,10 @@
+{
+  // Node-only part of core (src/node: git/gh capture). Node types, but no
+  // bun-types — so it runs in Electron main as well as in Bun.
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "types": ["node"]
+  },
+  "include": ["src/**/*.ts"],
+  "exclude": ["src/**/*.test.ts"]
+}

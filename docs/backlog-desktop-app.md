@@ -105,8 +105,10 @@ Acceptance criteria:
 - `ReviewDataSource` (`diff()`, `pr()`, `fileContent(path, side)`) is defined
   in core.
 - `git.ts` moves to core as a Node-only subpath export
-  (`@review-buddy/core/git`) with its tests and guards (`assertSafeRef`,
-  `assertPrRef`, symlink check).
+  (`@review-buddy/core/node/git`) with its tests and guards (`assertSafeRef`,
+  `assertPrRef`, symlink check). `src/node/` has its own typecheck with Node
+  types and no Bun types; pure core code that imports it fails the pure
+  typecheck.
 - `LocalGitSource` implements the interface for the worktree / branch / PR
   modes. `openReviewSession` and the `/api/file-content` route use it.
 - No behavior change for the plugin.

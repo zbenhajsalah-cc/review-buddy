@@ -7,7 +7,7 @@ import { execFile, execFileSync } from "node:child_process";
 import { existsSync, readFileSync, realpathSync } from "node:fs";
 import { join, sep } from "node:path";
 import { promisify } from "node:util";
-import type { PrMetadata } from "@review-buddy/core/types";
+import type { PrMetadata } from "../types.ts";
 
 /** git's hash of the empty tree — used to diff a repo with no commits yet. */
 export const EMPTY_TREE = "4b825dc642cb6eb9a060e54bf8d69288fbee4904";

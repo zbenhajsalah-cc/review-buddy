@@ -17,9 +17,9 @@
  */
 import { isAbsolute } from "node:path";
 import { requestChangesMessage, resolutionNotesMessage } from "@review-buddy/core/messages";
+import { repoToplevel } from "@review-buddy/core/node/git";
 import type { AgentReview } from "@review-buddy/core/types";
 import { validateAgentReview } from "@review-buddy/core/validate";
-import { repoToplevel } from "../server/git.ts";
 import type { RunningServer } from "../server/http.ts";
 import { openReviewSession } from "../server/session.ts";
 import type { StandaloneMode } from "./mode.ts";

@@ -104,12 +104,12 @@ Hitting an install or runtime snag (e.g. a Windows `EPERM` on install, `bun: com
 ## Layout
 
 ```
-packages/core/       # @review-buddy/core: contracts, diff parser, chapter resolution, validation
+packages/core/       # @review-buddy/core: contracts, diff parser, chapter resolution, validation, git capture (src/node)
   schemas/           # review.schema.json = submit_review input schema
 src/
   mcp/server.ts      # MCP server exposing submit_review
   cli/index.ts       # PreToolUse hook entry (open-review)
-  server/            # git capture, session lifecycle, local HTTP server, browser open
+  server/            # session lifecycle, local HTTP server, browser open
   ui/                # Vite + React 19 + Tailwind v4 viewer (@pierre/diffs)
 docs/                # PRD, ARCHITECTURE, review-contract, build-plan, HARNESSES
 examples/hooks.json  # example Claude Code plugin hook config

@@ -15,8 +15,8 @@ import { existsSync } from "node:fs";
 import { join, resolve, sep } from "node:path";
 import { languageOf } from "@review-buddy/core/diff";
 import { allowedPaths } from "@review-buddy/core/resolve";
+import type { ReviewDataSource } from "@review-buddy/core/source";
 import type { ResolvedReview } from "@review-buddy/core/types";
-import { fileContent } from "./git.ts";
 
 /** True iff `rel` resolves lexically inside `root` (blocks `..` only; does not dereference symlinks — link escape is guarded at read time in fileContent). */
 function isInside(root: string, rel: string): boolean {
@@ -27,14 +27,10 @@ function isInside(root: string, rel: string): boolean {
 
 export interface ServerContext {
   review: ResolvedReview;
+  /** Repo root — /api/file-content paths must resolve inside it. */
   cwd: string;
-  baseRef: string;
-  /**
-   * PR head ref for file-content expansion. SHA = read that commit; null = PR
-   * mode but the commit isn't available (serve "", never the worktree);
-   * undefined = worktree/branch mode (read the working tree). See fileContent.
-   */
-  headRef?: string | null;
+  /** Serves /api/file-content (source C) for allowlisted paths. */
+  source: Pick<ReviewDataSource, "fileContent">;
   /** Directory of the built React UI (src/ui/dist). Falls back to a placeholder. */
   uiDir?: string;
   /** Phase 2 spike: REVIEW_BUDDY_ROUNDTRIP — exposes the verdict UI via /api/config. */
@@ -160,7 +156,7 @@ export function startServer(ctx: ServerContext): RunningServer {
         // Allowlist (review files only) + containment guard against traversal.
         if (!allowed.has(path)) return json({ error: "unknown path" }, 403);
         if (!isInside(ctx.cwd, path)) return json({ error: "path outside repo" }, 400);
-        const content = fileContent(ctx.cwd, path, side, ctx.baseRef, ctx.headRef);
+        const content = await ctx.source.fileContent(path, side);
         return json({ path, side, language: languageOf(path), content });
       }
 
