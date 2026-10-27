@@ -64,6 +64,7 @@ VERSION_FILES=(
   "apps/plugin/ui/package.json"
   "packages/core/package.json"
   "packages/viewer/package.json"
+  "apps/desktop/package.json"
 )
 
 # Blockers are collected during preflight so a dry run can show them all at once.

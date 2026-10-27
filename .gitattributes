@@ -8,3 +8,7 @@ apps/plugin/ui/dist/** linguist-generated=true -diff
 # apps/plugin/scripts/build-plugin.ts, checked by CI's verify:dist-fresh.
 # Review the source.
 apps/plugin/dist/** linguist-generated=true -diff
+
+# Recorded GitHub API responses (apps/desktop tests): keep the bytes exactly
+# as recorded (no line-ending conversion).
+apps/desktop/src/main/github/fixtures/** -text

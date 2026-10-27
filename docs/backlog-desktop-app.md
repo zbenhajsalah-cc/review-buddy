@@ -329,6 +329,32 @@ Acceptance criteria:
 - The desktop prompt variant (US-07) is the system prompt.
 - For a hard-coded PR, the viewer shows Prologue + Chapters, and "expand full
   file" works.
+- Decisions made while building it:
+  - The tools are an in-process MCP server (`createSdkMcpServer`). The SDK's
+    `tool()` takes zod, not JSON Schema, so `submit_review` uses the shared
+    schema converted with `z.fromJSONSchema`, without `cwd` and `source` (the
+    app knows the PR). A test lists the tools over MCP and checks the schema
+    the agent sees equals the shared one.
+  - The agent gets `tools: []` (no built-in tools at all), `permissionMode:
+    "dontAsk"` with only the three tools allowed, no settings files and no
+    other MCP servers.
+  - The runner reads the PR (metadata + diff) before Claude starts, so a PR
+    too large for the API fails without spending tokens. That one diff
+    string goes to `get_pr_diff` and to `resolveReview`.
+  - `get_pr_diff` sends a large diff in parts of at most 40k characters
+    (Claude Code cuts MCP output at about 25k tokens), split at files, then
+    hunks. The parts join back to the exact diff. `read_file` reads only the
+    PR's files, with line numbers, in windows.
+  - `submit_review` accepts at most 3 resolved submissions (the first plus
+    the 2 fixes the prompt allows). The app shows the last one, even if the
+    run ends badly afterwards (for example out of turns).
+  - "Hard-coded PR": the top bar takes `owner/repo#123` or a PR URL (and
+    `--review-pr=…` starts one at launch), so you can try your own PRs until
+    the PR screens exist. One run at a time; it can be stopped.
+  - Checked end to end with the real agent (`scripts/review-e2e.ts`, faked
+    GitHub with the recorded PR #28): Prologue and all chapters show, and
+    "expand full file" works, in dev and in a packaged build. About 15–25 s
+    and a few cents for this small PR.
 
 ## Epic C: Desktop app
 

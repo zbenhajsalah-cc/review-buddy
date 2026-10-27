@@ -65,6 +65,7 @@ review-buddy/
 │   ├── integrations/          # Cursor / VS Code Copilot / Codex MCP configs + GENERATED review prompts
 │   ├── examples/hooks.json    # example plugin hook config (installed-binary form)
 │   └── scripts/               # build-plugin.ts (bundles → dist/), smoke-plugin.ts (runs apps/plugin alone)
+├── apps/desktop/              # Electron desktop app (in progress, see apps/desktop/README.md): main (window, app:// + CSP, IPC, Agent SDK `--agent-check`, GitHub login: gh or a pasted token in safeStorage, never sent to the renderer; `GitHubApiSource` = ReviewDataSource over the GitHub REST API, `--pr-check`; agent runner = Agent SDK `query()` with only in-process `get_pr_diff` / `read_file` / `submit_review` tools and the desktop prompt, one run at a time), preload (window.reviewBuddy = { review, github }), renderer (top-bar PR box + run progress + <ReviewViewer api={ipcReviewApi} />); `package` = electron-builder --dir
 ├── packages/core/             # @review-buddy/core — runtime-neutral (no Bun/Node/DOM APIs; its typecheck enforces it)
 │   ├── src/types.ts           # shared agent + UI/server contracts
 │   ├── src/diff.ts            # git diff parser
@@ -74,12 +75,14 @@ review-buddy/
 │   ├── src/messages.ts        # agent-facing feedback text (resolution notes, request-changes)
 │   ├── src/meta.ts            # review meta
 │   ├── src/source.ts          # ReviewDataSource: where the diff, PR metadata, and file bytes come from
+│   ├── src/viewer-csp.ts      # VIEWER_CSP: the one CSP for every app that shows the viewer (plugin server, desktop renderer)
 │   ├── src/node/              # Node-only (no Bun APIs): git/gh capture + LocalGitSource; own tsconfig.node.json
 │   ├── schemas/review.schema.json # JSON Schema = submit_review inputSchema
 │   └── prompts/               # review-template.md (ONE template, {{#standalone}}/{{#desktop}} blocks) → `pnpm gen:prompts` → integration prompts + review-desktop.md
 ├── packages/viewer/           # @review-buddy/viewer — the review UI (React 19 + Tailwind v4 + @pierre/diffs), no app shell
 │   ├── src/ReviewViewer.tsx   # <ReviewViewer api /> — validates the review, overview ↔ chapters
 │   ├── src/review-api.tsx     # ReviewApi (reviewKey, getReview, getFileContent, getConfig, done) + context; HTTP in the plugin, IPC in desktop
+│   ├── src/ui.ts              # `@review-buddy/viewer/ui`: the shadcn primitives (Button, Card, …) for the apps' own screens
 │   ├── src/theme.css          # tokens + base styles; each app's CSS imports it AND adds `@source` for packages/viewer/src
 │   └── src/stories/fixtures.ts # fixtures + fakeReviewApi() for stories and tests
 ├── docs/

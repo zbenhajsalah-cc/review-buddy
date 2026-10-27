@@ -86,6 +86,10 @@ Recommendation: **start with A** for listing and small/medium PRs. Add B
 later as the fallback for very large PRs. A large PR must fail clearly, never
 render a partial diff as complete ("never fabricate changes").
 
+A is done (US-11): `apps/desktop/src/main/github/api-source.ts`. Beyond the
+406 `too_large` answer, it also refuses any diff whose file and line counts
+differ from the PR's. See `apps/desktop/README.md` "Reading a PR".
+
 `git.ts` itself moves to `packages/core` (as a `node`-only subpath export, for
 example `@review-buddy/core/node/git`) so both apps import the same file. Its guards
 (`assertSafeRef`, `assertPrRef`, symlink check) move with it.
@@ -155,19 +159,27 @@ The template moves to `packages/core/prompts/`.
   comes from PRs and the agent, so treat it as untrusted.
 - **GitHub token:** for personal use, the simplest path is `gh auth token` if
   `gh` is logged in. Otherwise use GitHub OAuth device flow, or let the user
-  paste a token. Store it with Electron `safeStorage`.
+  paste a token. Store it with Electron `safeStorage`. Done in US-10 (gh, or a
+  pasted token; device flow later): `apps/desktop/README.md` "GitHub login".
 - **Claude:** the Agent SDK runs Claude Code under the hood. For personal use it
-  can use the login already on the machine. **Spike first**: confirm this works
-  from a packaged Electron app (the SDK starts a child process; packaging may
-  need `asarUnpack` for the SDK package).
+  can use the login already on the machine. Checked in US-09: from Electron
+  main, in dev and in a packaged Linux build. The Claude Code binary (an
+  optional per-platform package of the SDK) must be unpacked from the asar,
+  and main passes its unpacked path as `pathToClaudeCodeExecutable`. Details
+  and the remaining check on a real login: `apps/desktop/README.md`.
 - **Agent runner:** `query()` with an **in-process MCP tool** `submit_review`
   (same JSON schema) whose handler runs `validateAgentReview` → `resolveReview`
   and returns the resolution notes to the agent, so it can fix bad anchors in
   the same run. Give the agent read-only tools backed by the data source
   (`get_pr_diff`, `read_file`), not a shell. The agent and `resolveReview` read
-  the **same** diff string, so anchors line up exactly.
+  the **same** diff string, so anchors line up exactly. Done in US-12
+  (`apps/desktop/src/main/agent/`). The SDK's `tool()` takes zod, so the
+  shared JSON schema (minus `cwd` and `source`) goes through
+  `z.fromJSONSchema`; a test checks the schema the agent sees is the shared
+  one. A large diff comes in parts that join back to the exact string.
 - **Jobs:** a review takes minutes. Run it in main, stream progress to the
-  renderer, allow cancel.
+  renderer, allow cancel. US-12: one run at a time in main; the renderer polls
+  its status (steps so far) and can stop it.
 - **Cache:** keep `ResolvedReview` per `owner/repo#n@headSha` in the app data
   folder, so reopening a PR does not re-run the agent. Re-run when the head SHA
   changes.
@@ -233,7 +245,11 @@ Test before merging: copy `apps/plugin` alone into an empty temp folder with no
   pnpm `node_modules`). Users of the plugin still need Bun, as today.
 - **Electron** packaging with pnpm's symlinked `node_modules` often needs
   `node-linker=hoisted` for that app (set in `apps/desktop/.npmrc` or via the
-  packager's config). Check this in the desktop spike.
+  packager's config). Checked in US-08: not needed for `dev`, `build` and
+  `start`, because main and preload bundle all their imports and the built
+  app needs no `node_modules`. US-09 added the Agent SDK as the one external
+  package; electron-builder packages it from pnpm's layout, still without
+  `hoisted`. See `apps/desktop/README.md`.
 - CI: install pnpm from `packageManager`, keep `oven-sh/setup-bun` (version
   from `.bun-version`), `pnpm install --frozen-lockfile`.
 

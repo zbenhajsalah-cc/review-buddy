@@ -1,5 +1,8 @@
 node_modules/
 dist/
+# electron-vite build output and electron-builder packages (apps/desktop); never committed.
+out/
+/apps/desktop/release/
 *.log
 .DS_Store
 storybook-static

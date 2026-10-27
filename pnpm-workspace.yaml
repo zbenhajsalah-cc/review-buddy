@@ -4,3 +4,6 @@ packages:
   - apps/plugin/ui
 allowBuilds:
   esbuild: true
+  # electron-builder's Windows Squirrel helper (apps/desktop); its postinstall
+  # is not needed to build the app.
+  electron-winstaller: false
