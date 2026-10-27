@@ -51,16 +51,24 @@ the plugin and the desktop app can share local packages.
 Acceptance criteria:
 - `pnpm-workspace.yaml` exists. The root and `src/ui` are workspace packages for
   now. No source file moves.
-- `bun.lock` and `src/ui/bun.lock` are removed; `pnpm-lock.yaml` is committed.
+- `src/ui/bun.lock` is removed; `pnpm-lock.yaml` is committed, imported from
+  the Bun lockfiles so every package keeps its exact version.
+- The root `bun.lock` **stays**: local-clone installs (plugin from a path,
+  Cursor / Copilot / Codex) run plain `bun install`, which reads `bun.lock` but
+  not `pnpm-lock.yaml` (verified: without it, they get the newest versions).
+  `verify:bun-lock` fails CI when it no longer matches `package.json`. US-04
+  removes it. Note: GitHub installs use Bun auto-install, which ignores
+  `bun.lock` and always takes the newest versions in range; that is today's
+  behavior too, and US-04 fixes it.
 - Root scripts run with `pnpm` (`pnpm verify`, `pnpm verify:ci`). Bun stays
-  the runtime and the test runner (`bun test`).
-- CI uses `pnpm/action-setup` + `oven-sh/setup-bun` and
-  `pnpm install --frozen-lockfile`.
+  the runtime and the test runner (`bun test`). Bun's version moves from
+  `packageManager` to `.bun-version`.
+- CI installs pnpm (version from `packageManager`), runs `setup-bun` with
+  `.bun-version`, and `pnpm install --frozen-lockfile`.
 - The committed viewer `dist/` is byte-identical after the switch
   (`verify:dist-fresh` passes).
 - README "Development" section uses pnpm. The plugin user instructions are
-  unchanged (Bun auto-install still works, because the plugin code does not
-  change yet).
+  unchanged (`bun install` in a local clone and Bun auto-install still work).
 
 ### US-02: `packages/core` with the pure review logic
 
@@ -99,8 +107,9 @@ Acceptance criteria:
 ### US-04: Bundled plugin entry points
 
 **As a** plugin user, **I want** the plugin to start without downloading
-packages, **so that** it keeps working after the monorepo move (and the first
-launch needs no network).
+packages, **so that** it keeps working after the monorepo move, runs the exact
+dependency versions we tested (today GitHub installs auto-install the newest
+versions in range), and the first launch needs no network.
 
 Acceptance criteria:
 - A build step (`bun build --target=bun`) creates `dist/server.js` (MCP server)
@@ -109,6 +118,8 @@ Acceptance criteria:
 - `plugin.json`, `hooks.json` and `bin/review-buddy.js` point at the bundles.
 - The bundles are committed, marked `linguist-generated` in `.gitattributes`,
   and covered by `verify:dist-fresh` (the build is deterministic).
+- The root `bun.lock` and the `verify:bun-lock` script are removed (nothing
+  auto-installs any more).
 - A CI smoke test copies the plugin files into an empty folder with **no
   `node_modules`**, then:
   - pipes a sample hook event into `hook.js` and gets a valid PreToolUse answer;

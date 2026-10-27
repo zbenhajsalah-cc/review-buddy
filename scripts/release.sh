@@ -327,10 +327,10 @@ main() {
     # Rebuild the committed viewer so every release ships current bytes. The
     # build is deterministic (content-hashed chunks), so this is a no-op stage
     # when src/ui/dist is already fresh; when UI source moved ahead of the
-    # committed artifact, it brings dist up to date (plan 016). `bun` is only
+    # committed artifact, it brings dist up to date (plan 016). `pnpm` is only
     # required for a real release, not for a dry-run preview.
-    require_command bun
-    (cd "$REPO_ROOT/src/ui" && bun install --frozen-lockfile) && bun run build:ui
+    require_command pnpm
+    (cd "$REPO_ROOT" && pnpm install --frozen-lockfile && pnpm build:ui)
     step "Rebuild the committed viewer (src/ui/dist)"
 
     for f in "${VERSION_FILES[@]}"; do

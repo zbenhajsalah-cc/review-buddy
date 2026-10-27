@@ -217,7 +217,9 @@ prebuilt:
   inlined too (no runtime `readFileSync` of `../../schemas`).
 - Commit `dist/`, extend `verify:dist-fresh` to cover it, and mark it
   `linguist-generated` in `.gitattributes`.
-- Bonus: the first launch no longer needs network access for auto-install.
+- Bonus: the first launch no longer needs network access, and GitHub installs
+  run the tested versions. (Measured: Bun auto-install ignores `bun.lock` and
+  takes the newest versions in range, so today GitHub installs float.)
 
 Test before merging: copy `apps/plugin` alone into an empty temp folder with no
 `node_modules`, then run the hook and MCP server from there.
@@ -225,14 +227,16 @@ Test before merging: copy `apps/plugin` alone into an empty temp folder with no
 ### Bun and pnpm together
 
 - **pnpm** owns installs and workspaces (`workspace:*` links, one
-  `pnpm-lock.yaml`). Remove `bun.lock` and `src/ui/bun.lock`.
+  `pnpm-lock.yaml`). `src/ui/bun.lock` is removed. The root `bun.lock` stays
+  until the plugin is bundled, because local-clone installs run `bun install`,
+  which does not read `pnpm-lock.yaml`.
 - **Bun** stays the plugin's runtime and the test runner (`bun test` works on a
   pnpm `node_modules`). Users of the plugin still need Bun, as today.
 - **Electron** packaging with pnpm's symlinked `node_modules` often needs
   `node-linker=hoisted` for that app (set in `apps/desktop/.npmrc` or via the
   packager's config). Check this in the desktop spike.
-- CI: add `pnpm/action-setup`, keep `oven-sh/setup-bun`,
-  `pnpm install --frozen-lockfile`.
+- CI: install pnpm from `packageManager`, keep `oven-sh/setup-bun` (version
+  from `.bun-version`), `pnpm install --frozen-lockfile`.
 
 (Bun also has native workspaces. pnpm is chosen; this is only noted because
 Bun is already required.)

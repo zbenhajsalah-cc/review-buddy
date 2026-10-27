@@ -14,8 +14,7 @@
       "!!src/ui/dist",
       "!!storybook-static",
       "!!**/*.tsbuildinfo",
-      "!!bun.lock",
-      "!!src/ui/bun.lock"
+      "!!bun.lock"
     ]
   },
   "formatter": {

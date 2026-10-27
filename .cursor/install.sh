@@ -2,14 +2,16 @@
 # Idempotent Cloud Agent bootstrap for Review Buddy.
 #
 # Layers:
-#   1. Bun toolchain, pinned to package.json "packageManager" (and CI's setup-bun).
-#   2. Backend + viewer dependencies, frozen to the committed lockfiles.
+#   1. Bun toolchain, pinned by .bun-version (shared with CI's setup-bun).
+#   2. pnpm, pinned by package.json "packageManager" (shared with CI).
+#   3. Workspace dependencies (backend + viewer), frozen to pnpm-lock.yaml.
 #
 # The viewer ships prebuilt in src/ui/dist (committed), so there is no build
 # step here. Safe to run repeatedly and against a cached/partial home.
 set -euo pipefail
 
-BUN_VERSION="1.3.5"
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+BUN_VERSION="$(tr -d '[:space:]' < "$REPO_ROOT/.bun-version")"
 
 # --- 1. Bun -----------------------------------------------------------------
 export BUN_INSTALL="${BUN_INSTALL:-$HOME/.bun}"
@@ -29,10 +31,16 @@ fi
 
 echo "[install] Using $(bun --version) at $(command -v bun)"
 
-# --- 2. Dependencies --------------------------------------------------------
-# Backend: the MCP server + PreToolUse hook (@modelcontextprotocol/sdk, zod).
-bun install --frozen-lockfile
-# Viewer: Vite + React 19 + Tailwind v4 package.
-bun install --frozen-lockfile --cwd src/ui
+# --- 2. pnpm ----------------------------------------------------------------
+PNPM_SPEC="$(node -p 'require(process.argv[1]).packageManager' "$REPO_ROOT/package.json")"
+if ! command -v pnpm >/dev/null 2>&1 || [ "pnpm@$(pnpm --version 2>/dev/null)" != "$PNPM_SPEC" ]; then
+  echo "[install] Installing ${PNPM_SPEC}…"
+  npm install -g "$PNPM_SPEC"
+fi
+
+# --- 3. Dependencies --------------------------------------------------------
+# One install covers the workspace: the backend (MCP server + PreToolUse hook)
+# and the viewer (src/ui: Vite + React 19 + Tailwind v4).
+(cd "$REPO_ROOT" && pnpm install --frozen-lockfile)
 
 echo "[install] Done."

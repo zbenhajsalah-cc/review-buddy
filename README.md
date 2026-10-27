@@ -118,26 +118,26 @@ integrations/        # Cursor / VS Code Copilot / Codex configs + review prompts
 
 ## Development
 
-Backend runs on [Bun](https://bun.sh); the viewer is a separate Vite package.
+The repo is a [pnpm](https://pnpm.io) workspace: the root package (MCP server + hook) and the viewer (`src/ui`, a Vite package). pnpm installs everything; [Bun](https://bun.sh) still runs the backend, the scripts, and the tests. Versions: pnpm from `package.json` `packageManager`, Bun from `.bun-version`.
 
-`bun run verify` is the fast local loop (tests + both typechecks); `bun run verify:ci` is the exact gate CI runs on every pull request and on pushes to `main`/`develop` (it adds the UI production build). Run `bun run verify:ci` before opening a PR. Note that `verify` assumes deps are already installed in both packages (run the `bun install` steps first).
+`pnpm verify` is the fast local loop (tests + both typechecks); `pnpm verify:ci` is the exact gate CI runs on every pull request and on pushes to `main`/`develop` (it adds the UI production build). Run `pnpm verify:ci` before opening a PR.
 
 ```bash
-bun run verify         # fast local loop: backend tests + backend & UI typechecks
-bun run verify:ci      # full gate CI runs: verify + UI production build
-bun install            # backend deps
-bun test               # backend tests
-bun run typecheck      # backend tsc
+pnpm install           # all workspace deps (backend + viewer), from pnpm-lock.yaml
+pnpm verify            # fast local loop: backend tests + backend & UI typechecks
+pnpm verify:ci         # full gate CI runs: verify + UI production build
+pnpm test              # backend tests
+pnpm typecheck         # backend tsc
 
-cd src/ui
-bun install
-bun run dev            # viewer dev server (proxies /api → 127.0.0.1:5199)
-bun run build          # typecheck + production build (writes the committed src/ui/dist)
+pnpm --filter review-buddy-ui dev     # viewer dev server (proxies /api → 127.0.0.1:5199)
+pnpm build:ui                         # typecheck + production build (writes the committed src/ui/dist)
 ```
 
-Component stories live in `src/ui`. Run `cd src/ui && bun run storybook` for the dev catalog on port 6006, or `bun run build-storybook` for a static build.
+Component stories live in `src/ui`. Run `pnpm --filter review-buddy-ui storybook` for the dev catalog on port 6006, or `pnpm --filter review-buddy-ui build-storybook` for a static build.
 
-> **Contributors:** `src/ui/dist` is a **committed** prebuilt artifact (so installs need no build). If you change viewer source, rebuild (`cd src/ui && bun run build`) and commit the updated `src/ui/dist` in the same PR — CI fails otherwise. The build is deterministic and grammar chunks are content-hashed, so a typical UI change only rewrites the small core chunk. Reviewers verify the CI freshness check rather than reviewing the artifact bytes.
+> **Why there is still a `bun.lock`:** the plugin's local-clone install (and the Cursor / Copilot / Codex setup) runs plain `bun install` in the repo root, and the root `bun.lock` pins those versions. Bun does not read `pnpm-lock.yaml`, so `bun.lock` stays until the plugin ships bundled. If you change the root `package.json` dependencies, also run `bun install --lockfile-only`. `pnpm verify:ci` fails when `bun.lock` no longer matches `package.json`.
+
+> **Contributors:** `src/ui/dist` is a **committed** prebuilt artifact (so installs need no build). If you change viewer source, rebuild (`pnpm build:ui`) and commit the updated `src/ui/dist` in the same PR — CI fails otherwise. The build is deterministic and grammar chunks are content-hashed, so a typical UI change only rewrites the small core chunk. Reviewers verify the CI freshness check rather than reviewing the artifact bytes.
 
 See `docs/build-plan.md` for the phased task breakdown and `docs/review-contract.md` for the agent vs UI/server contracts.
 
