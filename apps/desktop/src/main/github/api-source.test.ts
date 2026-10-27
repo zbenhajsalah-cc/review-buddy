@@ -54,6 +54,24 @@ const open = (gh = fakeGitHub(), ref = REF) =>
   openGitHubPr(ref, { fetch: gh.fetch, token: async () => "ghp_test" });
 
 describe("openGitHubPr (recorded responses)", () => {
+  test("every request carries the stop signal", async () => {
+    const stop = new AbortController();
+    const seen: (AbortSignal | null | undefined)[] = [];
+    const gh = fakeGitHub();
+    const source = await openGitHubPr(REF, {
+      fetch: (url, init) => {
+        seen.push(init?.signal);
+        return gh.fetch(url, init);
+      },
+      token: async () => "ghp_test",
+      signal: stop.signal,
+    });
+    await source.diff();
+    await source.fileContent("packages/viewer/src/ReviewViewer.tsx", "base");
+    expect(seen).toHaveLength(4);
+    expect(seen.every((s) => s === stop.signal)).toBe(true);
+  });
+
   test("PR metadata, head SHA and merge base", async () => {
     const source = await open();
     expect(await source.pr()).toEqual({

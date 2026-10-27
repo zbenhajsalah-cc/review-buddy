@@ -10,11 +10,13 @@ async function setup(run?: ReviewJobDeps["run"]) {
   const { review, source } = await loadFixtureReview();
   const store = new ReviewStore();
   const opened: PrRef[] = [];
+  const signals: AbortSignal[] = [];
   const logs: string[] = [];
   const job = new ReviewJob({
     store,
-    open: async (ref) => {
+    open: async (ref, signal) => {
       opened.push(ref);
+      signals.push(signal);
       return { ...source, ref, headSha: HEAD, baseSha: HEAD } satisfies GitHubApiSource;
     },
     run:
@@ -25,7 +27,7 @@ async function setup(run?: ReviewJobDeps["run"]) {
       }),
     log: (line) => logs.push(line),
   });
-  return { job, store, opened, logs, review };
+  return { job, store, opened, signals, logs, review };
 }
 
 describe("ReviewJob", () => {
@@ -95,6 +97,48 @@ describe("ReviewJob", () => {
     stopped.job.stop();
     await stopped.job.whenIdle();
     expect(stopped.job.status()).toMatchObject({ state: "failed", error: "Stopped." });
+  });
+
+  test("stop after a submission: failed, and the review is not kept", async () => {
+    let submitted = () => {};
+    const { job, store, review } = await setup(
+      (_s, _l, onProgress, signal) =>
+        new Promise((resolve) => {
+          // The agent has submitted; the run is still going when Stop comes.
+          onProgress("Review submitted");
+          submitted();
+          signal.addEventListener("abort", () =>
+            resolve({ ok: true, review, warnings: [], submissions: 1, durationMs: 0 }),
+          );
+        }),
+    );
+    const ready = new Promise<void>((r) => {
+      submitted = r;
+    });
+    job.start("octocat/hello-world#42");
+    await ready;
+    job.stop();
+    await job.whenIdle();
+    expect(job.status()).toMatchObject({ state: "failed", error: "Stopped." });
+    expect(job.status().reviewKey).toBeUndefined();
+    expect(() => store.getReview("octocat/hello-world#42@7e8e70534d5f")).toThrow("unknown review");
+  });
+
+  test("stop reaches the GitHub requests; stop after the run changes nothing", async () => {
+    const { job, signals } = await setup();
+    job.start("octocat/hello-world#42");
+    job.stop();
+    expect(signals[0]!.aborted).toBe(true);
+    await job.whenIdle();
+    expect(job.status()).toMatchObject({ state: "failed", error: "Stopped." });
+
+    job.start("octocat/hello-world#42");
+    await job.whenIdle();
+    expect(job.status().state).toBe("done");
+    job.stop();
+    // The finished review's source still reads files with this signal.
+    expect(signals[1]!.aborted).toBe(false);
+    expect(job.status().state).toBe("done");
   });
 
   test("status() is a copy", async () => {

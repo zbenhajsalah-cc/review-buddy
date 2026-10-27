@@ -82,7 +82,12 @@ interface PullJson {
  */
 export async function openGitHubPr(
   prRef: PrRef,
-  deps: { fetch: FetchFn; token: () => Promise<string> },
+  deps: {
+    fetch: FetchFn;
+    token: () => Promise<string>;
+    /** Cancels every request of this PR (the user stopped the review). */
+    signal?: AbortSignal;
+  },
 ): Promise<GitHubApiSource> {
   const ref = parsePrRef(prRef);
   const repoUrl = `${GITHUB_API}/repos/${ref.owner}/${ref.repo}`;
@@ -92,7 +97,7 @@ export async function openGitHubPr(
     const headers = githubHeaders(await deps.token());
     if (accept) headers.accept = accept;
     try {
-      return await deps.fetch(url, { headers });
+      return await deps.fetch(url, { headers, signal: deps.signal });
     } catch (e) {
       throw new Error(`Could not reach GitHub (${e instanceof Error ? e.message : String(e)}).`);
     }

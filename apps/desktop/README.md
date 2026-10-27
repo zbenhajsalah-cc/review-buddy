@@ -62,10 +62,11 @@ The renderer shows text from PRs and from the agent, so it is treated as
 untrusted:
 
 - `contextIsolation: true`, `nodeIntegration: false`, `sandbox: true`. The
-  preload exposes four review calls and four GitHub calls, never
+  preload exposes seven review calls and four GitHub calls, never
   `ipcRenderer` itself.
-- Main answers IPC only from our renderer page (it checks the sender frame's
-  URL) and checks every argument. File reads are limited to the review's own
+- Main answers IPC only from our renderer page: the sender frame's URL must
+  be `index.html` (or `/`) on `app://renderer` (the Vite server in dev). Any
+  other file on that origin gets no IPC. Main also checks every argument. File reads are limited to the review's own
   files, as in the plugin (`allowedPaths`).
 - The built renderer is served from `app://renderer/`, not `file://`. Every
   response carries the plugin viewer's CSP (`VIEWER_CSP` in
@@ -186,7 +187,9 @@ pnpm --filter desktop dev -- --review-pr=owner/repo#123
 
 Main runs one review at a time (`src/main/agent/review-job.ts`). The window
 shows the steps (reading the diff, reading files, submitting) and a **Stop**
-button; when it is done, the viewer shows the review. A failure shows its
+button; when it is done, the viewer shows the review. **Stop** cancels the
+GitHub requests and the Claude run, and a stopped run shows no review, even
+if Claude had already submitted one. A failure shows its
 reason (not signed in to GitHub or Claude, PR too large, …). The console gets
 one `[review-buddy] review-run {…}` line per run, with the turns, cost and
 number of resolution notes.
@@ -199,7 +202,7 @@ system prompt, and three tools from an in-process MCP server
 | Tool | What it does |
 |---|---|
 | `get_pr_diff` | The PR's metadata and its diff. A large diff comes in parts of at most 40k characters (Claude Code cuts MCP output at about 25k tokens), split at files, then hunks; the parts join back to the exact diff. |
-| `read_file` | One of the PR's files at the head or the base, with line numbers, in windows. Other paths are refused. |
+| `read_file` | One of the PR's files at the head or the base, with line numbers, in windows. A line over 2,000 characters (minified code) is cut, with a note. Other paths are refused. |
 | `submit_review` | `validateAgentReview` → `resolveReview` against the same diff string, then answers with the resolution notes so the agent can fix its anchors. At most 3 submissions (the first + 2 fixes, as the prompt says); the app shows the last one. |
 
 Nothing else: `tools: []` turns off every built-in tool (no shell, no file

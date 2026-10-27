@@ -32,6 +32,12 @@ export const MAX_SUBMISSIONS = 3;
  * 25k tokens; 40k characters of code stay well under that.
  */
 export const MAX_PART_CHARS = 40_000;
+/**
+ * Longest line read_file shows; the rest is cut with a note. Long lines are
+ * minified or generated code, where the start is enough to judge it, and one
+ * such line must not fill (or overflow) a whole answer.
+ */
+export const MAX_LINE_CHARS = 2_000;
 
 /**
  * The shared submit_review JSON schema without `cwd` and `source`: the app
@@ -99,6 +105,11 @@ function packLines(text: string, max: number): string[] {
   }
   if (chunk) chunks.push(chunk);
   return chunks;
+}
+
+function cutLine(line: string): string {
+  if (line.length <= MAX_LINE_CHARS) return line;
+  return `${line.slice(0, MAX_LINE_CHARS)} … [line cut: ${line.length - MAX_LINE_CHARS} more characters]`;
 }
 
 export interface ReviewToolsInput {
@@ -209,7 +220,7 @@ export function createReviewTools(input: ReviewToolsInput): ReviewTools {
       let size = 0;
       let n = start_line;
       for (; n <= all.length; n++) {
-        const line = `${n}\t${all[n - 1]}`;
+        const line = `${n}\t${cutLine(all[n - 1]!)}`;
         if (size + line.length > MAX_PART_CHARS && shown.length > 0) break;
         shown.push(line);
         size += line.length + 1;

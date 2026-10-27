@@ -21,7 +21,17 @@ describe("isRendererUrl", () => {
   const dev = "http://localhost:5173";
   test("accepts the app:// renderer and the dev server", () => {
     expect(isRendererUrl("app://renderer/index.html", undefined)).toBe(true);
+    expect(isRendererUrl("app://renderer/", undefined)).toBe(true);
+    expect(isRendererUrl("app://renderer/index.html#chapter-2", undefined)).toBe(true);
     expect(isRendererUrl("http://localhost:5173/", dev)).toBe(true);
+    expect(isRendererUrl("http://localhost:5173/index.html?t=1", dev)).toBe(true);
+  });
+
+  test("only the one page, not other files on the same origin", () => {
+    expect(isRendererUrl("app://renderer/other.html", undefined)).toBe(false);
+    expect(isRendererUrl("app://renderer/assets/index.js", undefined)).toBe(false);
+    expect(isRendererUrl("app://renderer/sub/index.html", undefined)).toBe(false);
+    expect(isRendererUrl("http://localhost:5173/node_modules/x/page.html", dev)).toBe(false);
   });
 
   test("refuses everything else", () => {

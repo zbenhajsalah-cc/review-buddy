@@ -5,6 +5,7 @@ import {
   ALLOWED_TOOLS,
   createReviewTools,
   desktopReviewSchema,
+  MAX_LINE_CHARS,
   MAX_SUBMISSIONS,
   type ReviewToolsInput,
   splitDiff,
@@ -138,6 +139,17 @@ describe("read_file", () => {
     const base = await call("read_file", { path: "src/retry.ts", side: "base" });
     expect(base.text).toContain(`1\t${files["base:src/retry.ts"]!.split("\n")[0]}`);
     expect(steps).toEqual(["Reading src/retry.ts", "Reading src/retry.ts (before the PR)"]);
+  });
+
+  test("a very long line is cut, so a minified file still fits one answer", async () => {
+    const minified = `${"m".repeat(500_000)}\nsecond line\n`;
+    const { call } = await connect({ fileContent: async () => minified });
+    const res = await call("read_file", { path: "src/retry.ts" });
+    expect(res.text.length).toBeLessThan(3_000);
+    expect(res.text).toContain(
+      `1\t${"m".repeat(MAX_LINE_CHARS)} … [line cut: ${500_000 - MAX_LINE_CHARS} more characters]\n2\tsecond line`,
+    );
+    expect(res.text).toStartWith("src/retry.ts (head), 2 lines:");
   });
 
   test("only files in the diff", async () => {

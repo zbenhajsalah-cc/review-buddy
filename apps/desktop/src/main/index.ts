@@ -175,10 +175,11 @@ function createGitHubAuth(): GitHubAuth {
 function createReviewJob(store: ReviewStore, github: GitHubAuth): ReviewJob {
   return new ReviewJob({
     store,
-    open: (ref) =>
+    open: (ref, signal) =>
       openGitHubPr(ref, {
         fetch: (url, init) => net.fetch(url, init),
         token: () => github.token(),
+        signal,
       }),
     run: async (source, label, onProgress, signal) => {
       const [{ query }, { runReview }] = await Promise.all([

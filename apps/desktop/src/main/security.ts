@@ -21,14 +21,19 @@ export function rendererCsp(dev: boolean): string {
   );
 }
 
+/** The renderer's one page: `/` and `/index.html` are the same file. */
+const RENDERER_PATHS = new Set(["/", "/index.html"]);
+
 /**
- * True if `url` is a page of our renderer: the app:// origin, or the Vite dev
- * server in dev. Used for IPC senders and in-app navigation. (Compares scheme
- * and host: `URL.origin` is "null" for custom schemes.)
+ * True if `url` is our renderer page: index.html on the app:// origin, or on
+ * the Vite dev server in dev. Used for IPC senders and in-app navigation.
+ * Only that one page: any other file on the same origin gets no IPC. (Compares
+ * scheme and host: `URL.origin` is "null" for custom schemes. The query and
+ * hash do not matter.)
  */
 export function isRendererUrl(url: string, devServerUrl: string | undefined): boolean {
   const u = parse(url);
-  if (!u) return false;
+  if (!u || !RENDERER_PATHS.has(u.pathname)) return false;
   if (u.protocol === `${APP_SCHEME}:` && u.host === APP_HOST) return true;
   const dev = devServerUrl ? parse(devServerUrl) : null;
   return !!dev && u.protocol === dev.protocol && u.host === dev.host;

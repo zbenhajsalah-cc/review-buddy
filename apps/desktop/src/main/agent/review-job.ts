@@ -15,7 +15,8 @@ const MAX_STEPS = 50;
 
 export interface ReviewJobDeps {
   store: ReviewStore;
-  open(ref: PrRef): Promise<GitHubApiSource>;
+  /** `signal` stops the PR's GitHub requests when the user stops the run. */
+  open(ref: PrRef, signal: AbortSignal): Promise<GitHubApiSource>;
   run(
     source: GitHubApiSource,
     label: string,
@@ -51,8 +52,9 @@ export class ReviewJob {
     return this.status();
   }
 
+  /** Stops the running review. A finished one is kept (its file reads still work). */
   stop(): ReviewRunStatus {
-    this.#abort?.abort();
+    if (this.#status.state === "running") this.#abort?.abort();
     return this.status();
   }
 
@@ -69,10 +71,11 @@ export class ReviewJob {
     let result: ReviewRunResult;
     let reviewKey: string | undefined;
     try {
-      const source = await this.deps.open(ref);
+      const source = await this.deps.open(ref, signal);
       if (signal.aborted) throw new Error("stopped");
       result = await this.deps.run(source, label, onProgress, signal);
-      if (result.review) {
+      // Stopped means stopped, even after a submission: the user asked for no review.
+      if (result.review && !signal.aborted) {
         // Viewed-file flags are kept per PR head: a new push is a new review.
         reviewKey = `${label}@${source.headSha.slice(0, 12)}`;
         this.deps.store.add(reviewKey, result.review, source);
@@ -93,6 +96,7 @@ export class ReviewJob {
           state: "failed",
           error: signal.aborted ? "Stopped." : (result.error ?? "The review failed."),
         };
+    if (this.#abort?.signal === signal) this.#abort = undefined;
     const { review: _review, ...summary } = result;
     this.deps.log?.(JSON.stringify({ pr: label, ...summary, warnings: result.warnings.length }));
   }
