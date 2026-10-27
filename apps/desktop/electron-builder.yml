@@ -1,6 +1,6 @@
 # Packaging (US-09 checked the Agent SDK in a packaged app; US-18 makes it an
-# installable app). Build on the OS you install on: the Claude Code binary
-# comes from the SDK's package for that OS and CPU only.
+# installable app). The app runs the user's own installed Claude Code (US-21),
+# so the SDK's Claude Code binary is left out. Build on the OS you install on.
 #   pnpm --filter desktop dist      installer for this OS in release/
 #   pnpm --filter desktop package   unpacked app only (quick checks)
 appId: dev.review-buddy.desktop
@@ -20,10 +20,9 @@ directories:
 files:
   - out/**/*
   - package.json
-asarUnpack:
-  # The SDK runs Claude Code as a child process from this binary; a file inside
-  # app.asar cannot be executed (see src/main/agent/executable.ts).
-  - "**/node_modules/@anthropic-ai/claude-agent-sdk-*/**"
+  # The SDK's per-platform packages hold its own Claude Code binary (about
+  # 246 MB): not shipped, the app runs the installed one (US-21).
+  - "!**/node_modules/@anthropic-ai/claude-agent-sdk-*/**"
 linux:
   # One file, no root: chmod +x and run (or let an AppImage launcher add it
   # to the menu). A .deb would need a maintainer e-mail address.
@@ -42,9 +41,6 @@ mac:
   # for notarization).
   identity: "-"
   hardenedRuntime: false
-  # Keep the Claude Code binary's own (Anthropic) signature: do not re-sign it.
-  signIgnore:
-    - "claude-agent-sdk-darwin-[^/]+/claude$"
 win:
   target: nsis
 nsis:

@@ -1,9 +1,10 @@
 /**
  * The IPC contract between main and the renderer. The preload script exposes
- * `window.reviewBuddy = { review, github }`: the renderer wraps `review` in a
- * `ReviewApi` for the viewer (renderer/src/ipc-review-api.ts) and uses
- * `github` in the settings view and the repository and PR lists. Types only,
- * plus the channel names: both sides import this file, so they cannot drift.
+ * `window.reviewBuddy = { review, github, claude }`: the renderer wraps
+ * `review` in a `ReviewApi` for the viewer (renderer/src/ipc-review-api.ts),
+ * uses `github` in the settings view and the repository and PR lists, and
+ * `claude` for the installed Claude Code (US-21). Types only, plus the
+ * channel names: both sides import this file, so they cannot drift.
  */
 import type { ResolvedReview } from "@review-buddy/core/types";
 
@@ -27,6 +28,10 @@ export const IPC = {
   githubRepos: "github:repos",
   githubMarkRepoUsed: "github:mark-repo-used",
   githubPulls: "github:pulls",
+  claudeStatus: "claude:status",
+  claudeCheck: "claude:check",
+  claudeChoose: "claude:choose",
+  claudeSearch: "claude:search",
 } as const;
 
 /** The sample review main loads at startup (the "Sample review" tab). */
@@ -225,8 +230,47 @@ export interface GitHubBridge {
   pulls(fullName: string, page: number): Promise<PullPage | GitHubListError>;
 }
 
+/**
+ * The installed Claude Code the reviews run (US-21). "missing": not found
+ * (or the chosen one is gone); "too-old": older than the Agent SDK's Claude
+ * Code version; "broken": it did not answer `--version` like Claude Code.
+ */
+export interface ClaudeCodeStatus {
+  state: "ok" | "missing" | "too-old" | "broken";
+  /** The binary checked (not for "missing"). */
+  path?: string;
+  /** "2.1.311" (for "ok" and "too-old"). */
+  version?: string;
+  /** The oldest version that works: the app's Agent SDK's Claude Code version. */
+  minVersion: string;
+  /** The user chose the binary (else the app searched for it). */
+  chosen: boolean;
+  /** "missing": where the app looked. */
+  searched?: string[];
+  /** What is wrong and what to do (not for "ok"). */
+  message?: string;
+  /** ISO time. */
+  checkedAt: string;
+}
+
+/** Claude Code's install page (Settings links to it when none is found). */
+export const CLAUDE_CODE_INSTALL_URL = "https://code.claude.com/docs/en/setup";
+
+/** Every call answers with the new status. */
+export interface ClaudeBridge {
+  /** The last check (main checks at start and before each review). */
+  status(): Promise<ClaudeCodeStatus>;
+  /** Checks again. */
+  check(): Promise<ClaudeCodeStatus>;
+  /** Main opens a file dialog; the chosen binary is used from now on. */
+  choose(): Promise<ClaudeCodeStatus>;
+  /** Forgets the chosen binary and searches again. */
+  search(): Promise<ClaudeCodeStatus>;
+}
+
 /** `window.reviewBuddy`. */
 export interface DesktopBridge {
   review: ReviewBridge;
   github: GitHubBridge;
+  claude: ClaudeBridge;
 }

@@ -50,8 +50,7 @@ that needs the Electron binary and a display.
 
 ## Install the app
 
-Build the installer on the computer you install on (the Claude Code binary
-inside is the one for that OS and CPU):
+Build the installer on the computer you install on:
 
 ```bash
 pnpm install
@@ -66,10 +65,10 @@ pnpm --filter desktop dist      # or, from the root: pnpm dist:desktop
 
 **Before the first review**, on that computer:
 
-- **Claude:** log in once with Claude Code (`claude /login` in a terminal).
-  The app runs its own copy of Claude Code (bundled, so its version is the
-  one the app was tested with), which uses that login. Check it with
-  `--agent-check` (below).
+- **Claude Code:** install it and log in once (`claude /login` in a
+  terminal). The app runs your installed Claude Code (US-21), with that
+  login; it must be at least the version of the app's Agent SDK (see
+  "Claude Code" below). Check it with `--agent-check` (below).
 - **GitHub:** nothing if `gh auth login` was done; otherwise paste a token in
   the app's settings (see "GitHub login").
 
@@ -77,8 +76,7 @@ pnpm --filter desktop dist      # or, from the root: pnpm dist:desktop
 
 - **macOS:** the app is signed *ad hoc* (`identity: "-"` in
   `electron-builder.yml`), which Apple Silicon needs to run it, without the
-  hardened runtime (only notarization needs it). The Claude Code binary keeps
-  Anthropic's own signature (`signIgnore`). A build made on the same Mac
+  hardened runtime (only notarization needs it). A build made on the same Mac
   opens normally. A copy downloaded or moved from another Mac is
   quarantined: right-click → **Open** once, or
   `xattr -dr com.apple.quarantine "/Applications/Review Buddy.app"`.
@@ -111,6 +109,9 @@ the unpacked app instead (`pnpm --filter desktop package`, then
 release/linux-unpacked/chrome-sandbox`, then run
 `release/linux-unpacked/review-buddy`).
 
+**Size.** Without a Claude Code copy inside (US-21), the Linux AppImage is
+about 129 MB (it was about 243 MB with it). Most of the rest is Electron.
+
 **What was checked (US-18).** On Linux (x64, in a container), the AppImage
 built by `pnpm dist` passed the smoke test
 (`node scripts/smoke-desktop.ts --executable release/review-buddy-…AppImage`),
@@ -129,13 +130,13 @@ electron-builder makes the `.icns` and `.ico` from the PNG.
 
 ```
 src/main/       # Electron main (Node): window, app:// protocol, IPC handlers, review store + saved reviews
-src/main/agent/ # Agent SDK: the Claude Code binary path, --agent-check, the review tools, runner and job
+src/main/agent/ # Agent SDK: the installed Claude Code (find + version check), --agent-check, the review tools, runner and job
 src/main/github/ # GitHub login (gh CLI token, pasted token in safeStorage), repo and PR lists, GitHubApiSource
-src/preload/    # exposes window.reviewBuddy = { review, github }; built as CommonJS
-src/renderer/   # App shell (top bar, tabs) + repo and PR lists + <ReviewViewer api={ipcReviewApi(...)} /> + settings (GitHub, saved reviews)
+src/preload/    # exposes window.reviewBuddy = { review, github, claude }; built as CommonJS
+src/renderer/   # App shell (top bar, tabs) + repo and PR lists + <ReviewViewer api={ipcReviewApi(...)} /> + settings (GitHub, Claude Code, saved reviews)
 src/shared/     # the IPC contract (channel names + types), used by all three
 scripts/        # smoke-desktop.ts (no Claude), review-e2e.ts (the real agent)
-electron-builder.yml  # packaging: installers per OS, asarUnpack for the Claude Code binary
+electron-builder.yml  # packaging: installers per OS, without the SDK's Claude Code binary
 build/          # icon.svg → icon.png (the app icon)
 ```
 
@@ -486,10 +487,58 @@ notes. Use `--screenshots <dir>` to keep two screenshots.
 ## Claude (Agent SDK)
 
 The app uses the Claude Agent SDK (`@anthropic-ai/claude-agent-sdk`, the only
-production `dependency`). The SDK runs Claude Code as a child process, and
-Claude Code uses the login you already have from `claude /login`. It reads
-it from `~/.claude` on Linux and Windows, and from the Keychain on macOS. No API key is
-needed.
+production `dependency`). The SDK runs Claude Code as a child process: your
+installed `claude` (US-21, below). Claude Code uses the login you already
+have from `claude /login`. It reads it from `~/.claude` on Linux and
+Windows, and from the Keychain on macOS. No API key is needed.
+
+### Claude Code (US-21)
+
+The app does not ship Claude Code: it runs the one you installed
+(`src/main/agent/claude-code.ts`).
+
+- **Finding it.** The PATH first, then the usual install folders:
+  `~/.local/bin`, `~/.claude/local`, `/opt/homebrew/bin`, `/usr/local/bin`
+  (Windows: `claude.exe` in the PATH and `%USERPROFILE%\.local\bin`). An app
+  started from the Dock or the Start menu does not get the shell's PATH,
+  which is why the folders are searched too. Relative PATH entries (`.`,
+  `node_modules/.bin`) are skipped: the review runs Claude Code in another
+  folder, where they point elsewhere. Elsewhere: Settings →
+  **Claude Code** → **Choose…** (a file dialog in main; the path is kept in
+  `settings.json` as `claudePath`, and only that binary is checked).
+  **Search for it instead** forgets it. On Windows, choose `claude.exe`: an
+  npm `.cmd` shim cannot be started without a shell.
+- **Version.** `claude --version` (`2.1.311 (Claude Code)`) must be at least
+  the Claude Code version of the app's Agent SDK (`claudeCodeVersion` in the
+  SDK's package.json, read at build time: `src/main/agent/sdk-version.ts` →
+  `__CLAUDE_CODE_MIN_VERSION__`). Newer versions are accepted, with no upper
+  limit: Claude Code updates itself often. If several are found, the first
+  one that is new enough is used.
+- **When it is checked.** At start, on **Check again**, and before each
+  Claude run (a `claude` updated or removed while the app is open). Opening
+  a saved review needs no Claude Code.
+- **When it is missing, too old or broken,** a bar above every screen says
+  why ("Claude Code 2.1.200 is too old for this app (needs 2.1.296 or
+  newer). Run `claude update`, then press Check again."), with a button to
+  the settings, and the Review buttons are off with the same reason. A
+  review that fails the check before its run ends with the `claude` error
+  kind and that message. The Settings card shows the path, the version, the
+  state, and where the app looked; when nothing is found it links to the
+  install page.
+- **A failed run** names the Claude Code it used: "(Claude Code 2.1.311,
+  /path/to/claude)".
+- **`--agent-check`** reports `claudePath` and `claudeCodeVersion`.
+
+**What was checked (US-21).** On Linux: unit tests with fake `claude`
+scripts (found, missing, too old, an old one before a new one, another
+program, failing, not executable, a chosen one, a chosen one that is gone);
+the smoke test with a fake `claude` chosen in the settings (too old: the bar
+and the disabled Review; after an "update" and **Check again**: ok); and the
+installed Claude Code 2.1.311 with SDK 0.3.296 (its own version: 2.1.296):
+`--agent-check` and the real-agent review e2e, in dev and in the AppImage.
+Not checked here: macOS and Windows, a Claude Code older than the SDK's
+version (refused by design, not tried), and the native installer's folders
+on a real machine.
 
 **Check it** (prints one JSON line; exit code 0 = Claude answered):
 
@@ -520,28 +569,16 @@ simulated with a fake API that answers 401; it gives the error above.
 
 **Packaging needs**
 
-- **The Claude Code binary must be unpacked.** The SDK's binary comes in an
-  optional per-platform package (`@anthropic-ai/claude-agent-sdk-<platform>-<arch>`).
-  A file inside `app.asar` cannot be run (`spawn` fails with `ENOTDIR`).
-  `asarUnpack` in `electron-builder.yml` puts it in `app.asar.unpacked`.
-  electron-builder's default "smart unpack" also unpacks it, because it is an
-  executable; the explicit rule makes sure it stays that way.
-- **The SDK cannot find the unpacked copy by itself:** it resolves the binary
-  inside `app.asar`. Main resolves the path the same way and maps it to
-  `app.asar.unpacked` (`src/main/agent/executable.ts`), then passes it as
-  `pathToClaudeCodeExecutable`. The same code runs in dev, where the path has
-  no asar in it.
-- **The SDK must stay external** (a `dependency`, not bundled), so its binary
-  package is next to it in `node_modules`. electron-builder collects it from
-  pnpm's layout. **No `node-linker=hoisted` is needed.**
-- **One platform per build.** pnpm installs only this machine's binary
-  package, so build each OS on that OS. electron-builder warns about the other
-  platforms' packages; that is expected.
-- **Size.** The binary is about 250 MB unpacked, about half of the Linux app
-  (the AppImage is about 240 MB compressed). US-18 kept it bundled: the
-  app then runs the Claude Code version it was tested with. Using the
-  `claude` the user already has (`pathToClaudeCodeExecutable`) would save
-  the space, at the cost of a version the app does not control.
+- **No Claude Code inside.** The SDK brings its own Claude Code binary in an
+  optional per-platform package (`@anthropic-ai/claude-agent-sdk-<platform>-<arch>`,
+  about 246 MB). Until US-18 the app shipped it (unpacked from `app.asar`,
+  where it cannot run). Since US-21 `electron-builder.yml` leaves those
+  packages out and main passes the installed `claude` as
+  `pathToClaudeCodeExecutable` (see "Claude Code" below).
+- **The SDK must stay external** (a `dependency`, not bundled).
+  electron-builder collects it from pnpm's layout. **No
+  `node-linker=hoisted` is needed.** It warns that the other platforms'
+  packages are not bundled; that is expected.
 - **Peers.** The SDK's peer dependencies (`@anthropic-ai/sdk`,
   `@modelcontextprotocol/sdk`, `zod`) are only needed for types. Its runtime
   imports only Node built-ins, and they are not packaged. The review tools
@@ -558,8 +595,8 @@ built, because the login works.
 No special pnpm linker settings are needed. Main and preload bundle all their
 imports (core, zod), so only `electron`, Node built-ins and the Agent SDK stay
 external. The renderer is a normal Vite build. electron-builder packages the
-one external package (and its platform binary) from pnpm's symlinked layout
-(the default `node-linker=isolated`).
+one external package (without its platform binary, US-21) from pnpm's
+symlinked layout (the default `node-linker=isolated`).
 
 This is why every other package is a devDependency: electron-vite keeps only
 `dependencies` external.

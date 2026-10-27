@@ -160,6 +160,11 @@ try {
     status.state === "done",
     `the run finished (${status.state}${status.error ? `: ${status.error}` : ""})`,
   );
+  const claude = await page.evaluate(() => window.reviewBuddy.claude.status());
+  check(
+    claude.state === "ok" && !claude.path!.includes("app.asar") && !claude.path!.includes(appDir),
+    `the review ran the installed Claude Code (${claude.version} at ${claude.path})`,
+  );
   check(
     status.reviewKey === `${PR}@${HEAD.slice(0, 12)}`,
     `the review key names the PR head (${status.reviewKey})`,

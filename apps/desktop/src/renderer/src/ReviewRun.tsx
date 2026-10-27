@@ -8,8 +8,17 @@ export function ipcErrorMessage(e: unknown): string {
   return message.replace(/^Error invoking remote method '[^']+': (Error: )?/, "");
 }
 
-/** The top bar's "review this PR" box: any PR, by reference or URL. */
-export function PrForm({ onStart }: { onStart: (pr: string) => Promise<boolean> }) {
+/**
+ * The top bar's "review this PR" box: any PR, by reference or URL. `blocked`
+ * says why no review can run (no usable Claude Code, US-21).
+ */
+export function PrForm({
+  onStart,
+  blocked,
+}: {
+  onStart: (pr: string) => Promise<boolean>;
+  blocked?: string;
+}) {
   const [value, setValue] = useState("");
   const submit = (e: FormEvent) => {
     e.preventDefault();
@@ -27,7 +36,7 @@ export function PrForm({ onStart }: { onStart: (pr: string) => Promise<boolean> 
         placeholder="owner/repo#123 or PR URL"
         className="h-8 w-72 min-w-0 rounded-md border bg-background px-2.5 font-mono text-xs outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50"
       />
-      <Button type="submit" size="sm" disabled={value.trim() === ""}>
+      <Button type="submit" size="sm" disabled={value.trim() === "" || !!blocked} title={blocked}>
         Review
       </Button>
     </form>
@@ -100,6 +109,7 @@ export function RunPanel({
   onStop,
   onRetry,
   onDismiss,
+  retryBlocked,
 }: {
   status: ReviewJobStatus;
   /** Jobs that start before this queued one. */
@@ -107,6 +117,8 @@ export function RunPanel({
   onStop: () => void;
   onRetry: () => void;
   onDismiss: () => void;
+  /** Why Try again cannot run (no usable Claude Code, US-21). */
+  retryBlocked?: string;
 }) {
   const { state } = status;
   const now = useNow(state === "running");
@@ -175,7 +187,9 @@ export function RunPanel({
               <>
                 {/* The same PR fails the same way: no retry for "too large". */}
                 {status.errorKind === "too-large" ? null : (
-                  <Button onClick={onRetry}>Try again</Button>
+                  <Button onClick={onRetry} disabled={!!retryBlocked} title={retryBlocked}>
+                    Try again
+                  </Button>
                 )}
                 <Button variant="outline" onClick={onDismiss}>
                   Show the sample review

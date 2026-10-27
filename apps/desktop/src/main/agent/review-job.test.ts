@@ -3,6 +3,7 @@ import { loadFixtureReview } from "../fixture/index.ts";
 import type { GitHubApiSource, PrRef } from "../github/api-source.ts";
 import { PrTooLargeError } from "../github/api-source.ts";
 import { ReviewStore } from "../reviews.ts";
+import { ClaudeCodeError } from "./claude-code.ts";
 import { MAX_FINISHED, MAX_RUNNING, type ReviewJobDeps, ReviewJobs } from "./review-job.ts";
 import type { ReviewRunResult } from "./runner.ts";
 
@@ -220,6 +221,27 @@ describe("ReviewJobs", () => {
       errorKind: "claude",
       error: "Claude is not signed in.",
     });
+  });
+
+  test("no usable Claude Code: a 'claude' failure with what to do; a saved review still opens", async () => {
+    let runs = 0;
+    const { jobs, review } = await setup(async () => {
+      if (runs++ > 0) throw new ClaudeCodeError("Claude Code 2.1.200 is too old for this app.");
+      return { ok: true, review, warnings: [], submissions: 1, durationMs: 5 };
+    });
+    jobs.start("octocat/hello-world#42");
+    await jobs.whenIdle();
+    jobs.start("octocat/hello-world#42", { fresh: true });
+    await jobs.whenIdle();
+    expect(jobs.jobs()[1]).toMatchObject({
+      state: "failed",
+      error: "Claude Code 2.1.200 is too old for this app.",
+      errorKind: "claude",
+    });
+    // Opening the saved review of this head needs no Claude Code.
+    jobs.start("octocat/hello-world#42");
+    await jobs.whenIdle();
+    expect(jobs.jobs()[2]!.state).toBe("done");
   });
 
   test("stop: a running job is stopped; a queued one leaves the queue", async () => {

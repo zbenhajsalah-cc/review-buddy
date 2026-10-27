@@ -2,12 +2,14 @@ import { clearReviewFileState, ReviewViewer } from "@review-buddy/viewer";
 import { Button } from "@review-buddy/viewer/ui";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
+  type ClaudeCodeStatus,
   type DesktopBridge,
   FIXTURE_REVIEW_KEY,
   type GitHubStatus,
   type RepoSummary,
   type ReviewJobStatus,
 } from "../../shared/ipc.ts";
+import { ClaudeCodeSettings, claudeBlocked } from "./ClaudeCodeSettings.tsx";
 import { GitHubSettings } from "./GitHubSettings.tsx";
 import { ipcReviewApi } from "./ipc-review-api.ts";
 import { PullList } from "./PullList.tsx";
@@ -49,6 +51,9 @@ export function App({ bridge }: { bridge: DesktopBridge }) {
   const [jobs, setJobs] = useState<ReviewJobStatus[]>([]);
   const [view, setView] = useState<View>({ kind: "sample" });
   const [startError, setStartError] = useState<string | undefined>();
+  // The installed Claude Code (US-21); null until main's first check is back.
+  const [claude, setClaude] = useState<ClaudeCodeStatus | null>(null);
+  const blocked = claudeBlocked(claude);
 
   const refreshGitHub = useCallback(() => {
     bridge.github.status().then(setGitHub, () => {});
@@ -72,6 +77,14 @@ export function App({ bridge }: { bridge: DesktopBridge }) {
 
   // Main sends the job list on every change (US-15): no polling.
   useEffect(() => bridge.review.onJobs(setJobs), [bridge]);
+
+  // Main checks Claude Code at start and before each review: a review that
+  // failed for Claude reads the newest check.
+  const claudeFailures = jobs.filter((j) => j.errorKind === "claude").length;
+  // biome-ignore lint/correctness/useExhaustiveDependencies: a new "claude" failure reads it again
+  useEffect(() => {
+    bridge.claude.status().then(setClaude, () => {});
+  }, [bridge, claudeFailures]);
 
   const job = view.kind === "job" ? jobs.find((j) => j.id === view.id) : undefined;
   // The repository a review opened last: main marked it used (US-13).
@@ -170,7 +183,7 @@ export function App({ bridge }: { bridge: DesktopBridge }) {
           {repo ? tab("pulls", repo.fullName) : null}
           {tab("review", reviewTab)}
         </nav>
-        <PrForm onStart={startFromBar} />
+        <PrForm onStart={startFromBar} blocked={blocked} />
         {startError ? (
           <span role="alert" className="min-w-0 truncate text-xs text-destructive">
             {startError}
@@ -189,6 +202,19 @@ export function App({ bridge }: { bridge: DesktopBridge }) {
               : "Connect GitHub"}
         </Button>
       </header>
+      {blocked && screen !== "settings" ? (
+        <div
+          role="alert"
+          className="flex shrink-0 items-center gap-3 border-b bg-muted px-4 py-2 text-sm"
+        >
+          <span className="min-w-0 flex-1">
+            <span className="font-medium">Reviews cannot run.</span> {blocked}
+          </span>
+          <Button size="sm" variant="outline" onClick={openSettings}>
+            Claude Code settings
+          </Button>
+        </div>
+      ) : null}
       <main className="min-h-0 flex-1 overflow-auto">
         <div hidden={screen !== "repos"}>
           <RepoList
@@ -212,6 +238,7 @@ export function App({ bridge }: { bridge: DesktopBridge }) {
               bridge={bridge.github}
               repo={repo}
               jobs={jobs}
+              blocked={blocked}
               onReview={(numbers, follow, fresh) =>
                 startReviews(
                   numbers.map((n) => `${repo.fullName}#${n}`),
@@ -241,6 +268,7 @@ export function App({ bridge }: { bridge: DesktopBridge }) {
             onStatus={setGitHub}
             onClose={() => setScreen(back)}
           >
+            <ClaudeCodeSettings bridge={bridge.claude} status={claude} onStatus={setClaude} />
             <SavedReviews bridge={bridge.review} onDeleted={savedDeleted} />
           </GitHubSettings>
         ) : screen !== "review" ? null : job && job.state !== "done" ? (
@@ -249,6 +277,7 @@ export function App({ bridge }: { bridge: DesktopBridge }) {
             ahead={jobs.filter((j) => j.state === "queued" && j.id < job.id).length}
             onStop={() => stopJob(job.id)}
             onRetry={() => void startReviews([job.pr], true).then(setStartError)}
+            retryBlocked={blocked}
             onDismiss={() => setView({ kind: "sample" })}
           />
         ) : (
@@ -261,7 +290,12 @@ export function App({ bridge }: { bridge: DesktopBridge }) {
                 <span className="min-w-0 flex-1">
                   This review is for an older commit: {view.pr} has new commits since.
                 </span>
-                <Button size="sm" onClick={() => void startReviews([view.pr], true)}>
+                <Button
+                  size="sm"
+                  disabled={!!blocked}
+                  title={blocked}
+                  onClick={() => void startReviews([view.pr], true)}
+                >
                   Review again
                 </Button>
               </div>

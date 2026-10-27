@@ -165,10 +165,11 @@ The template moves to `packages/core/prompts/`.
   pasted token; device flow later): `apps/desktop/README.md` "GitHub login".
 - **Claude:** the Agent SDK runs Claude Code under the hood. For personal use it
   can use the login already on the machine. Checked in US-09: from Electron
-  main, in dev and in a packaged Linux build. The Claude Code binary (an
-  optional per-platform package of the SDK) must be unpacked from the asar,
-  and main passes its unpacked path as `pathToClaudeCodeExecutable`. Details
-  and the remaining check on a real login: `apps/desktop/README.md`.
+  main, in dev and in a packaged Linux build. Since US-21 the app does not
+  ship the SDK's own Claude Code binary: main finds the user's installed
+  `claude`, checks it is at least the SDK's Claude Code version, and passes
+  it as `pathToClaudeCodeExecutable`. Details and the remaining check on a
+  real login: `apps/desktop/README.md`.
 - **Agent runner:** `query()` with an **in-process MCP tool** `submit_review`
   (same JSON schema) whose handler runs `validateAgentReview` → `resolveReview`
   and returns the resolution notes to the agent, so it can fix bad anchors in

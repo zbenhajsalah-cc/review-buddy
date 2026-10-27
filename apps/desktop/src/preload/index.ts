@@ -38,6 +38,12 @@ const bridge: DesktopBridge = {
     markRepoUsed: (fullName) => ipcRenderer.invoke(IPC.githubMarkRepoUsed, fullName),
     pulls: (fullName, page) => ipcRenderer.invoke(IPC.githubPulls, fullName, page),
   },
+  claude: {
+    status: () => ipcRenderer.invoke(IPC.claudeStatus),
+    check: () => ipcRenderer.invoke(IPC.claudeCheck),
+    choose: () => ipcRenderer.invoke(IPC.claudeChoose),
+    search: () => ipcRenderer.invoke(IPC.claudeSearch),
+  },
 };
 
 contextBridge.exposeInMainWorld("reviewBuddy", bridge);

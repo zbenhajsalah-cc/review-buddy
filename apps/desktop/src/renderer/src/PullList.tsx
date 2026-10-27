@@ -87,10 +87,13 @@ export function PullList({
   onSignedOut,
   onOpenSettings,
   onBack,
+  blocked,
 }: {
   bridge: GitHubBridge;
   repo: RepoSummary;
   jobs: ReviewJobStatus[];
+  /** Why no review can run (no usable Claude Code, US-21): Review buttons are off. */
+  blocked?: string;
   /**
    * Starts reviews of these PRs (`fresh`: run Claude even if the head has a
    * saved review); resolves with what went wrong, if anything.
@@ -197,7 +200,8 @@ export function PullList({
         </Button>
         <Button
           size="sm"
-          disabled={selected.size === 0}
+          disabled={selected.size === 0 || !!blocked}
+          title={blocked}
           onClick={() => void review([...selected], false)}
         >
           {selected.size > 0 ? `Review selected (${selected.size})` : "Review selected"}
@@ -237,6 +241,7 @@ export function PullList({
                 selected={selected.has(pull.number)}
                 onToggle={() => toggle(pull.number)}
                 onReview={(fresh) => void review([pull.number], true, fresh)}
+                blocked={blocked}
                 onOpenReview={onOpenReview}
                 onFollow={onFollow}
                 onStop={onStop}
@@ -274,9 +279,11 @@ function PullRow({
   onOpenReview,
   onFollow,
   onStop,
+  blocked,
 }: {
   pull: PullSummary;
   row: PullRowState;
+  blocked?: string;
   selected: boolean;
   onToggle: () => void;
   onReview: (fresh: boolean) => void;
@@ -391,7 +398,8 @@ function PullRow({
                     variant="ghost"
                     size="sm"
                     aria-label={`Run the review of #${n} again`}
-                    title="Run Claude again on this commit"
+                    title={blocked ?? "Run Claude again on this commit"}
+                    disabled={!!blocked}
                     onClick={() => onReview(true)}
                   >
                     Run again
@@ -400,7 +408,13 @@ function PullRow({
               </>
             ) : null}
             {review?.current ? null : (
-              <Button size="sm" aria-label={`Review #${n}`} onClick={() => onReview(false)}>
+              <Button
+                size="sm"
+                aria-label={`Review #${n}`}
+                disabled={!!blocked}
+                title={blocked}
+                onClick={() => onReview(false)}
+              >
                 {failed ? "Try again" : review ? "Review again" : "Review"}
               </Button>
             )}

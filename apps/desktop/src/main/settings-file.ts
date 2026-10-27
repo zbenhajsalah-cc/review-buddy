@@ -8,6 +8,8 @@ export interface Settings {
   ghDisabled?: boolean;
   /** `owner/name` of the repositories used last, most recent first. */
   recentRepos?: string[];
+  /** The `claude` binary chosen in Settings (US-21); none: the app searches. */
+  claudePath?: string;
 }
 
 export class SettingsFile {
