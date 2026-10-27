@@ -149,7 +149,7 @@ describe("ReviewCache", () => {
     expect(cache.list()).toEqual([]);
   });
 
-  test("Done is kept in the index; a new review of the same head is not done", async () => {
+  test("Done is kept in the index; a new review of the same head keeps it", async () => {
     const { save, cache, reopen } = await setup();
     const key = await save("octo/repo#12", B);
     expect(await cache.markDone(key, "2026-10-27T12:00:00.000Z")).toBe(true);
@@ -161,7 +161,20 @@ describe("ReviewCache", () => {
       headSha: B,
       doneAt: "2026-10-27T12:00:00.000Z",
     });
-    await save("octo/repo#12", B);
-    expect(cache.list()[0]!.doneAt).toBeUndefined();
+    // Done belongs to the commit, whatever the spelling of the PR.
+    await save("Octo/Repo#12", B);
+    expect(cache.list()[0]!.doneAt).toBe("2026-10-27T12:00:00.000Z");
+    expect((await reopen()).list()[0]!.doneAt).toBe("2026-10-27T12:00:00.000Z");
+    // Another commit is another review, not done.
+    await save("octo/repo#12", A);
+    expect(cache.newestFor("octo/repo#12")!.doneAt).toBeUndefined();
+  });
+
+  test("a review deleted while it is read is not returned", async () => {
+    const { save, cache } = await setup();
+    const key = await save("octo/repo#12", B);
+    const reading = cache.read(key);
+    await cache.delete(key);
+    expect(await reading).toBeUndefined();
   });
 });

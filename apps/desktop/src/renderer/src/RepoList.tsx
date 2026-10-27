@@ -74,6 +74,8 @@ type ListState =
 export function RepoList({
   bridge,
   github,
+  lastUsed,
+  lastUsedJob,
   onChoose,
   onSignedOut,
   onOpenSettings,
@@ -81,6 +83,9 @@ export function RepoList({
 }: {
   bridge: GitHubBridge;
   github: GitHubStatus | null;
+  /** `owner/repo` a review opened last (also from the top bar), and that job's id. */
+  lastUsed?: string;
+  lastUsedJob?: number;
   onChoose: (repo: RepoSummary) => void;
   /** GitHub said the login is gone (token expired): refresh the status. */
   onSignedOut: () => void;
@@ -156,6 +161,22 @@ export function RepoList({
     if (signedIn) void load();
     else loadId.current++; // drop answers for a login that is gone
   }, [signedIn, login, load]);
+
+  // A review opened a repository that is not first in the recent list: read
+  // that list again. The loaded pages stay.
+  const current = useRef(state);
+  current.current = state;
+  // biome-ignore lint/correctness/useExhaustiveDependencies: each job counts (a repository used again after another)
+  useEffect(() => {
+    const s = current.current;
+    if (!signedIn || !lastUsed || s.kind !== "ready") return;
+    if (s.recent[0]?.fullName.toLowerCase() === lastUsed.toLowerCase()) return;
+    const id = loadId.current;
+    void fetchPage(1).then((result) => {
+      if (id !== loadId.current || !result.ok) return;
+      setState((r) => (r.kind === "ready" ? { ...r, recent: result.recent ?? r.recent } : r));
+    });
+  }, [lastUsed, lastUsedJob, signedIn, fetchPage]);
 
   const choose = (repo: RepoSummary) => {
     void bridge.markRepoUsed(repo.fullName).catch(() => {});

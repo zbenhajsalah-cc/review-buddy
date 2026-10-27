@@ -65,7 +65,13 @@ export class ReviewStore {
     const reviewKey = reviewKeyOf(pr.label, pr.headSha);
     this.add(reviewKey, review, source);
     this.#newest.set(pr.label.toLowerCase(), { reviewKey, headSha: pr.headSha });
-    this.#done.delete(reviewKey); // a new review of this head starts not done
+    // Done stays with the commit (see ReviewCache.save), whatever the spelling.
+    for (const [key, doneAt] of this.#done) {
+      if (key !== reviewKey && key.toLowerCase() === reviewKey.toLowerCase()) {
+        this.#done.delete(key);
+        this.#done.set(reviewKey, doneAt);
+      }
+    }
     try {
       await this.options.cache?.save({
         pr: pr.label,
@@ -82,12 +88,15 @@ export class ReviewStore {
 
   /** The newest review of `owner/repo#123`, at whatever head it had, and when it was done. */
   newestFor(label: string): { reviewKey: string; headSha: string; doneAt?: string } | undefined {
-    const inMemory = this.#newest.get(label.toLowerCase());
-    const found = inMemory ? { ...inMemory } : this.options.cache?.newestFor(label);
+    const saved = this.options.cache?.newestFor(label);
+    const found = this.#newest.get(label.toLowerCase()) ?? saved;
     if (!found) return undefined;
-    // Done this run, or (for a saved review) in an earlier one.
-    const doneAt = this.#done.get(found.reviewKey) ?? found.doneAt;
-    return doneAt ? { ...found, doneAt } : found;
+    const { reviewKey, headSha } = found;
+    // Done this run, or kept with the saved review of this head.
+    const doneAt =
+      this.#done.get(reviewKey) ??
+      (saved?.reviewKey.toLowerCase() === reviewKey.toLowerCase() ? saved.doneAt : undefined);
+    return doneAt ? { reviewKey, headSha, doneAt } : { reviewKey, headSha };
   }
 
   /**
@@ -151,10 +160,13 @@ export class ReviewStore {
   #forget(reviewKey: string): void {
     // Only PR reviews have a key with "@<sha>"; the sample cannot be deleted.
     if (!reviewKey.includes("@")) throw new Error("unknown review");
-    this.#reviews.delete(reviewKey);
-    this.#done.delete(reviewKey);
+    // Keys that differ only in case are the same PR head (owner/repo as
+    // typed): the disk keeps one of them, memory may have both.
+    const same = (key: string) => key.toLowerCase() === reviewKey.toLowerCase();
+    for (const key of [...this.#reviews.keys()]) if (same(key)) this.#reviews.delete(key);
+    for (const key of [...this.#done.keys()]) if (same(key)) this.#done.delete(key);
     for (const [label, newest] of this.#newest) {
-      if (newest.reviewKey === reviewKey) this.#newest.delete(label);
+      if (same(newest.reviewKey)) this.#newest.delete(label);
     }
   }
 

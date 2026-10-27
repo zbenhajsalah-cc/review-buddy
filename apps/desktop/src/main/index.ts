@@ -241,7 +241,9 @@ function createReviewJobs(store: ReviewStore, github: GitHubAuth, repos: GitHubR
         token: () => github.token(),
         signal,
       });
-      repos.markUsed(`${ref.owner}/${ref.repo}`).catch((e) => {
+      // Before the job shows the PR's head, which makes the repository list
+      // read its recent repos again.
+      await repos.markUsed(`${ref.owner}/${ref.repo}`).catch((e) => {
         console.warn(`[review-buddy] recent repos: ${e instanceof Error ? e.message : e}`);
       });
       return source;

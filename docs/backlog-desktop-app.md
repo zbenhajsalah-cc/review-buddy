@@ -497,7 +497,10 @@ Acceptance criteria:
     behavior is the same.
   - Done is saved with the review (`doneAt` in the saved-review index) and
     shown in the PR list (**Done ✓**), on the review ("You marked this review
-    done …") and in Settings. A new review of the same commit is not done.
+    done …") and in Settings.
+  - Viewed files and Done belong to the commit: **Run again** on the same
+    head replaces only Claude's text, and keeps both (changed after the PR
+    review; before, Done was reset while the viewed files stayed).
   - Deleting a saved review also removes its viewed / collapsed state.
 
 ### US-18: Packaged app

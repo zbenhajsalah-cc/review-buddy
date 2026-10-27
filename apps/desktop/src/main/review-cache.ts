@@ -113,6 +113,8 @@ export class ReviewCache {
       const saved = JSON.parse(
         await readFile(this.#file(info.pr, info.headSha)!, "utf8"),
       ) as SavedReview;
+      // Deleted (or saved again) while the file was read.
+      if (this.#index.get(info.reviewKey) !== info) return undefined;
       if (
         saved?.version === CACHE_VERSION &&
         saved.reviewKey === info.reviewKey &&
@@ -146,20 +148,26 @@ export class ReviewCache {
     await mkdir(dirname(file), { recursive: true });
     await writeFile(`${file}.tmp`, text);
     await rename(`${file}.tmp`, file);
-    // Another spelling of the same PR head (owner/repo case) is the same review.
-    for (const key of this.#index.keys()) {
-      if (key !== reviewKey && key.toLowerCase() === reviewKey.toLowerCase()) {
+    // The review it replaces: the same PR head, maybe another spelling (owner/repo case).
+    let doneAt: string | undefined;
+    for (const [key, info] of this.#index) {
+      if (key.toLowerCase() === reviewKey.toLowerCase()) {
+        doneAt ??= info.doneAt;
         this.#index.delete(key);
       }
     }
-    this.#index.set(reviewKey, {
+    const info: SavedReviewInfo = {
       reviewKey,
       pr: entry.pr,
       title: entry.review.pr.title,
       headSha: entry.headSha,
       savedAt: saved.savedAt,
       bytes: Buffer.byteLength(text),
-    });
+    };
+    // Done belongs to the commit, like the viewed files: a new review of the
+    // same head only replaces Claude's text.
+    if (doneAt) info.doneAt = doneAt;
+    this.#index.set(reviewKey, info);
     await this.#writeIndex();
     return reviewKey;
   }

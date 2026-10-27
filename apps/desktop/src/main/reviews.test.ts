@@ -111,16 +111,51 @@ describe("ReviewStore", () => {
       headSha: B,
       doneAt: "2026-10-27T12:00:00.000Z",
     });
-    // A new review of the same head starts not done.
-    await second.addPrReview(review, source, {
+    // Done belongs to the commit: a new review of the same head keeps it,
+    // whatever the spelling, also before a restart.
+    for (const label of ["octo/repo#1", "Octo/Repo#1"]) {
+      await second.addPrReview(review, source, { label, headSha: B, baseSha: A, files: [] });
+      expect(second.newestFor("octo/repo#1")?.doneAt).toBe("2026-10-27T12:00:00.000Z");
+    }
+    const third = await open();
+    expect(third.newestFor("octo/repo#1")?.doneAt).toBe("2026-10-27T12:00:00.000Z");
+    // A new commit is not done.
+    await third.addPrReview(review, source, {
       label: "octo/repo#1",
-      headSha: B,
+      headSha: A,
       baseSha: A,
       files: [],
     });
-    expect(second.newestFor("octo/repo#1")?.doneAt).toBeUndefined();
+    expect(third.newestFor("octo/repo#1")?.doneAt).toBeUndefined();
     // The sample can be marked done (not saved anywhere).
     expect(await (await store()).markDone("fixture")).toBeString();
+  });
+
+  test("delete forgets every copy in memory, also one being read from disk", async () => {
+    const dir = cacheDir();
+    const { review, source } = await loadFixtureReview();
+    const open = async () => {
+      const cache = new ReviewCache(dir);
+      await cache.load();
+      return new ReviewStore({ cache, reopen: () => source });
+    };
+    const s = await open();
+    const pr = (label: string) => ({ label, headSha: B, baseSha: A, files: [] });
+    // The same PR head typed two ways: one review on disk, two keys in memory.
+    const older = await s.addPrReview(review, source, pr("Octo/Repo#1"));
+    const key = await s.addPrReview(review, source, pr("octo/repo#1"));
+    expect(s.saved().map((r) => r.reviewKey)).toEqual([key]);
+    await s.delete(key);
+    await expect(s.getReview(older)).rejects.toThrow("unknown review");
+    await expect(s.getReview(key)).rejects.toThrow("unknown review");
+
+    // Deleted while a restarted app reads it from disk: not served.
+    await s.addPrReview(review, source, pr("octo/repo#1"));
+    const restarted = await open();
+    const reading = restarted.getReview(key).catch((e: Error) => e.message);
+    await restarted.delete(key);
+    expect(await reading).toBe("unknown review");
+    await expect(restarted.getReview(key)).rejects.toThrow("unknown review");
   });
 
   test("delete refuses the sample and non-strings; deleteAll keeps the sample", async () => {

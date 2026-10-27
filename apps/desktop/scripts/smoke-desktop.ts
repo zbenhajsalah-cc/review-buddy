@@ -490,6 +490,25 @@ try {
     firstRepo.startsWith("octo-org/widgets"),
     `a repository just used comes first, even from page 2 (${firstRepo.split("\n")[0]})`,
   );
+  // A review started from the top bar moves its repository up too, without
+  // a Refresh (#5 opens, then fails at its diff: no Claude).
+  const firstRecent = (name: string) =>
+    page
+      .getByRole("region", { name: "Recently used" })
+      .getByRole("button")
+      .first()
+      .filter({ hasText: new RegExp(`^${name}`) });
+  await page.evaluate(() => window.reviewBuddy.github.markRepoUsed("octocat/hello-world"));
+  await page.getByRole("button", { name: "Refresh" }).click();
+  await firstRecent("octocat/hello-world").waitFor();
+  await page.getByLabel("Pull request").fill("octo-org/widgets#5");
+  await page.getByRole("button", { name: "Review", exact: true }).click();
+  await page.waitForFunction(() =>
+    window.reviewBuddy.review.jobs().then((jobs) => jobs.at(-1)?.state === "failed"),
+  );
+  await page.getByRole("button", { name: "Repositories", exact: true }).click();
+  await firstRecent("octo-org/widgets").waitFor();
+  check(true, "a review started from the top bar moves its repository first, without Refresh");
 
   // The token expires: the list says so and the app is signed out.
   await app.evaluate(() => {

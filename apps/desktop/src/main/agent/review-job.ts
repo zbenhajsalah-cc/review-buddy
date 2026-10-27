@@ -118,9 +118,12 @@ export class ReviewJobs {
    */
   forgetReview(reviewKey?: unknown): void {
     const before = this.#jobs.length;
+    // Keys differ only in case for the same PR head (owner/repo as typed).
+    const key = typeof reviewKey === "string" ? reviewKey.toLowerCase() : reviewKey;
     this.#jobs = this.#jobs.filter(
       (j) =>
-        j.status.state !== "done" || (reviewKey !== undefined && j.status.reviewKey !== reviewKey),
+        j.status.state !== "done" ||
+        (key !== undefined && j.status.reviewKey?.toLowerCase() !== key),
     );
     if (this.#jobs.length !== before) this.#changed();
   }
@@ -193,6 +196,7 @@ export class ReviewJobs {
         result = { ok: true, warnings: [], submissions: 0, durationMs: 0, cached: true };
       } else {
         result = await this.deps.run(source, label, onProgress, signal);
+        const files = result.review ? await source.files() : [];
         // Stopped means stopped, even after a submission: the user asked for no review.
         if (result.review && !signal.aborted) {
           // Viewed-file flags are kept per PR head: a new push is a new review.
@@ -200,8 +204,13 @@ export class ReviewJobs {
             label,
             headSha: source.headSha,
             baseSha: source.baseSha,
-            files: await source.files(),
+            files,
           });
+          // Stopped while it was being saved: it is not kept either.
+          if (signal.aborted) {
+            await this.deps.store.delete(reviewKey).catch(() => {});
+            reviewKey = undefined;
+          }
         }
       }
     } catch (e) {

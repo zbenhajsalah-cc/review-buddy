@@ -74,6 +74,8 @@ export function App({ bridge }: { bridge: DesktopBridge }) {
   useEffect(() => bridge.review.onJobs(setJobs), [bridge]);
 
   const job = view.kind === "job" ? jobs.find((j) => j.id === view.id) : undefined;
+  // The repository a review opened last: main marked it used (US-13).
+  const lastOpened = jobs.filter((j) => j.headSha).at(-1);
   const reviewKey =
     view.kind === "review"
       ? view.reviewKey
@@ -192,6 +194,8 @@ export function App({ bridge }: { bridge: DesktopBridge }) {
           <RepoList
             bridge={bridge.github}
             github={github}
+            lastUsed={lastOpened?.pr.split("#")[0]}
+            lastUsedJob={lastOpened?.id}
             onChoose={openRepo}
             onSignedOut={refreshGitHub}
             onOpenSettings={openSettings}

@@ -233,7 +233,9 @@ The start screen (`src/renderer/src/RepoList.tsx`, data from
 - **Recently used** repos come first (at most 8). A repo is "used" when you
   pick it, or when a review of one of its PRs starts. The names are kept in
   `<userData>/settings.json` (`recentRepos`); page 1 reads them again with the
-  current login, so a repo that login cannot see is not shown.
+  current login, so a repo that login cannot see is not shown. A review that
+  opens a repo not first in the list (from the top bar, say) makes the list
+  read them again, without a Refresh.
 - **Picking a repo** opens its PR list (see "Pull requests").
 - **States:** loading, not connected (a button to the GitHub settings and the
   sample review), no repos, no match, and errors with **Try again**. A 401
@@ -325,7 +327,9 @@ it (`ReviewApi.afterDone: "keep"`): the review stays open, the button shows
 **Done ✓**, and you can come back to it. **Done** is saved with the review
 (`doneAt` in the index): the PR list shows **Done ✓** instead of
 **Reviewed**, and the review opens with "You marked this review done …".
-Reviewing the same commit again starts a new review that is not done.
+Viewed files and Done belong to the commit: reviewing the same commit again
+(**Run again**) replaces only Claude's text and keeps both. **Done ✓** stays
+on every chapter of the open review.
 
 **Tests:** `review-cache.test.ts` (save, reload, newest, replace, delete,
 damaged or missing files, an index entry that points outside the folder,

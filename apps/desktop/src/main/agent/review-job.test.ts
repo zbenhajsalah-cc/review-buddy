@@ -278,6 +278,25 @@ describe("ReviewJobs", () => {
     expect(store.newestFor("octocat/hello-world#42")).toBeUndefined();
   });
 
+  test("stop while the review is saved: failed, and the saved review is deleted", async () => {
+    const { jobs, store } = await setup();
+    const add = store.addPrReview.bind(store);
+    // Stop comes while the review is written to disk.
+    store.addPrReview = async (...args) => {
+      const key = await add(...args);
+      jobs.stop(1);
+      return key;
+    };
+    jobs.start("octocat/hello-world#42");
+    await jobs.whenIdle();
+    expect(jobs.jobs()[0]).toMatchObject({ state: "failed", error: "Stopped." });
+    expect(jobs.jobs()[0]!.reviewKey).toBeUndefined();
+    await expect(store.getReview("octocat/hello-world#42@7e8e70534d5f")).rejects.toThrow(
+      "unknown review",
+    );
+    expect(store.newestFor("octocat/hello-world#42")).toBeUndefined();
+  });
+
   test("stop reaches the GitHub requests; stop after the run changes nothing", async () => {
     const { jobs, signals } = await setup();
     const first = jobs.start("octocat/hello-world#42");
@@ -353,7 +372,8 @@ describe("ReviewJobs", () => {
     jobs.start("octocat/hello-world#43");
     await jobs.whenIdle();
     const count = changes.length;
-    jobs.forgetReview("octocat/hello-world#42@7e8e70534d5f");
+    // The same PR head, another spelling of owner/repo.
+    jobs.forgetReview("OctoCat/hello-world#42@7e8e70534d5f");
     expect(jobs.jobs().map((j) => j.pr)).toEqual(["octocat/hello-world#43"]);
     expect(changes.length).toBe(count + 1);
     jobs.forgetReview("nothing");
