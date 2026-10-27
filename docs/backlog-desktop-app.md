@@ -510,6 +510,23 @@ Acceptance criteria:
   personal use).
 - The Agent SDK and GitHub flows work in the packaged build (not only in dev).
 - Build steps are in the README.
+- Decisions made while building it:
+  - `pnpm --filter desktop dist` (root: `pnpm dist:desktop`) builds the
+    installer for the OS it runs on: a `.dmg` + `.zip` on macOS, an NSIS
+    per-user installer on Windows, an AppImage on Linux (a `.deb` would need
+    a maintainer e-mail address). `package` still makes the unpacked app.
+  - No code signing: macOS builds are signed ad hoc (Apple Silicon needs a
+    signature to run) without the hardened runtime, and the Claude Code
+    binary keeps Anthropic's signature. The README says how to open an
+    unsigned app on each OS.
+  - The Claude Code binary stays bundled (the app runs the version it was
+    tested with), so the AppImage is about 240 MB.
+  - An app icon (`build/icon.svg` → `icon.png`): risk-rated chapters.
+  - Checked on Linux with the AppImage itself: the smoke test, `--agent-check`
+    and the real-agent review (with a restart). macOS and Windows installers
+    must be built on those systems and were not built here. electron-builder
+    starts AppImages with `--no-sandbox`; the README explains it and how to
+    keep the OS sandbox with the unpacked app.
 
 ## Epic D: Later
 

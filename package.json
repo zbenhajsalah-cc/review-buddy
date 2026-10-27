@@ -21,6 +21,7 @@
     "build:desktop": "pnpm --filter @review-buddy/desktop build",
     "dev:desktop": "pnpm --filter @review-buddy/desktop dev",
     "smoke:desktop": "pnpm --filter @review-buddy/desktop smoke",
+    "dist:desktop": "pnpm --filter @review-buddy/desktop dist",
     "gen:prompts": "bun run scripts/gen-prompts.ts",
     "lint": "biome check .",
     "format": "biome format --write .",

@@ -30,10 +30,11 @@ pnpm --filter desktop typecheck
 pnpm --filter desktop agent-check  # one Agent SDK query from main (dev mode)
 pnpm --filter desktop review-e2e   # build, then one real agent review in the app (costs tokens)
 pnpm --filter desktop package  # unpacked app for this OS in release/ (electron-builder --dir)
+pnpm --filter desktop dist     # installer for this OS in release/ (see "Install the app")
 ```
 
 The root has the same commands as `pnpm dev:desktop`, `build:desktop`,
-`smoke:desktop`, `test:desktop` and `typecheck:desktop`. `verify:ci` runs the
+`smoke:desktop`, `test:desktop`, `typecheck:desktop` and `dist:desktop`. `verify:ci` runs the
 tests, the typecheck and the build. It does not run the smoke test, because
 that needs the Electron binary and a display.
 
@@ -47,6 +48,83 @@ that needs the Electron binary and a display.
 - **Smoke test runtime:** Node ≥ 22.18 (it runs a `.ts` file directly). It
   does not run on Bun: Playwright's Electron launch hangs there.
 
+## Install the app
+
+Build the installer on the computer you install on (the Claude Code binary
+inside is the one for that OS and CPU):
+
+```bash
+pnpm install
+pnpm --filter desktop dist      # or, from the root: pnpm dist:desktop
+```
+
+| OS | File in `apps/desktop/release/` | Install |
+|---|---|---|
+| macOS | `review-buddy-<version>-arm64.dmg` (and a `.zip`; `x64` on Intel) | Open the `.dmg`, drag **Review Buddy** to Applications. |
+| Windows | `review-buddy-<version>-x64.exe` | Run it: it installs for your user (no admin) and adds a Start menu entry. |
+| Linux | `review-buddy-<version>-x86_64.AppImage` | `chmod +x` it and run it. It needs FUSE 2 (`sudo apt install libfuse2` on Ubuntu 22.04+); without it, run it with `--appimage-extract-and-run`. |
+
+**Before the first review**, on that computer:
+
+- **Claude:** log in once with Claude Code (`claude /login` in a terminal).
+  The app runs its own copy of Claude Code (bundled, so its version is the
+  one the app was tested with), which uses that login. Check it with
+  `--agent-check` (below).
+- **GitHub:** nothing if `gh auth login` was done; otherwise paste a token in
+  the app's settings (see "GitHub login").
+
+**No code signing** (personal use; the story allows it):
+
+- **macOS:** the app is signed *ad hoc* (`identity: "-"` in
+  `electron-builder.yml`), which Apple Silicon needs to run it, without the
+  hardened runtime (only notarization needs it). The Claude Code binary keeps
+  Anthropic's own signature (`signIgnore`). A build made on the same Mac
+  opens normally. A copy downloaded or moved from another Mac is
+  quarantined: right-click → **Open** once, or
+  `xattr -dr com.apple.quarantine "/Applications/Review Buddy.app"`.
+- **Windows:** SmartScreen may say "Windows protected your PC": **More
+  info** → **Run anyway**.
+- **Linux:** AppImages are not signed.
+
+**Check a packaged app** from a terminal (the same flags as in dev):
+
+```bash
+"/Applications/Review Buddy.app/Contents/MacOS/Review Buddy" --agent-check   # macOS
+release/review-buddy-<version>-x86_64.AppImage --agent-check                 # Linux
+# The same app path also takes:
+#   --pr-check=owner/repo#123    reads a real PR with the app's GitHub login
+#   --review-pr=owner/repo#123   opens the app and reviews that PR
+```
+
+**Your data** (GitHub token, settings, saved reviews, viewed files) is in the
+app's profile folder, kept across reinstalls and updates:
+`~/Library/Application Support/Review Buddy` (macOS),
+`%APPDATA%\Review Buddy` (Windows), `~/.config/Review Buddy` (Linux). To
+update, build again and reinstall.
+
+**Linux sandbox note.** electron-builder starts AppImages with
+`--no-sandbox`: an AppImage cannot ship Chromium's setuid sandbox helper.
+The renderer still has no Node access (`sandbox: true` in its web
+preferences), but it loses the OS-level sandbox. For the full sandbox, run
+the unpacked app instead (`pnpm --filter desktop package`, then
+`sudo chown root release/linux-unpacked/chrome-sandbox && sudo chmod 4755
+release/linux-unpacked/chrome-sandbox`, then run
+`release/linux-unpacked/review-buddy`).
+
+**What was checked (US-18).** On Linux (x64, in a container), the AppImage
+built by `pnpm dist` passed the smoke test
+(`node scripts/smoke-desktop.ts --executable release/review-buddy-…AppImage`),
+`--agent-check`, and the real-agent review (`review-e2e --executable …`):
+the review, a restart, the saved review and "expand full file". Its menu entry
+and icon are in place. **The macOS and Windows installers were not built
+here** (they must be built on those systems); their settings follow
+electron-builder's documented options for unsigned builds. The real GitHub
+login (gh or a pasted token) in a packaged app needs a real machine: the
+container's GitHub access is limited to one repository.
+
+The icon is `build/icon.svg`, rendered to `build/icon.png` (1024 px);
+electron-builder makes the `.icns` and `.ico` from the PNG.
+
 ## Layout
 
 ```
@@ -57,7 +135,8 @@ src/preload/    # exposes window.reviewBuddy = { review, github }; built as Comm
 src/renderer/   # App shell (top bar, tabs) + repo and PR lists + <ReviewViewer api={ipcReviewApi(...)} /> + settings (GitHub, saved reviews)
 src/shared/     # the IPC contract (channel names + types), used by all three
 scripts/        # smoke-desktop.ts (no Claude), review-e2e.ts (the real agent)
-electron-builder.yml  # packaging (asarUnpack for the Claude Code binary)
+electron-builder.yml  # packaging: installers per OS, asarUnpack for the Claude Code binary
+build/          # icon.svg → icon.png (the app icon)
 ```
 
 ## Security
@@ -66,8 +145,9 @@ The renderer shows text from PRs and from the agent, so it is treated as
 untrusted:
 
 - `contextIsolation: true`, `nodeIntegration: false`, `sandbox: true`. The
-  preload exposes seven review calls and four GitHub calls, never
-  `ipcRenderer` itself.
+  preload exposes eleven review calls (one of them the job-list event) and
+  seven GitHub calls, never `ipcRenderer` itself. (On Linux, the AppImage
+  runs without the OS-level sandbox: see "Install the app".)
 - Main answers IPC only from our renderer page: the sender frame's URL must
   be `index.html` (or `/`) on `app://renderer` (the Vite server in dev). Any
   other file on that origin gets no IPC. Main also checks every argument. File reads are limited to the review's own
@@ -451,10 +531,11 @@ simulated with a fake API that answers 401; it gives the error above.
 - **One platform per build.** pnpm installs only this machine's binary
   package, so build each OS on that OS. electron-builder warns about the other
   platforms' packages; that is expected.
-- **Size.** The binary is about 250 MB unpacked, about half of the 545 MB
-  Linux app. If that is too much, US-18 can use the `claude` the user already
-  has installed instead (`pathToClaudeCodeExecutable`). The cost is a Claude
-  Code version that the app does not control.
+- **Size.** The binary is about 250 MB unpacked, about half of the Linux app
+  (the AppImage is about 240 MB compressed). US-18 kept it bundled: the
+  app then runs the Claude Code version it was tested with. Using the
+  `claude` the user already has (`pathToClaudeCodeExecutable`) would save
+  the space, at the cost of a version the app does not control.
 - **Peers.** The SDK's peer dependencies (`@anthropic-ai/sdk`,
   `@modelcontextprotocol/sdk`, `zod`) are only needed for types. Its runtime
   imports only Node built-ins, and they are not packaged. The review tools
