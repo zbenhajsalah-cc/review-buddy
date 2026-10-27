@@ -1,8 +1,8 @@
+import type { ResolvedReview } from "@review-buddy/core/types";
 import { useMemo, useRef, useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
-import type { ResolvedReview } from "../../../types/review.ts";
 import { readViewedEntries } from "../lib/chapterFileSet.ts";
 import { chapterPathSet } from "../lib/chapterPathSet.ts";
 import { reviewToMarkdown } from "../lib/reviewMarkdown.ts";

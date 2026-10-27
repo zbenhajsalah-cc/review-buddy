@@ -1,7 +1,7 @@
+import type { ResolvedChapter, ResolvedReview } from "@review-buddy/core/types";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
-import type { ResolvedChapter, ResolvedReview } from "../../../types/review.ts";
 import { fetchConfig, postDone } from "../api.ts";
 import { clearReviewFileState, useCollapsedFiles, useViewedFiles } from "../lib/chapterFileSet.ts";
 import { chapterToMarkdown } from "../lib/reviewMarkdown.ts";

@@ -1,5 +1,5 @@
+import type { ResolvedReview } from "@review-buddy/core/types";
 import { z } from "zod";
-import type { ResolvedReview } from "../../../types/review.ts";
 
 const RiskSchema = z.enum(["Low", "Medium", "High"]);
 const ChangeTypeSchema = z.enum(["added", "modified", "deleted", "renamed"]);

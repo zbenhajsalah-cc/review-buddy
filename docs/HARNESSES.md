@@ -104,7 +104,7 @@ purpose.
 Two behavioral differences vs Claude Code to be aware of:
 
 - **Schema enforcement**: Claude Code validates the tool input against
-  `schemas/review.schema.json` before the call; other harnesses may not, so the
+  `packages/core/schemas/review.schema.json` before the call; other harnesses may not, so the
   standalone handler validates itself and returns the reason as a tool error
   for the model to fix and retry.
 - **Turn semantics**: in detached mode the agent's turn continues immediately —

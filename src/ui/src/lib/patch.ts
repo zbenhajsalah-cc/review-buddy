@@ -4,7 +4,7 @@
  * bytes from the server (reference-not-reproduce); this just re-frames them with
  * the git file headers @pierre/diffs expects.
  */
-import type { ResolvedFile } from "../../../types/review.ts";
+import type { ResolvedFile } from "@review-buddy/core/types";
 
 export function fileToPatch(f: ResolvedFile): string {
   const oldPath = f.old_path ?? f.path;

@@ -5,8 +5,8 @@
 
 import type { FileDiffOptions, LineDiffTypes } from "@pierre/diffs";
 import { useWorkerPool } from "@pierre/diffs/react";
+import type { DisplaySettings } from "@review-buddy/core/types";
 import { useCallback, useEffect } from "react";
-import type { DisplaySettings } from "../../types/review.ts";
 import { usePersistedState } from "./lib/usePersistedState.ts";
 
 const KEY = "rb.display";

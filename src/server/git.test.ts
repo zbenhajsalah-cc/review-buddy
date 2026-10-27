@@ -4,8 +4,8 @@ import { execFileSync } from "node:child_process";
 import { mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { parseDiff } from "@review-buddy/core/diff";
 import { makeTempRepo } from "../test-helpers.ts";
-import { parseDiff } from "./diff.ts";
 import {
   assertPrRef,
   assertSafeRef,

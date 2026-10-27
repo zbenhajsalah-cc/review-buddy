@@ -10,7 +10,7 @@
 # - reads the current version from package.json (the source of truth)
 # - computes the next version from a bump keyword (patch/minor/major) or an
 #   explicit X.Y.Z you pass in
-# - writes that version into all three version files
+# - writes that version into every version file
 # - verifies every file now agrees
 # - commits the bump on develop
 # - fast-forwards main to the release commit and tags it v<version> (annotated)
@@ -61,6 +61,7 @@ VERSION_FILES=(
   "package.json"
   ".claude-plugin/plugin.json"
   "src/ui/package.json"
+  "packages/core/package.json"
 )
 
 # Blockers are collected during preflight so a dry run can show them all at once.

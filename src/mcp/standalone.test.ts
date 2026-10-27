@@ -2,8 +2,8 @@ import { afterAll, afterEach, beforeAll, expect, test } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import type { AgentReview } from "@review-buddy/core/types";
 import { makeTempRepo, sampleReview, VIEWER_URL_RE } from "../test-helpers.ts";
-import type { AgentReview } from "../types/review.ts";
 import { standaloneMode } from "./mode.ts";
 import { handleStandaloneSubmit, makeShutdown, stopCurrentSession } from "./standalone.ts";
 

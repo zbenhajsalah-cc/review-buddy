@@ -1,6 +1,6 @@
+import type { DisplaySettings } from "@review-buddy/core/types";
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { useState } from "react";
-import type { DisplaySettings } from "../../../types/review.ts";
 import { DEFAULT_SETTINGS } from "../stories/fixtures.ts";
 import { DisplaySettingsBar } from "./DisplaySettingsBar.tsx";
 

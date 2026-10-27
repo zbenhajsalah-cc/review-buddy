@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { resolutionNotesMessage } from "./session.ts";
+import { resolutionNotesMessage } from "./messages.ts";
 
 test("resolutionNotesMessage: empty list → undefined", () => {
   expect(resolutionNotesMessage([])).toBeUndefined();

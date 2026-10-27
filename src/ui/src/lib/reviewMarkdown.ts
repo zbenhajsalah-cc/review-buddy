@@ -1,4 +1,4 @@
-import type { ResolvedChapter, ResolvedFile, ResolvedReview } from "../../../types/review.ts";
+import type { ResolvedChapter, ResolvedFile, ResolvedReview } from "@review-buddy/core/types";
 
 function pluralFiles(n: number): string {
   return `${n} file${n === 1 ? "" : "s"}`;

@@ -38,7 +38,7 @@ const Source = z
   });
 
 /** Structural schema for the agent's review payload (hook backstop; mirrors the
- *  load-bearing constraints of schemas/review.schema.json, not every field).
+ *  load-bearing constraints of ../schemas/review.schema.json, not every field).
  *  When present, `source` is validated; unknown keys (e.g. advisory `stats`) are
  *  ignored, not rejected. */
 export const AgentReviewSchema = z.object({

@@ -12,6 +12,9 @@
  *
  * The agent supplies judgment + grouping; git supplies the bytes.
  */
+
+import { languageOf, type ParsedFile, type ParsedHunk, parseDiff } from "./diff.ts";
+import { isNoiseFile } from "./noise.ts";
 import type {
   AgentReview,
   PrMetadata,
@@ -21,9 +24,7 @@ import type {
   ResolvedReview,
   ReviewMeta,
   ReviewStats,
-} from "../types/review.ts";
-import { languageOf, type ParsedFile, type ParsedHunk, parseDiff } from "./diff.ts";
-import { isNoiseFile } from "./noise.ts";
+} from "./types.ts";
 
 export interface ResolveResult {
   review: ResolvedReview;
@@ -271,4 +272,17 @@ export function resolveReview(
     review: { meta, pr, prologue: agent.prologue, stats, chapters, warnings },
     warnings,
   };
+}
+
+/**
+ * Paths a resolved review references — the allowlist for full-file reads
+ * (source C). Only files that are part of the review may be fetched: the
+ * tightest defense against path traversal.
+ */
+export function allowedPaths(review: ResolvedReview): Set<string> {
+  const paths = new Set<string>();
+  for (const ch of review.chapters) {
+    for (const f of ch.files) paths.add(f.path);
+  }
+  return paths;
 }

@@ -1,4 +1,4 @@
-import type { ResolvedFile, ResolvedReview } from "../../../types/review.ts";
+import type { ResolvedFile, ResolvedReview } from "@review-buddy/core/types";
 import { DEFAULT_SETTINGS } from "../settings.ts";
 
 export { DEFAULT_SETTINGS };

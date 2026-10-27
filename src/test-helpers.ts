@@ -9,7 +9,7 @@ import { execFileSync } from "node:child_process";
 import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { AgentReview } from "./types/review.ts";
+import type { AgentReview } from "@review-buddy/core/types";
 
 /** Run git in `cwd` (test-grade: throws on failure, returns stdout). */
 export function testGit(cwd: string, ...args: string[]): string {

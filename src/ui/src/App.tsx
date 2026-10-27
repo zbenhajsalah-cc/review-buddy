@@ -1,5 +1,5 @@
+import type { ResolvedReview } from "@review-buddy/core/types";
 import { useEffect, useState } from "react";
-import type { ResolvedReview } from "../../types/review.ts";
 import { fetchReview } from "./api.ts";
 import { ChapterReview } from "./components/ChapterReview.tsx";
 import { Overview } from "./components/Overview.tsx";

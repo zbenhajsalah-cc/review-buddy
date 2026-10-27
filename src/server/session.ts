@@ -14,7 +14,9 @@
  */
 import { existsSync } from "node:fs";
 import { join } from "node:path";
-import type { AgentReview, ReviewMeta } from "../types/review.ts";
+import { buildMeta } from "@review-buddy/core/meta";
+import { resolveReview } from "@review-buddy/core/resolve";
+import type { AgentReview } from "@review-buddy/core/types";
 import { openBrowser } from "./browser.ts";
 import {
   assertSafeRef,
@@ -26,22 +28,12 @@ import {
   resolveBase,
 } from "./git.ts";
 import { type RunningServer, startServer } from "./http.ts";
-import { resolveReview } from "./resolve.ts";
 
 const repoRoot = join(import.meta.dir, "..", "..");
 
 function uiDir(): string | undefined {
   const dir = join(repoRoot, "src", "ui", "dist");
   return existsSync(join(dir, "index.html")) ? dir : undefined;
-}
-
-function buildMeta(): ReviewMeta {
-  return {
-    aiGenerated: true,
-    generatedBy: process.env.REVIEW_BUDDY_MODEL ?? "claude",
-    generatedAt: new Date().toISOString(),
-    promptVersion: "1",
-  };
 }
 
 /**
@@ -105,7 +97,12 @@ export async function openReviewSession(
   opts: SessionOptions = {},
 ): Promise<RunningServer> {
   const { diff, pr, base, headRef } = await captureForSource(agent, cwd);
-  const { review, warnings } = resolveReview(agent, diff, buildMeta(), pr);
+  const { review, warnings } = resolveReview(
+    agent,
+    diff,
+    buildMeta({ generatedBy: process.env.REVIEW_BUDDY_MODEL ?? "claude" }),
+    pr,
+  );
   for (const w of warnings) console.error(`[review-buddy] ${w}`);
   if (headRef === null) {
     console.error("[review-buddy] PR head not fetchable — full-file expansion disabled.");
@@ -126,43 +123,4 @@ export async function openReviewSession(
     console.error(`[review-buddy] Could not open a browser — open the URL above manually.`);
   }
   return server;
-}
-
-/**
- * Reviewer's request-changes verdict as a human/agent-readable message — the
- * hook's deny reason and blocking standalone's tool result share this wording.
- * Non-string summaries (malformed /api/done body) degrade to the generic form.
- */
-export function requestChangesMessage(summary: unknown): string {
-  const note = typeof summary === "string" ? summary.trim() : "";
-  return note
-    ? `Reviewer requested changes:\n\n${note}`
-    : "Reviewer requested changes (no details provided) — re-examine the flagged chapters.";
-}
-
-const MAX_RESOLUTION_NOTES = 10;
-
-/**
- * Format resolution/coverage warnings for the agent-visible feedback channel
- * (hook `additionalContext` / standalone tool-result text). Empty → undefined
- * so callers can omit the block entirely. Caps bullets so a pathological
- * review can't blow the agent's context window.
- */
-export function resolutionNotesMessage(warnings: readonly string[]): string | undefined {
-  if (warnings.length === 0) return undefined;
-  const shown = warnings.slice(0, MAX_RESOLUTION_NOTES);
-  const omitted = warnings.length - shown.length;
-  const lines = [
-    `${warnings.length} resolution note${warnings.length === 1 ? "" : "s"} — ` +
-      `places the tool could not map this review onto the real diff:`,
-    ...shown.map((w) => `- ${w}`),
-  ];
-  if (omitted > 0) {
-    lines.push(`…and ${omitted} more omitted.`);
-  }
-  lines.push(
-    "If you submit this diff again, correct the file paths and hunk anchors " +
-      "(`old_start` / `new_start` from the `@@` headers).",
-  );
-  return lines.join("\n");
 }

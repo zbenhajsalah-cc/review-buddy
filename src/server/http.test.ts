@@ -3,10 +3,10 @@ import { execFileSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { AgentReview, PrMetadata, ReviewMeta } from "../types/review.ts";
+import { resolveReview } from "@review-buddy/core/resolve";
+import type { AgentReview, PrMetadata, ReviewMeta } from "@review-buddy/core/types";
 import { captureDiff, capturePr, resolveBase } from "./git.ts";
 import { type RunningServer, startServer } from "./http.ts";
-import { resolveReview } from "./resolve.ts";
 
 let dir: string;
 let server: RunningServer;

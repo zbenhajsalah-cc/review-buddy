@@ -7,7 +7,7 @@
  * are git's (reference-not-reproduce); we only re-frame them.
  */
 import { type FileDiffMetadata, parseDiffFromFile } from "@pierre/diffs";
-import type { ResolvedFile } from "../../../types/review.ts";
+import type { ResolvedFile } from "@review-buddy/core/types";
 
 /** Which sides must carry real bytes for a faithful full-file diff of this change. */
 export function requiredSides(changeType: ResolvedFile["change_type"]): {

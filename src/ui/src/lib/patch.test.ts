@@ -1,6 +1,6 @@
 /// <reference types="bun-types" />
 import { expect, test } from "bun:test";
-import type { ResolvedFile } from "../../../types/review.ts";
+import type { ResolvedFile } from "@review-buddy/core/types";
 import { fileToPatch } from "./patch.ts";
 
 const baseHunk = {

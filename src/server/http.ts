@@ -13,8 +13,9 @@
 import { createHash, timingSafeEqual } from "node:crypto";
 import { existsSync } from "node:fs";
 import { join, resolve, sep } from "node:path";
-import type { ResolvedReview } from "../types/review.ts";
-import { languageOf } from "./diff.ts";
+import { languageOf } from "@review-buddy/core/diff";
+import { allowedPaths } from "@review-buddy/core/resolve";
+import type { ResolvedReview } from "@review-buddy/core/types";
 import { fileContent } from "./git.ts";
 
 /** True iff `rel` resolves lexically inside `root` (blocks `..` only; does not dereference symlinks — link escape is guarded at read time in fileContent). */
@@ -113,10 +114,7 @@ export function startServer(ctx: ServerContext): RunningServer {
 
   // Only files that are actually part of this review may be fetched via
   // /api/file-content — the tightest defense against path traversal.
-  const allowedPaths = new Set<string>();
-  for (const ch of ctx.review.chapters) {
-    for (const f of ch.files) allowedPaths.add(f.path);
-  }
+  const allowed = allowedPaths(ctx.review);
 
   const token = crypto.randomUUID();
 
@@ -160,7 +158,7 @@ export function startServer(ctx: ServerContext): RunningServer {
         const side = url.searchParams.get("side") === "base" ? "base" : "head";
         if (!path) return json({ error: "missing ?path" }, 400);
         // Allowlist (review files only) + containment guard against traversal.
-        if (!allowedPaths.has(path)) return json({ error: "unknown path" }, 403);
+        if (!allowed.has(path)) return json({ error: "unknown path" }, 403);
         if (!isInside(ctx.cwd, path)) return json({ error: "path outside repo" }, 400);
         const content = fileContent(ctx.cwd, path, side, ctx.baseRef, ctx.headRef);
         return json({ path, side, language: languageOf(path), content });

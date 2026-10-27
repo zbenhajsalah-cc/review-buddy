@@ -1,6 +1,6 @@
 /// <reference types="bun-types" />
 import { expect, test } from "bun:test";
-import type { ResolvedChapter, ResolvedReview } from "../../../types/review.ts";
+import type { ResolvedChapter, ResolvedReview } from "@review-buddy/core/types";
 import { fakeResolvedReview } from "../stories/fixtures.ts";
 import { chapterToMarkdown, reviewToMarkdown } from "./reviewMarkdown.ts";
 

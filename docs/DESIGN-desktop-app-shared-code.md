@@ -263,7 +263,8 @@ detailed user stories are in `backlog-desktop-app.md`.
 
 1. **pnpm workspace + `packages/core`.** Add `pnpm-workspace.yaml`, move the
    pure modules and their tests to `packages/core`, switch installs to pnpm. The
-   plugin still runs from `src/` and imports core with a workspace link.
+   plugin still runs from `src/` and imports core through tsconfig `paths`
+   (not a workspace link, which unbundled plugin installs cannot resolve).
 2. **Bundle the plugin.** Add the `bun build` step and the committed `dist/`, and
    test the "no `node_modules`" install. This must land before or together
    with step 3.

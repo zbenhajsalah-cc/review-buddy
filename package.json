@@ -12,8 +12,10 @@
     "mcp": "bun run src/mcp/server.ts",
     "hook": "bun run src/cli/index.ts",
     "test": "bun test src/server src/cli src/mcp",
+    "test:core": "pnpm --filter @review-buddy/core test",
     "test:ui": "pnpm --filter review-buddy-ui test",
     "typecheck": "tsc --noEmit",
+    "typecheck:core": "pnpm --filter @review-buddy/core typecheck",
     "typecheck:ui": "pnpm --filter review-buddy-ui typecheck",
     "build:ui": "pnpm --filter review-buddy-ui build",
     "gen:prompts": "bun run scripts/gen-prompts.ts",
@@ -22,8 +24,8 @@
     "verify:dist-fresh": "git add --intent-to-add -- src/ui/dist && git diff --exit-code -- src/ui/dist",
     "verify:prompts-fresh": "pnpm gen:prompts && git add --intent-to-add -- integrations && git diff --exit-code -- integrations",
     "verify:bun-lock": "bun install --frozen-lockfile --lockfile-only",
-    "verify": "pnpm lint && pnpm test && pnpm typecheck && pnpm typecheck:ui && pnpm test:ui",
-    "verify:ci": "pnpm lint && pnpm test && pnpm typecheck && pnpm build:ui && pnpm test:ui && pnpm verify:dist-fresh && pnpm verify:prompts-fresh && pnpm verify:bun-lock"
+    "verify": "pnpm lint && pnpm test:core && pnpm test && pnpm typecheck:core && pnpm typecheck && pnpm typecheck:ui && pnpm test:ui",
+    "verify:ci": "pnpm lint && pnpm test:core && pnpm test && pnpm typecheck:core && pnpm typecheck && pnpm build:ui && pnpm test:ui && pnpm verify:dist-fresh && pnpm verify:prompts-fresh && pnpm verify:bun-lock"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.12.0",

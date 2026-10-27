@@ -1,0 +1,26 @@
+{
+  // Source typecheck. No runtime types at all — no bun-types, no @types/node,
+  // no DOM — so any Bun.*, node:*, import.meta.dir, or browser API in core
+  // fails here. Core must run unchanged in Bun (plugin), Node (Electron main),
+  // and the browser (viewer). Tests are checked by tsconfig.test.json.
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "lib": ["ES2022"],
+    "types": [],
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "noFallthroughCasesInSwitch": true,
+    "verbatimModuleSyntax": true,
+    "skipLibCheck": true,
+    "resolveJsonModule": true,
+    "allowImportingTsExtensions": true,
+    "noEmit": true,
+    "forceConsistentCasingInFileNames": true
+  },
+  "include": ["src/**/*.ts"],
+  "exclude": ["src/**/*.test.ts"]
+}

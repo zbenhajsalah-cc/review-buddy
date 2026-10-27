@@ -1,8 +1,8 @@
 /// <reference types="bun-types" />
 import { afterEach, expect, mock, test } from "bun:test";
+import type { ResolvedFile } from "@review-buddy/core/types";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import type { ComponentProps } from "react";
-import type { ResolvedFile } from "../../../types/review.ts";
 import { DEFAULT_SETTINGS } from "../settings.ts";
 
 mock.module("@pierre/diffs/react", () => ({

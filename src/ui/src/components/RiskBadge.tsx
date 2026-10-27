@@ -1,6 +1,6 @@
+import type { Risk } from "@review-buddy/core/types";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
-import type { Risk } from "../../../types/review.ts";
 
 const RISK_CLASSES: Record<Risk, string> = {
   High: "rounded-full px-2 py-0.5 text-[0.68rem] font-bold uppercase tracking-wide bg-[var(--color-risk-high-bg)] text-[var(--color-risk-high)]",

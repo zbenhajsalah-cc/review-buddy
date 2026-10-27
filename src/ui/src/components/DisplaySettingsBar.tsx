@@ -1,8 +1,8 @@
+import type { DisplaySettings } from "@review-buddy/core/types";
 import { useId } from "react";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
-import type { DisplaySettings } from "../../../types/review.ts";
 
 /** Compact toolbar of the diff display controls (source D). */
 export function DisplaySettingsBar({

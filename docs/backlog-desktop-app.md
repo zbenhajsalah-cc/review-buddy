@@ -84,9 +84,16 @@ Acceptance criteria:
   (`requestChangesMessage`, `resolutionNotesMessage`, `buildMeta({ generatedBy })`)
   and `allowedPaths(review)` taken out of `http.ts`.
 - Core has no `Bun.*`, no `import.meta.dir`, no `bun-types` in its tsconfig.
-  A lint rule or a typecheck enforces this.
-- The plugin code imports core via `workspace:*`. Behavior is unchanged; all
-  existing tests pass.
+  The core typecheck enforces this: its source tsconfig has no runtime types
+  at all (no Bun, no Node, no DOM); tests use a separate tsconfig.
+- The plugin imports `@review-buddy/core/*` through `paths` in the root
+  tsconfig (Bun honors them at runtime), **not** a `workspace:*` dependency:
+  GitHub installs (Bun auto-install, no `node_modules`) and local clones
+  (plain `bun install`) cannot resolve `workspace:*`. The viewer uses
+  `workspace:*` (only pnpm installs it).
+- Behavior is unchanged; all existing tests pass. Checked by running the
+  plugin from a copy with no `node_modules` and an empty Bun cache (Bun 1.3.5
+  and 1.4.4) and from a local clone after `bun install`.
 
 ### US-03: `ReviewDataSource` + git capture in core
 
@@ -116,6 +123,9 @@ Acceptance criteria:
   and `dist/hook.js` (hook + `dev` CLI) with core, `zod`, the MCP SDK, and the
   JSON schema inlined.
 - `plugin.json`, `hooks.json` and `bin/review-buddy.js` point at the bundles.
+- The root package may then depend on `@review-buddy/core` with
+  `workspace:*` instead of the tsconfig `paths` from US-02 (`bun build`
+  inlines it either way).
 - The bundles are committed, marked `linguist-generated` in `.gitattributes`,
   and covered by `verify:dist-fresh` (the build is deterministic).
 - The root `bun.lock` and the `verify:bun-lock` script are removed (nothing

@@ -6,7 +6,7 @@
  *  - UI/server contract (GET /api/review):  agent JSON merged with the real diff,
  *                                           PR metadata, server meta, computed stats.
  *
- * See docs/review-contract.md and schemas/review.schema.json.
+ * See docs/review-contract.md and ../schemas/review.schema.json.
  */
 
 export type Risk = "Low" | "Medium" | "High";

@@ -14,14 +14,11 @@
  *                          the UI without going through the agent/hook.
  */
 import { readFileSync } from "node:fs";
+import { requestChangesMessage, resolutionNotesMessage } from "@review-buddy/core/messages";
+import type { AgentReview } from "@review-buddy/core/types";
+import { validateAgentReview } from "@review-buddy/core/validate";
 import type { DoneResult } from "../server/http.ts";
-import {
-  openReviewSession,
-  requestChangesMessage,
-  resolutionNotesMessage,
-} from "../server/session.ts";
-import { validateAgentReview } from "../server/validate.ts";
-import type { AgentReview } from "../types/review.ts";
+import { openReviewSession } from "../server/session.ts";
 
 interface HookEvent {
   tool_name?: string;

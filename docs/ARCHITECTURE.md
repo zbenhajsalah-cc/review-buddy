@@ -78,7 +78,7 @@ Why `PreToolUse` over `PermissionRequest`: `PreToolUse` always fires; `Permissio
 
 ## Validation strategy
 
-Define the `submit_review` MCP tool's `inputSchema` = `schemas/review.schema.json`. Claude Code validates the tool call against it and makes the model retry on mismatch — so malformed/truncated review JSON is caught before the hook ever runs. This is a concrete advantage of the tool-call transport over file/stdout.
+Define the `submit_review` MCP tool's `inputSchema` = `packages/core/schemas/review.schema.json`. Claude Code validates the tool call against it and makes the model retry on mismatch — so malformed/truncated review JSON is caught before the hook ever runs. This is a concrete advantage of the tool-call transport over file/stdout.
 
 ## Diff & rendering notes
 

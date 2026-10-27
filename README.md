@@ -104,30 +104,32 @@ Hitting an install or runtime snag (e.g. a Windows `EPERM` on install, `bun: com
 ## Layout
 
 ```
+packages/core/       # @review-buddy/core: contracts, diff parser, chapter resolution, validation
+  schemas/           # review.schema.json = submit_review input schema
 src/
   mcp/server.ts      # MCP server exposing submit_review
   cli/index.ts       # PreToolUse hook entry (open-review)
-  server/            # diff capture, chapter resolution, local HTTP server, browser open
+  server/            # git capture, session lifecycle, local HTTP server, browser open
   ui/                # Vite + React 19 + Tailwind v4 viewer (@pierre/diffs)
-  types/review.ts    # shared agent + UI/server contracts
 docs/                # PRD, ARCHITECTURE, review-contract, build-plan, HARNESSES
-schemas/             # review.schema.json = submit_review input schema
 examples/hooks.json  # example Claude Code plugin hook config
 integrations/        # Cursor / VS Code Copilot / Codex configs + review prompts
 ```
 
 ## Development
 
-The repo is a [pnpm](https://pnpm.io) workspace: the root package (MCP server + hook) and the viewer (`src/ui`, a Vite package). pnpm installs everything; [Bun](https://bun.sh) still runs the backend, the scripts, and the tests. Versions: pnpm from `package.json` `packageManager`, Bun from `.bun-version`.
+The repo is a [pnpm](https://pnpm.io) workspace: the root package (MCP server + hook), the shared review logic (`packages/core`), and the viewer (`src/ui`, a Vite package). pnpm installs everything; [Bun](https://bun.sh) still runs the backend, the scripts, and the tests. Versions: pnpm from `package.json` `packageManager`, Bun from `.bun-version`.
 
-`pnpm verify` is the fast local loop (tests + both typechecks); `pnpm verify:ci` is the exact gate CI runs on every pull request and on pushes to `main`/`develop` (it adds the UI production build). Run `pnpm verify:ci` before opening a PR.
+`pnpm verify` is the fast local loop (tests + typechecks); `pnpm verify:ci` is the exact gate CI runs on every pull request and on pushes to `main`/`develop` (it adds the UI production build). Run `pnpm verify:ci` before opening a PR.
 
 ```bash
 pnpm install           # all workspace deps (backend + viewer), from pnpm-lock.yaml
-pnpm verify            # fast local loop: backend tests + backend & UI typechecks
+pnpm verify            # fast local loop: core + backend tests, all typechecks, UI tests
 pnpm verify:ci         # full gate CI runs: verify + UI production build
-pnpm test              # backend tests
-pnpm typecheck         # backend tsc
+pnpm test:core         # core tests
+pnpm typecheck:core    # core tsc (rejects Bun/Node/DOM APIs)
+pnpm test              # plugin backend tests
+pnpm typecheck         # plugin backend tsc
 
 pnpm --filter review-buddy-ui dev     # viewer dev server (proxies /api → 127.0.0.1:5199)
 pnpm build:ui                         # typecheck + production build (writes the committed src/ui/dist)

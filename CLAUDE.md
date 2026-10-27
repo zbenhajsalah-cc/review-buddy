@@ -42,7 +42,7 @@ The agent's JSON is only the **narrative layer**. The UI needs three sources:
 
 **Reference-not-reproduce rule:** the agent must NOT echo diff line content into JSON (LLMs corrupt whitespace, drop lines, miscount line numbers, and it doubles token cost — and it fights the PRD's own #1 risk: "never fabricate changes"). Instead the agent emits, per chapter, the file paths + hunk **anchors** (`old_start` / `new_start`). The tool parses the authoritative `git diff` (source B) and maps each real hunk onto a chapter by path+anchor. Hunk-level anchors also let one file span multiple chapters. The tool recomputes all stats (additions/deletions/file counts) from the real diff — treat agent-provided stats as advisory only.
 
-See `docs/review-contract.md` for the exact **agent contract** vs **UI/server contract**, `schemas/review.schema.json` for the `submit_review` input schema, and `src/types/review.ts` for the TypeScript types.
+See `docs/review-contract.md` for the exact **agent contract** vs **UI/server contract**, `packages/core/schemas/review.schema.json` for the `submit_review` input schema, and `packages/core/src/types.ts` for the TypeScript types.
 
 ## Repo map
 
@@ -54,14 +54,21 @@ review-buddy/
 ├── bin/review-buddy.js        # plugin entry shim → src/cli
 ├── hooks/hooks.json           # the real PreToolUse hook wiring
 ├── skills/review/SKILL.md     # the /review skill — the structuring prompt (source of truth)
+├── packages/core/             # @review-buddy/core — runtime-neutral (no Bun/Node/DOM APIs; its typecheck enforces it)
+│   ├── src/types.ts           # shared agent + UI/server contracts
+│   ├── src/diff.ts            # git diff parser
+│   ├── src/resolve.ts         # chapter resolution (anchors → real hunks) + file allowlist
+│   ├── src/noise.ts           # generated/noise file heuristic
+│   ├── src/validate.ts        # zod backstop for the agent payload
+│   ├── src/messages.ts        # agent-facing feedback text (resolution notes, request-changes)
+│   ├── src/meta.ts            # review meta
+│   └── schemas/review.schema.json # JSON Schema = submit_review inputSchema
 ├── src/
 │   ├── mcp/server.ts          # MCP server exposing submit_review (+ standalone dispatch)
 │   ├── mcp/standalone.ts      # non-Claude harnesses: submit_review does capture+serve itself
 │   ├── cli/index.ts           # PreToolUse hook entry (open-review)
-│   ├── server/                # diff capture, chapter resolution, session lifecycle, local HTTP server, browser open
-│   ├── ui/                    # Vite + React 19 + Tailwind v4 viewer (@pierre/diffs)
-│   └── types/review.ts        # shared agent + UI/server contracts
-├── schemas/review.schema.json # JSON Schema = submit_review inputSchema
+│   ├── server/                # git capture, session lifecycle, local HTTP server, browser open
+│   └── ui/                    # Vite + React 19 + Tailwind v4 viewer (@pierre/diffs)
 ├── integrations/              # Cursor / VS Code Copilot / Codex MCP configs + review prompts
 ├── docs/
 │   ├── PRD.md                 # product requirements (source of truth for UX)
@@ -72,6 +79,8 @@ review-buddy/
 ├── examples/hooks.json        # example plugin hook config (installed-binary form)
 └── scripts/release.sh         # version bump across files + release
 ```
+
+**Workspace:** pnpm installs (`pnpm-workspace.yaml`: `packages/*`, `src/ui`); Bun runs the plugin and the tests. The plugin (root package) reaches `@review-buddy/core` through `paths` in the root `tsconfig.json`, **not** a `workspace:*` dependency: GitHub plugin installs have no `node_modules` (Bun auto-installs) and local clones run plain `bun install`, and neither understands `workspace:*`. Bun honors tsconfig `paths` at runtime. See `docs/DESIGN-desktop-app-shared-code.md` and `docs/backlog-desktop-app.md`.
 
 ## Phase 1 (shipped)
 

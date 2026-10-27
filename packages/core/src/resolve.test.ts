@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import type { AgentReview, PrMetadata, ReviewMeta } from "../types/review.ts";
 import { resolveReview } from "./resolve.ts";
+import type { AgentReview, PrMetadata, ReviewMeta } from "./types.ts";
 
 const SAMPLE = `diff --git a/src/dashboard/useSport.ts b/src/dashboard/useSport.ts
 index 1111111..2222222 100644

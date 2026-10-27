@@ -1,5 +1,6 @@
 import type { FileDiffMetadata } from "@pierre/diffs";
 import { FileDiff, PatchDiff } from "@pierre/diffs/react";
+import type { DisplaySettings, ResolvedFile } from "@review-buddy/core/types";
 import { memo, useId, useMemo, useRef, useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -7,7 +8,6 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { cn } from "@/lib/utils";
-import type { DisplaySettings, ResolvedFile } from "../../../types/review.ts";
 import { fetchFileContent } from "../api.ts";
 import { buildExpandedDiff, canExpand, requiredSides } from "../lib/expand.ts";
 import { fileToPatch } from "../lib/patch.ts";

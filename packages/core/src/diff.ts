@@ -9,7 +9,7 @@
  * metadata the contract needs: change type (added/deleted/modified/renamed),
  * rename paths, binary flag, and the full header line incl. its section suffix.
  */
-import type { ChangeType } from "../types/review.ts";
+import type { ChangeType } from "./types.ts";
 
 export interface ParsedHunk {
   oldStart: number;

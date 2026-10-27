@@ -2,7 +2,7 @@
  * Client data layer. All /api/* calls carry the per-server token that the hook
  * put in the browser URL (?token=...). The server rejects /api/* without it.
  */
-import type { ResolvedReview } from "../../types/review.ts";
+import type { ResolvedReview } from "@review-buddy/core/types";
 import { parseReview } from "./lib/reviewSchema.ts";
 import { authHeaders } from "./session.ts";
 
