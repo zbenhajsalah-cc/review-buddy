@@ -1,11 +1,12 @@
 /**
- * The app's one agent review at a time (US-12): parses the PR the renderer
- * asks for, opens it, runs the agent, and adds the result to the ReviewStore
- * so the viewer can load it. The renderer polls `status()`.
+ * The app's agent reviews (US-12, US-14): a queue of jobs, run one after
+ * another in start order. Each job parses the PR, opens it, runs the agent,
+ * and adds the result to the ReviewStore so the viewer can load it. The
+ * renderer polls `jobs()`.
  *
  * No Electron imports: tested with bun.
  */
-import type { ReviewRunStatus } from "../../shared/ipc.ts";
+import type { ReviewJobStatus } from "../../shared/ipc.ts";
 import type { GitHubApiSource, PrRef } from "../github/api-source.ts";
 import { parsePrArg } from "../github/pr-check.ts";
 import type { ReviewStore } from "../reviews.ts";
@@ -27,58 +28,120 @@ export interface ReviewJobDeps {
   log?(line: string): void;
 }
 
-export class ReviewJob {
-  #status: ReviewRunStatus = { run: 0, state: "idle", steps: [] };
-  #abort: AbortController | undefined;
-  #running: Promise<void> = Promise.resolve();
+/** Finished jobs kept for the renderer; queued and running ones are always kept. */
+export const MAX_FINISHED = 20;
+
+interface Job {
+  status: ReviewJobStatus;
+  ref: PrRef;
+  abort: AbortController;
+}
+
+export class ReviewJobs {
+  #jobs: Job[] = [];
+  #nextId = 1;
+  /** The running job's promise; the next job starts when it settles. */
+  #active: Promise<void> | undefined;
 
   constructor(private readonly deps: ReviewJobDeps) {}
 
-  status(): ReviewRunStatus {
-    return structuredClone(this.#status);
+  jobs(): ReviewJobStatus[] {
+    return this.#jobs.map((job) => structuredClone(job.status));
   }
 
-  /** Starts a review of `value` ("owner/repo#123" or a PR URL). */
-  start(value: unknown): ReviewRunStatus {
-    if (this.#status.state === "running") throw new Error("A review is already running.");
+  /**
+   * Queues a review of `value` ("owner/repo#123" or a PR URL). It runs when
+   * the jobs before it are done.
+   */
+  start(value: unknown): ReviewJobStatus {
     if (typeof value !== "string") throw new Error("Expected a PR reference.");
     const ref = parsePrArg(value); // throws a message for the user
-    const label = `${ref.owner}/${ref.repo}#${ref.number}`;
-    const abort = new AbortController();
-    this.#abort = abort;
-    const run = this.#status.run + 1;
-    this.#status = { run, state: "running", pr: label, steps: [] };
-    this.#running = this.#run(run, ref, label, abort.signal);
-    return this.status();
+    const pr = `${ref.owner}/${ref.repo}#${ref.number}`;
+    const same = this.#jobs.find(
+      (j) => isActive(j.status) && j.status.pr.toLowerCase() === pr.toLowerCase(),
+    );
+    if (same) {
+      throw new Error(
+        `${same.status.pr} is already ${same.status.state === "running" ? "being reviewed" : "in the queue"}.`,
+      );
+    }
+    const job: Job = {
+      status: { id: this.#nextId++, pr, state: "queued", steps: [] },
+      ref,
+      abort: new AbortController(),
+    };
+    this.#jobs.push(job);
+    this.#prune();
+    this.#next();
+    return structuredClone(job.status);
   }
 
-  /** Stops the running review. A finished one is kept (its file reads still work). */
-  stop(): ReviewRunStatus {
-    if (this.#status.state === "running") this.#abort?.abort();
-    return this.status();
+  /**
+   * Stops a running job, or takes a queued one out of the queue (it ends as
+   * "Stopped."). A finished job is kept as it is (its file reads still work).
+   */
+  stop(id: unknown): ReviewJobStatus[] {
+    const job = this.#jobs.find((j) => j.status.id === id);
+    if (job?.status.state === "queued") {
+      job.status = { ...job.status, state: "failed", error: "Stopped." };
+    } else if (job?.status.state === "running") {
+      job.abort.abort();
+    }
+    return this.jobs();
   }
 
-  /** Resolves when the current run (if any) has finished. */
-  whenIdle(): Promise<void> {
-    return this.#running;
+  /** Stops everything (the app quits). */
+  stopAll(): void {
+    for (const job of this.#jobs) {
+      if (job.status.state === "queued") {
+        job.status = { ...job.status, state: "failed", error: "Stopped." };
+      }
+    }
+    for (const job of this.#jobs) if (job.status.state === "running") job.abort.abort();
   }
 
-  async #run(run: number, ref: PrRef, label: string, signal: AbortSignal): Promise<void> {
+  /** Resolves when no job is queued or running. */
+  async whenIdle(): Promise<void> {
+    while (this.#active) await this.#active;
+  }
+
+  /** Starts the oldest queued job if none is running. */
+  #next(): void {
+    if (this.#active) return;
+    const job = this.#jobs.find((j) => j.status.state === "queued");
+    if (!job) return;
+    job.status = { ...job.status, state: "running" };
+    this.#active = this.#run(job).finally(() => {
+      this.#active = undefined;
+      this.#next();
+    });
+  }
+
+  /** Drops the oldest finished jobs beyond MAX_FINISHED. */
+  #prune(): void {
+    let finished = this.#jobs.filter((j) => !isActive(j.status)).length;
+    this.#jobs = this.#jobs.filter((j) => isActive(j.status) || finished-- <= MAX_FINISHED);
+  }
+
+  async #run(job: Job): Promise<void> {
+    const { ref, abort } = job;
+    const { signal } = abort;
+    const label = job.status.pr;
     const onProgress = (step: string) => {
-      if (this.#status.run !== run) return;
-      this.#status.steps = [...this.#status.steps, step].slice(-MAX_STEPS);
+      job.status.steps = [...job.status.steps, step].slice(-MAX_STEPS);
     };
     let result: ReviewRunResult;
     let reviewKey: string | undefined;
     try {
       const source = await this.deps.open(ref, signal);
       if (signal.aborted) throw new Error("stopped");
+      job.status.headSha = source.headSha;
       result = await this.deps.run(source, label, onProgress, signal);
       // Stopped means stopped, even after a submission: the user asked for no review.
       if (result.review && !signal.aborted) {
         // Viewed-file flags are kept per PR head: a new push is a new review.
         reviewKey = `${label}@${source.headSha.slice(0, 12)}`;
-        this.deps.store.add(reviewKey, result.review, source);
+        this.deps.store.add(reviewKey, result.review, source, { label, headSha: source.headSha });
       }
     } catch (e) {
       result = {
@@ -89,15 +152,19 @@ export class ReviewJob {
         error: e instanceof Error ? e.message : String(e),
       };
     }
-    this.#status = reviewKey
-      ? { ...this.#status, state: "done", reviewKey, notes: result.warnings }
+    job.status = reviewKey
+      ? { ...job.status, state: "done", reviewKey, notes: result.warnings }
       : {
-          ...this.#status,
+          ...job.status,
           state: "failed",
           error: signal.aborted ? "Stopped." : (result.error ?? "The review failed."),
         };
-    if (this.#abort?.signal === signal) this.#abort = undefined;
+    this.#prune();
     const { review: _review, ...summary } = result;
     this.deps.log?.(JSON.stringify({ pr: label, ...summary, warnings: result.warnings.length }));
   }
+}
+
+function isActive(status: ReviewJobStatus): boolean {
+  return status.state === "queued" || status.state === "running";
 }

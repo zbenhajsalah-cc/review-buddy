@@ -2,9 +2,11 @@ import { describe, expect, test } from "bun:test";
 import { loadFixtureReview } from "../fixture/index.ts";
 import type { GitHubApiSource, PrRef } from "../github/api-source.ts";
 import { ReviewStore } from "../reviews.ts";
-import { ReviewJob, type ReviewJobDeps } from "./review-job.ts";
+import { MAX_FINISHED, type ReviewJobDeps, ReviewJobs } from "./review-job.ts";
+import type { ReviewRunResult } from "./runner.ts";
 
 const HEAD = "7e8e70534d5fdb0a8ef1a5a0bf8407774b007b00";
+const FAILED: ReviewRunResult = { ok: false, warnings: [], submissions: 0, durationMs: 0 };
 
 async function setup(run?: ReviewJobDeps["run"]) {
   const { review, source } = await loadFixtureReview();
@@ -12,7 +14,7 @@ async function setup(run?: ReviewJobDeps["run"]) {
   const opened: PrRef[] = [];
   const signals: AbortSignal[] = [];
   const logs: string[] = [];
-  const job = new ReviewJob({
+  const jobs = new ReviewJobs({
     store,
     open: async (ref, signal) => {
       opened.push(ref);
@@ -27,27 +29,53 @@ async function setup(run?: ReviewJobDeps["run"]) {
       }),
     log: (line) => logs.push(line),
   });
-  return { job, store, opened, signals, logs, review };
+  return { jobs, store, opened, signals, logs, review };
 }
 
-describe("ReviewJob", () => {
-  test("a run: running, then done with the review in the store", async () => {
-    const { job, store, opened, logs, review } = await setup();
-    expect(job.status()).toEqual({ run: 0, state: "idle", steps: [] });
-    const started = job.start("https://github.com/octocat/hello-world/pull/42");
-    expect(started).toEqual({ run: 1, state: "running", pr: "octocat/hello-world#42", steps: [] });
-    await job.whenIdle();
+/** A run that waits until `release(label)` (or a stop), then fails. */
+function heldRuns() {
+  const waiting = new Map<string, () => void>();
+  const started: string[] = [];
+  const run: ReviewJobDeps["run"] = (_s, label, _p, signal) =>
+    new Promise((resolve) => {
+      started.push(label);
+      const done = () => resolve({ ...FAILED, error: `${label} failed` });
+      waiting.set(label, done);
+      signal.addEventListener("abort", done);
+    });
+  const whenStarted = async (label: string) => {
+    while (!waiting.has(label)) await Bun.sleep(1);
+  };
+  const release = async (label: string) => {
+    await whenStarted(label);
+    waiting.get(label)!();
+  };
+  return { run, started, whenStarted, release };
+}
+
+describe("ReviewJobs", () => {
+  test("a job: running, then done with the review in the store", async () => {
+    const { jobs, store, opened, logs, review } = await setup();
+    expect(jobs.jobs()).toEqual([]);
+    const started = jobs.start("https://github.com/octocat/hello-world/pull/42");
+    // Nothing before it: it runs at once.
+    expect(started).toEqual({ id: 1, pr: "octocat/hello-world#42", state: "running", steps: [] });
+    await jobs.whenIdle();
     expect(opened).toEqual([{ owner: "octocat", repo: "hello-world", number: 42 }]);
     const key = "octocat/hello-world#42@7e8e70534d5f";
-    expect(job.status()).toEqual({
-      run: 1,
-      state: "done",
-      pr: "octocat/hello-world#42",
-      reviewKey: key,
-      steps: ["Reading the diff"],
-      notes: ["a note"],
-    });
+    expect(jobs.jobs()).toEqual([
+      {
+        id: 1,
+        pr: "octocat/hello-world#42",
+        state: "done",
+        headSha: HEAD,
+        reviewKey: key,
+        steps: ["Reading the diff"],
+        notes: ["a note"],
+      },
+    ]);
     expect(store.getReview(key)).toBe(review);
+    expect(store.newestFor("OctoCat/Hello-World#42")).toEqual({ reviewKey: key, headSha: HEAD });
     expect(JSON.parse(logs[0]!)).toEqual({
       pr: "octocat/hello-world#42",
       ok: true,
@@ -57,51 +85,95 @@ describe("ReviewJob", () => {
     });
   });
 
-  test("bad input and a second start are refused", async () => {
-    let finish = () => {};
-    const { job } = await setup(
-      (_s, _l, _p, signal) =>
-        new Promise((resolve) => {
-          finish = () => resolve({ ok: false, warnings: [], submissions: 0, durationMs: 0 });
-          signal.addEventListener("abort", finish);
-        }),
-    );
-    expect(() => job.start(42)).toThrow("Expected a PR reference.");
-    expect(() => job.start("hello-world#42")).toThrow("Expected owner/repo#123");
-    expect(job.status().state).toBe("idle");
-    job.start("octocat/hello-world#42");
-    expect(() => job.start("octocat/hello-world#43")).toThrow("A review is already running.");
-    await Bun.sleep(10); // the fake run starts after the PR is opened
-    finish();
-    await job.whenIdle();
-    expect(job.status()).toMatchObject({ run: 1, state: "failed", error: "The review failed." });
+  test("several PRs run one after another, in start order", async () => {
+    const held = heldRuns();
+    const { jobs } = await setup(held.run);
+    jobs.start("octocat/hello-world#1");
+    jobs.start("octocat/hello-world#2");
+    jobs.start("octocat/hello-world#3");
+    expect(jobs.jobs().map((j) => j.state)).toEqual(["running", "queued", "queued"]);
+    await held.release("octocat/hello-world#1");
+    await held.whenStarted("octocat/hello-world#2");
+    expect(held.started).toEqual(["octocat/hello-world#1", "octocat/hello-world#2"]);
+    expect(jobs.jobs().map((j) => j.state)).toEqual(["failed", "running", "queued"]);
+    await held.release("octocat/hello-world#2");
+    await held.release("octocat/hello-world#3");
+    await jobs.whenIdle();
+    expect(held.started).toEqual([
+      "octocat/hello-world#1",
+      "octocat/hello-world#2",
+      "octocat/hello-world#3",
+    ]);
+    expect(jobs.jobs().map((j) => [j.id, j.state, j.error])).toEqual([
+      [1, "failed", "octocat/hello-world#1 failed"],
+      [2, "failed", "octocat/hello-world#2 failed"],
+      [3, "failed", "octocat/hello-world#3 failed"],
+    ]);
   });
 
-  test("failures and stop end in a failed state with the reason", async () => {
-    const { job } = await setup(async () => {
+  test("bad input, and a PR already queued or running, are refused", async () => {
+    const held = heldRuns();
+    const { jobs } = await setup(held.run);
+    expect(() => jobs.start(42)).toThrow("Expected a PR reference.");
+    expect(() => jobs.start("hello-world#42")).toThrow("Expected owner/repo#123");
+    expect(jobs.jobs()).toEqual([]);
+    jobs.start("octocat/hello-world#42");
+    jobs.start("octocat/hello-world#43");
+    expect(() => jobs.start("OctoCat/hello-world#42")).toThrow(
+      "octocat/hello-world#42 is already being reviewed.",
+    );
+    expect(() => jobs.start("https://github.com/octocat/hello-world/pull/43")).toThrow(
+      "octocat/hello-world#43 is already in the queue.",
+    );
+    await held.release("octocat/hello-world#42");
+    await held.release("octocat/hello-world#43");
+    await jobs.whenIdle();
+    // Finished: the same PR can be reviewed again.
+    expect(jobs.start("octocat/hello-world#42").id).toBe(3);
+    await held.release("octocat/hello-world#42");
+    await jobs.whenIdle();
+  });
+
+  test("failures end in a failed state with the reason", async () => {
+    const { jobs } = await setup(async () => {
       throw new Error("Not signed in to GitHub.");
     });
-    job.start("octocat/hello-world#42");
-    await job.whenIdle();
-    expect(job.status()).toMatchObject({ state: "failed", error: "Not signed in to GitHub." });
+    jobs.start("octocat/hello-world#42");
+    await jobs.whenIdle();
+    expect(jobs.jobs()[0]).toMatchObject({ state: "failed", error: "Not signed in to GitHub." });
+  });
 
-    const stopped = await setup(
-      (_s, _l, _p, signal) =>
-        new Promise((resolve) =>
-          signal.addEventListener("abort", () =>
-            resolve({ ok: false, warnings: [], submissions: 0, durationMs: 0, error: "stopped" }),
-          ),
-        ),
-    );
-    stopped.job.start("octocat/hello-world#42");
-    stopped.job.stop();
-    await stopped.job.whenIdle();
-    expect(stopped.job.status()).toMatchObject({ state: "failed", error: "Stopped." });
+  test("stop: a running job is stopped; a queued one leaves the queue", async () => {
+    const held = heldRuns();
+    const { jobs, signals } = await setup(held.run);
+    const first = jobs.start("octocat/hello-world#1");
+    const second = jobs.start("octocat/hello-world#2");
+    const third = jobs.start("octocat/hello-world#3");
+    const after = jobs.stop(second.id);
+    expect(after.map((j) => [j.state, j.error])).toEqual([
+      ["running", undefined],
+      ["failed", "Stopped."],
+      ["queued", undefined],
+    ]);
+    await held.whenStarted("octocat/hello-world#1");
+    jobs.stop(first.id);
+    expect(signals[0]!.aborted).toBe(true);
+    await held.release("octocat/hello-world#3");
+    await jobs.whenIdle();
+    expect(held.started).toEqual(["octocat/hello-world#1", "octocat/hello-world#3"]);
+    expect(jobs.jobs().find((j) => j.id === first.id)).toMatchObject({
+      state: "failed",
+      error: "Stopped.",
+    });
+    expect(jobs.jobs().find((j) => j.id === third.id)?.error).toBe("octocat/hello-world#3 failed");
+    // Unknown ids change nothing.
+    expect(jobs.stop(99)).toEqual(jobs.jobs());
+    expect(jobs.stop("1")).toEqual(jobs.jobs());
   });
 
   test("stop after a submission: failed, and the review is not kept", async () => {
     let submitted = () => {};
-    const { job, store, review } = await setup(
+    const { jobs, store, review } = await setup(
       (_s, _l, onProgress, signal) =>
         new Promise((resolve) => {
           // The agent has submitted; the run is still going when Stop comes.
@@ -115,37 +187,61 @@ describe("ReviewJob", () => {
     const ready = new Promise<void>((r) => {
       submitted = r;
     });
-    job.start("octocat/hello-world#42");
+    const job = jobs.start("octocat/hello-world#42");
     await ready;
-    job.stop();
-    await job.whenIdle();
-    expect(job.status()).toMatchObject({ state: "failed", error: "Stopped." });
-    expect(job.status().reviewKey).toBeUndefined();
+    jobs.stop(job.id);
+    await jobs.whenIdle();
+    expect(jobs.jobs()[0]).toMatchObject({ state: "failed", error: "Stopped." });
+    expect(jobs.jobs()[0]!.reviewKey).toBeUndefined();
     expect(() => store.getReview("octocat/hello-world#42@7e8e70534d5f")).toThrow("unknown review");
+    expect(store.newestFor("octocat/hello-world#42")).toBeUndefined();
   });
 
   test("stop reaches the GitHub requests; stop after the run changes nothing", async () => {
-    const { job, signals } = await setup();
-    job.start("octocat/hello-world#42");
-    job.stop();
+    const { jobs, signals } = await setup();
+    const first = jobs.start("octocat/hello-world#42");
+    jobs.stop(first.id);
     expect(signals[0]!.aborted).toBe(true);
-    await job.whenIdle();
-    expect(job.status()).toMatchObject({ state: "failed", error: "Stopped." });
+    await jobs.whenIdle();
+    expect(jobs.jobs()[0]).toMatchObject({ state: "failed", error: "Stopped." });
 
-    job.start("octocat/hello-world#42");
-    await job.whenIdle();
-    expect(job.status().state).toBe("done");
-    job.stop();
+    const second = jobs.start("octocat/hello-world#42");
+    await jobs.whenIdle();
+    jobs.stop(second.id);
     // The finished review's source still reads files with this signal.
     expect(signals[1]!.aborted).toBe(false);
-    expect(job.status().state).toBe("done");
+    expect(jobs.jobs()[1]!.state).toBe("done");
   });
 
-  test("status() is a copy", async () => {
-    const { job } = await setup();
-    job.start("octocat/hello-world#42");
-    job.status().steps.push("tampered");
-    await job.whenIdle();
-    expect(job.status().steps).toEqual(["Reading the diff"]);
+  test("stopAll stops the running job and empties the queue", async () => {
+    const held = heldRuns();
+    const { jobs } = await setup(held.run);
+    jobs.start("octocat/hello-world#1");
+    jobs.start("octocat/hello-world#2");
+    await held.whenStarted("octocat/hello-world#1");
+    jobs.stopAll();
+    await jobs.whenIdle();
+    expect(held.started).toEqual(["octocat/hello-world#1"]);
+    expect(jobs.jobs().map((j) => j.error)).toEqual(["Stopped.", "Stopped."]);
+  });
+
+  test("only the last finished jobs are kept", async () => {
+    const { jobs } = await setup(async () => FAILED);
+    for (let n = 1; n <= MAX_FINISHED + 3; n++) {
+      jobs.start(`octocat/hello-world#${n}`);
+      await jobs.whenIdle();
+    }
+    const kept = jobs.jobs();
+    expect(kept).toHaveLength(MAX_FINISHED);
+    expect(kept[0]!.id).toBe(4);
+    expect(kept.at(-1)!.id).toBe(MAX_FINISHED + 3);
+  });
+
+  test("jobs() is a copy", async () => {
+    const { jobs } = await setup();
+    jobs.start("octocat/hello-world#42");
+    jobs.jobs()[0]!.steps.push("tampered");
+    await jobs.whenIdle();
+    expect(jobs.jobs()[0]!.steps).toEqual(["Reading the diff"]);
   });
 });

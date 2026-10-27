@@ -2,8 +2,8 @@ import { Badge, Button, Card, CardContent, CardHeader, CardTitle } from "@review
 import { useCallback, useEffect, useRef, useState } from "react";
 import type {
   GitHubBridge,
+  GitHubListError,
   GitHubStatus,
-  RepoListError,
   RepoPage,
   RepoSummary,
 } from "../../shared/ipc.ts";
@@ -55,7 +55,7 @@ export function timeAgo(iso: string, now: number): string {
 
 type ListState =
   | { kind: "loading" }
-  | { kind: "error"; reason: RepoListError["reason"]; error: string }
+  | { kind: "error"; reason: GitHubListError["reason"]; error: string }
   | {
       kind: "ready";
       repos: RepoSummary[];
@@ -93,17 +93,19 @@ export function RepoList({
   const loadId = useRef(0);
 
   const fetchPage = useCallback(
-    (page: number): Promise<RepoPage | RepoListError> =>
+    (page: number): Promise<RepoPage | GitHubListError> =>
       bridge
         .repos(page)
-        .catch((e): RepoListError => ({ ok: false, reason: "failed", error: ipcErrorMessage(e) })),
+        .catch(
+          (e): GitHubListError => ({ ok: false, reason: "failed", error: ipcErrorMessage(e) }),
+        ),
     [bridge],
   );
 
   // A ref, so a new callback from the parent does not reload the list.
   const signedOut = useRef(onSignedOut);
   signedOut.current = onSignedOut;
-  const failed = useCallback((result: RepoListError) => {
+  const failed = useCallback((result: GitHubListError) => {
     setState({ kind: "error", reason: result.reason, error: result.error });
     if (result.reason !== "failed") signedOut.current();
   }, []);

@@ -14,8 +14,8 @@ const bridge: DesktopBridge = {
     getConfig: () => ipcRenderer.invoke(IPC.getConfig),
     done: (reviewKey, result) => ipcRenderer.invoke(IPC.done, reviewKey, result),
     start: (pr) => ipcRenderer.invoke(IPC.startReview, pr),
-    stop: () => ipcRenderer.invoke(IPC.stopReview),
-    runStatus: () => ipcRenderer.invoke(IPC.reviewRunStatus),
+    stop: (id) => ipcRenderer.invoke(IPC.stopReview, id),
+    jobs: () => ipcRenderer.invoke(IPC.reviewJobs),
   },
   github: {
     status: () => ipcRenderer.invoke(IPC.githubStatus),
@@ -24,6 +24,7 @@ const bridge: DesktopBridge = {
     signOut: () => ipcRenderer.invoke(IPC.githubSignOut),
     repos: (page) => ipcRenderer.invoke(IPC.githubRepos, page),
     markRepoUsed: (fullName) => ipcRenderer.invoke(IPC.githubMarkRepoUsed, fullName),
+    pulls: (fullName, page) => ipcRenderer.invoke(IPC.githubPulls, fullName, page),
   },
 };
 

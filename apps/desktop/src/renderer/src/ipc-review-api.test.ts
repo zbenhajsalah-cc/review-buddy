@@ -13,9 +13,9 @@ test("every call names its review", async () => {
     })),
     getConfig: mock(async () => ({ roundtrip: false })),
     done: mock(async () => {}),
-    start: mock(async () => ({ run: 1, state: "running" as const, steps: [] })),
-    stop: mock(async () => ({ run: 1, state: "failed" as const, steps: [] })),
-    runStatus: mock(async () => ({ run: 0, state: "idle" as const, steps: [] })),
+    start: mock(async () => ({ id: 1, pr: "octo/repo#1", state: "running" as const, steps: [] })),
+    stop: mock(async () => []),
+    jobs: mock(async () => []),
   } satisfies ReviewBridge;
 
   const api = ipcReviewApi(bridge, "octo/repo#1@abc");

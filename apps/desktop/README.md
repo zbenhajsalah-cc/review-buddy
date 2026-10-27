@@ -5,14 +5,15 @@ The desktop app shows a review in the same viewer as the plugin
 instead of HTTP. Plan and stories: `docs/DESIGN-desktop-app-shared-code.md`,
 `docs/backlog-desktop-app.md`.
 
-**Status (US-08 to US-13):** the app opens on your GitHub repositories (see
-"Repositories"). Pick one, type the PR number in the top bar (or type any
-`owner/repo#123` or PR URL) and press **Review**: main reads the PR from the
-GitHub API (see "Reading a PR"), Claude reviews it with your Claude login (see
-"Reviewing a PR"), and the viewer shows the result. The "Sample review" tab
-shows a fixed review (`src/main/fixture/review.json`) until a review runs.
-The settings view connects GitHub (see "GitHub login"). The PR list comes in
-US-14.
+**Status (US-08 to US-14):** the app opens on your GitHub repositories (see
+"Repositories"). Pick one to see its open PRs (see "Pull requests") and
+review one or several of them (or type any `owner/repo#123` or PR URL in the
+top bar): main reads each PR from the GitHub API (see "Reading a PR"), Claude
+reviews it with your Claude login (see "Reviewing a PR"), and the viewer
+shows the result. The "Sample review" tab shows a fixed review
+(`src/main/fixture/review.json`) until you follow a review. The settings view
+connects GitHub (see "GitHub login"). Reviews are kept in memory only, until
+the app quits (the review cache is US-16).
 
 ## Run it
 
@@ -49,9 +50,9 @@ that needs the Electron binary and a display.
 ```
 src/main/       # Electron main (Node): window, app:// protocol, IPC handlers, review store
 src/main/agent/ # Agent SDK: the Claude Code binary path, --agent-check, the review tools, runner and job
-src/main/github/ # GitHub login (gh CLI token, pasted token in safeStorage), the repo list, GitHubApiSource
+src/main/github/ # GitHub login (gh CLI token, pasted token in safeStorage), repo and PR lists, GitHubApiSource
 src/preload/    # exposes window.reviewBuddy = { review, github }; built as CommonJS
-src/renderer/   # App shell (top bar, tabs) + repo list + <ReviewViewer api={ipcReviewApi(...)} /> + GitHub settings
+src/renderer/   # App shell (top bar, tabs) + repo and PR lists + <ReviewViewer api={ipcReviewApi(...)} /> + GitHub settings
 src/shared/     # the IPC contract (channel names + types), used by all three
 scripts/        # smoke-desktop.ts (no Claude), review-e2e.ts (the real agent)
 electron-builder.yml  # packaging (asarUnpack for the Claude Code binary)
@@ -151,8 +152,7 @@ The start screen (`src/renderer/src/RepoList.tsx`, data from
   pick it, or when a review of one of its PRs starts. The names are kept in
   `<userData>/settings.json` (`recentRepos`); page 1 reads them again with the
   current login, so a repo that login cannot see is not shown.
-- **Picking a repo** fills the top bar with `owner/repo#`: type the PR number
-  and press Review. (US-14 opens the repo's PR list instead.)
+- **Picking a repo** opens its PR list (see "Pull requests").
 - **States:** loading, not connected (a button to the GitHub settings and the
   sample review), no repos, no match, and errors with **Try again**. A 401
   means the token expired or was revoked: the list says so and the app signs
@@ -168,6 +168,40 @@ recorded from the build container, and its items have the same shape). The
 smoke test runs the screen against a fake GitHub with two pages: flags, last
 push, search, Load more, a picked repo first after Refresh, and an expired
 token.
+
+## Pull requests
+
+A repo's open PRs (`src/renderer/src/PullList.tsx`, data from
+`src/main/github/pulls.ts`), most recently updated first:
+
+- **The list** is `GET /repos/{o}/{r}/pulls?state=open&sort=updated`, 30 per
+  page with **Load more**. Each row shows the number, title (a link to
+  GitHub), Draft, author, last update, and the size: `+additions −deletions ·
+  N files`. The list endpoint has no sizes, so main reads each PR
+  (`GET /pulls/{n}`), 8 at a time, and keeps the size per PR head, so a
+  refresh reads only PRs with new commits. A size that cannot be read, or
+  takes over 10 s, is left out.
+- **What the app has for each PR:** **Reviewed** (a review of the PR's
+  current head, with **Open review**), **Outdated review** (the PR has new
+  commits since; **Open review** or **Review again**), **Queued** (with
+  **Remove**), **Reviewing…** (with **Show progress**), or "Last review
+  failed: …" with the reason. Reviews are in memory until the app quits
+  (US-16 saves them).
+- **Starting reviews:** **Review** on a row starts one and shows its
+  progress. Tick several rows and press **Review selected** to queue them;
+  you stay on the list and the rows show their progress. Reviews run one
+  after another (see "Reviewing a PR").
+- **States:** loading, no open PRs, errors with **Try again**; "not found"
+  when the repo is gone or the token cannot see it; a 401 signs the app out,
+  as in the repo list.
+
+**Tests:** `pulls.test.ts` uses list items made from the PR fixture
+(`pr-28.json` without its size fields: GitHub's list items lack them; this
+repo has no open PRs to record). The smoke test runs the screen against a
+fake GitHub: rows, Draft, a missing size, Load more, and **Review selected**
+on two PRs that then fail (no Claude needed), in order. The real-agent check
+(`review-e2e`) starts its review from the PR list and then checks that the PR
+shows **Reviewed** and that **Open review** opens it.
 
 ## Reading a PR (`GitHubApiSource`)
 
@@ -219,20 +253,25 @@ and the 406 body follow GitHub's documented shapes.
 
 ## Reviewing a PR (the agent)
 
-Pick a repo and type the PR number, or type `owner/repo#123` or a PR URL in
-the top bar, and press **Review**. Or start the app with
+Start reviews from the PR list, or type `owner/repo#123` or a PR URL in the
+top bar and press **Review**. Or start the app with
 `--review-pr=owner/repo#123`:
 
 ```bash
 pnpm --filter desktop dev -- --review-pr=owner/repo#123
 ```
 
-Main runs one review at a time (`src/main/agent/review-job.ts`). The window
-shows the steps (reading the diff, reading files, submitting) and a **Stop**
+Each review is a job in main (`src/main/agent/review-job.ts`). Jobs run one
+after another, in the order they were started; a PR that is already queued
+or running cannot be queued again. (US-15 lets a few run at once.) The
+review tab follows one job: while it waits, how many run before it; while it
+runs, the steps (reading the diff, reading files, submitting) and a **Stop**
 button; when it is done, the viewer shows the review. **Stop** cancels the
 GitHub requests and the Claude run, and a stopped run shows no review, even
-if Claude had already submitted one. A failure shows its
-reason (not signed in to GitHub or Claude, PR too large, …). The console gets
+if Claude had already submitted one; on a queued job it takes it out of the
+queue. A failure shows its reason (not signed in to GitHub or Claude, PR too
+large, …). Main keeps the last 20 finished jobs for the renderer, and every
+review in its store. The console gets
 one `[review-buddy] review-run {…}` line per run, with the turns, cost and
 number of resolution notes.
 
@@ -267,9 +306,10 @@ node scripts/review-e2e.ts --executable release/linux-unpacked/review-buddy   # 
 ```
 
 It fakes GitHub inside main with the recorded PR #28 of this repo (and file
-bytes from this repo's git history), types the PR in the top bar, waits for
-the agent, and checks that the Prologue and every chapter show and that
-"expand full file" shows a line far from the hunks. It passed in dev and in a
+bytes from this repo's git history), picks the repo, presses **Review** on
+#28 in the PR list, waits for the agent, and checks that the Prologue and
+every chapter show, that "expand full file" shows a line far from the hunks,
+and that the PR list then shows #28 as **Reviewed**. It passed in dev and in a
 packaged Linux build: about 15–25 s, 4 turns, a few cents, no resolution
 notes. Use `--screenshots <dir>` to keep two screenshots.
 

@@ -10,6 +10,20 @@ async function store() {
 }
 
 describe("ReviewStore", () => {
+  test("newestFor: the last review added for a PR, any case", async () => {
+    const s = await store();
+    const { review, source } = await loadFixtureReview();
+    expect(s.newestFor("octo/repo#1")).toBeUndefined();
+    s.add("octo/repo#1@aaa", review, source, { label: "octo/repo#1", headSha: "a".repeat(40) });
+    s.add("octo/repo#1@bbb", review, source, { label: "octo/repo#1", headSha: "b".repeat(40) });
+    expect(s.newestFor("Octo/Repo#1")).toEqual({
+      reviewKey: "octo/repo#1@bbb",
+      headSha: "b".repeat(40),
+    });
+    // Older reviews still load.
+    expect(s.getReview("octo/repo#1@aaa")).toBe(review);
+  });
+
   test("serves a review by key", async () => {
     const s = await store();
     expect(s.getReview("fixture").pr.title).toBe("Friendlier greetings and calmer retries");

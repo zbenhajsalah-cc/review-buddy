@@ -2,8 +2,8 @@
  * The IPC contract between main and the renderer. The preload script exposes
  * `window.reviewBuddy = { review, github }`: the renderer wraps `review` in a
  * `ReviewApi` for the viewer (renderer/src/ipc-review-api.ts) and uses
- * `github` in the settings view and the repository list. Types only, plus the channel names: both
- * sides import this file, so they cannot drift.
+ * `github` in the settings view and the repository and PR lists. Types only,
+ * plus the channel names: both sides import this file, so they cannot drift.
  */
 import type { ResolvedReview } from "@review-buddy/core/types";
 
@@ -14,13 +14,14 @@ export const IPC = {
   done: "review:done",
   startReview: "review:start",
   stopReview: "review:stop",
-  reviewRunStatus: "review:run-status",
+  reviewJobs: "review:jobs",
   githubStatus: "github:status",
   githubSignInWithToken: "github:sign-in-with-token",
   githubUseGh: "github:use-gh",
   githubSignOut: "github:sign-out",
   githubRepos: "github:repos",
   githubMarkRepoUsed: "github:mark-repo-used",
+  githubPulls: "github:pulls",
 } as const;
 
 /** The sample review main loads at startup (the "Sample review" tab). */
@@ -42,15 +43,18 @@ export interface IpcDoneResult {
 }
 
 /**
- * The agent review of one PR (US-12), as the renderer sees it. One run at a
- * time; the renderer polls it while it runs.
+ * One agent review of a PR (US-12, US-14), as the renderer sees it. Main runs
+ * the jobs one after another, in the order they were started; the renderer
+ * polls them while any is queued or running.
  */
-export interface ReviewRunStatus {
-  /** Counts runs (0 = none yet), so the renderer can remount the viewer per run. */
-  run: number;
-  state: "idle" | "running" | "done" | "failed";
+export interface ReviewJobStatus {
+  /** 1, 2, … in start order; also remounts the viewer per job. */
+  id: number;
   /** `owner/repo#123`. */
-  pr?: string;
+  pr: string;
+  state: "queued" | "running" | "done" | "failed";
+  /** The PR head the review is for, once the PR is open. */
+  headSha?: string;
   /** Set when done: the review to load with getReview. */
   reviewKey?: string;
   /** What the agent did so far, oldest first (the last few). */
@@ -66,10 +70,15 @@ export interface ReviewBridge {
   getFileContent(reviewKey: string, path: string, side: FileSide): Promise<IpcFileContent>;
   getConfig(): Promise<{ roundtrip: boolean }>;
   done(reviewKey: string, result: IpcDoneResult): Promise<void>;
-  /** Starts the agent on a PR ("owner/repo#123" or its URL). Rejects while one runs. */
-  start(pr: string): Promise<ReviewRunStatus>;
-  stop(): Promise<ReviewRunStatus>;
-  runStatus(): Promise<ReviewRunStatus>;
+  /**
+   * Queues a review of a PR ("owner/repo#123" or its URL); it starts when the
+   * jobs before it are done. Rejects a PR that is already queued or running.
+   */
+  start(pr: string): Promise<ReviewJobStatus>;
+  /** Stops a running job, or takes a queued one out of the queue. */
+  stop(id: number): Promise<ReviewJobStatus[]>;
+  /** Queued and running jobs, and the last finished ones, oldest first. */
+  jobs(): Promise<ReviewJobStatus[]>;
 }
 
 /**
@@ -113,7 +122,34 @@ export interface RepoPage {
   recent?: RepoSummary[];
 }
 
-export interface RepoListError {
+/** An open pull request in the PR list (US-14). */
+export interface PullSummary {
+  number: number;
+  title: string;
+  author: string;
+  /** ISO time of the last update. */
+  updatedAt: string;
+  draft: boolean;
+  url: string;
+  headSha: string;
+  /** From the PR itself (the list has no sizes); missing if that read failed. */
+  size?: { additions: number; deletions: number; changedFiles: number };
+  /** The newest review made in the app for this PR, at whatever head it had. */
+  review?: { reviewKey: string; headSha: string };
+}
+
+/** One page of a repository's open PRs, most recently updated first. */
+export interface PullPage {
+  ok: true;
+  /** `owner/name`. */
+  repo: string;
+  page: number;
+  pulls: PullSummary[];
+  hasMore: boolean;
+}
+
+/** A GitHub list (repositories, PRs) that could not be read. */
+export interface GitHubListError {
   ok: false;
   /**
    * "signed-out": no GitHub login. "token-rejected": GitHub refused the token
@@ -131,9 +167,11 @@ export interface GitHubBridge {
   useGh(): Promise<GitHubStatus>;
   signOut(): Promise<GitHubStatus>;
   /** Page 1, 2, … of the repositories (100 per page). Failures are answers, not rejections. */
-  repos(page: number): Promise<RepoPage | RepoListError>;
+  repos(page: number): Promise<RepoPage | GitHubListError>;
   /** Marks a repository as just used, so it is listed first next time. */
   markRepoUsed(fullName: string): Promise<void>;
+  /** Page 1, 2, … of a repository's open PRs (30 per page), with sizes. */
+  pulls(fullName: string, page: number): Promise<PullPage | GitHubListError>;
 }
 
 /** `window.reviewBuddy`. */

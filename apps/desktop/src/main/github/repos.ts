@@ -9,34 +9,26 @@
  * with those repos first, resolved again with the current login (a repo it
  * cannot see is left out).
  *
- * Failures are answers (`RepoListError`), so the renderer can tell "token
- * expired" from the rest. A 401 signs the app out of GitHub (the token
- * expired or was revoked).
+ * Failures are answers (`GitHubListError`, see list-call.ts): a 401 signs the
+ * app out of GitHub (the token expired or was revoked).
  *
  * Dependencies are passed in (no Electron import), so this is tested with bun.
  */
-import type { RepoListError, RepoPage, RepoSummary } from "../../shared/ipc.ts";
-import { errorMessage, isRepoName } from "./api-source.ts";
-import { type FetchFn, GITHUB_API, githubHeaders } from "./auth.ts";
+import type { GitHubListError, RepoPage, RepoSummary } from "../../shared/ipc.ts";
+import { isRepoName } from "./api-source.ts";
+import { GITHUB_API, githubHeaders } from "./auth.ts";
+import { checkPage, getListPage, type ListCallDeps } from "./list-call.ts";
 
 export const REPOS_PER_PAGE = 100;
 /** How many recently used repos are kept. */
 export const MAX_RECENT = 8;
-/** GitHub's paging works this far; it guards the page number from IPC. */
-const MAX_PAGE = 1000;
 
-export interface GitHubReposDeps {
-  fetch: FetchFn;
-  auth: {
-    token(): Promise<string>;
-    tokenRejected(token: string): Promise<void>;
-  };
+export interface GitHubReposDeps extends ListCallDeps {
   /** The recently used list, most recent first (`update` reads and writes in one step). */
   recent: {
     get(): Promise<string[]>;
     update(change: (list: string[]) => string[]): Promise<void>;
   };
-  now?: () => number;
 }
 
 /** A repo of GitHub's JSON, or null if a field the list needs is missing. */
@@ -71,11 +63,6 @@ export function toRepoSummary(json: unknown): RepoSummary | null {
   };
 }
 
-/** GitHub's `Link` header names a next page. */
-export function hasNextPage(link: string | null): boolean {
-  return link !== null && /<[^>]*>;\s*rel="next"/.test(link);
-}
-
 /** `owner/name` with both parts safe in a URL path, or null. */
 export function parseFullName(value: unknown): { owner: string; repo: string } | null {
   if (typeof value !== "string") return null;
@@ -91,52 +78,19 @@ export class GitHubRepos {
 
   constructor(private readonly deps: GitHubReposDeps) {}
 
-  async list(page: unknown): Promise<RepoPage | RepoListError> {
-    if (typeof page !== "number" || !Number.isSafeInteger(page) || page < 1 || page > MAX_PAGE) {
-      throw new Error(`Not a page number: ${String(page)}`);
-    }
-    let token: string;
-    try {
-      token = await this.deps.auth.token();
-    } catch (e) {
-      return { ok: false, reason: "signed-out", error: messageOf(e) };
-    }
-    if (token !== this.#knownToken) {
+  async list(page: unknown): Promise<RepoPage | GitHubListError> {
+    const n = checkPage(page);
+    const url = `${GITHUB_API}/user/repos?per_page=${REPOS_PER_PAGE}&page=${n}&sort=pushed`;
+    const answer = await getListPage(this.deps, url, "your repositories");
+    if (!answer.ok) return answer;
+    if (answer.token !== this.#knownToken) {
       this.#known.clear();
-      this.#knownToken = token;
+      this.#knownToken = answer.token;
     }
-
-    const url = `${GITHUB_API}/user/repos?per_page=${REPOS_PER_PAGE}&page=${page}&sort=pushed`;
-    let res: Response;
-    try {
-      res = await this.deps.fetch(url, { headers: githubHeaders(token) });
-    } catch (e) {
-      return { ok: false, reason: "failed", error: `Could not reach GitHub (${messageOf(e)}).` };
-    }
-    if (res.status === 401) {
-      await this.deps.auth.tokenRejected(token);
-      return {
-        ok: false,
-        reason: "token-rejected",
-        error:
-          "GitHub rejected the token: it expired or was revoked. Sign in again in the GitHub settings.",
-      };
-    }
-    if (!res.ok) return { ok: false, reason: "failed", error: await this.#failure(res) };
-
-    const body: unknown = await res.json().catch(() => null);
-    if (!Array.isArray(body)) {
-      return { ok: false, reason: "failed", error: "GitHub sent no repository list." };
-    }
-    const repos = body.map(toRepoSummary).filter((r): r is RepoSummary => r !== null);
+    const repos = answer.items.map(toRepoSummary).filter((r): r is RepoSummary => r !== null);
     for (const repo of repos) this.#known.set(repo.fullName.toLowerCase(), repo);
-    const result: RepoPage = {
-      ok: true,
-      page,
-      repos,
-      hasMore: hasNextPage(res.headers.get("link")),
-    };
-    if (page === 1) result.recent = await this.#recent(token);
+    const result: RepoPage = { ok: true, page: n, repos, hasMore: answer.hasMore };
+    if (n === 1) result.recent = await this.#recent(answer.token);
     return result;
   }
 
@@ -183,20 +137,4 @@ export class GitHubRepos {
       return true;
     });
   }
-
-  async #failure(res: Response): Promise<string> {
-    const remaining = res.headers.get("x-ratelimit-remaining");
-    if ((res.status === 403 || res.status === 429) && remaining === "0") {
-      const reset = Number(res.headers.get("x-ratelimit-reset")) * 1000;
-      const now = (this.deps.now ?? Date.now)();
-      const minutes = Number.isFinite(reset) ? Math.max(1, Math.ceil((reset - now) / 60_000)) : 0;
-      return `GitHub's API rate limit is used up.${minutes ? ` Try again in ${minutes} minute(s).` : ""}`;
-    }
-    const message = await errorMessage(res);
-    return `GitHub answered ${res.status} for your repositories${message ? ` (${message})` : ""}.`;
-  }
-}
-
-function messageOf(e: unknown): string {
-  return e instanceof Error ? e.message : String(e);
 }

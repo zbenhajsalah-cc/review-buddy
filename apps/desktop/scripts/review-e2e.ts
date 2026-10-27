@@ -1,7 +1,8 @@
 /**
- * End to end with the real agent (US-12): the built app reviews PR #28 of
- * zbenhajsalah-cc/review-buddy with your Claude login, and the viewer must
- * show its Prologue and Chapters and expand a full file.
+ * End to end with the real agent (US-12, US-14): in the built app, pick the
+ * repo zbenhajsalah-cc/review-buddy, then review its PR #28 from the PR list
+ * with your Claude login. The viewer must show the Prologue and Chapters and
+ * expand a full file, and the PR list must then show the PR as reviewed.
  *
  * GitHub is faked inside main (net.fetch is replaced), so no GitHub login or
  * network is needed for it: the PR, merge base and diff come from the
@@ -49,7 +50,25 @@ function check(ok: boolean, what: string): void {
 
 /** The fake GitHub's answers, keyed by "accept url". */
 const diff = fixture("pr-28.diff");
+const pr28 = JSON.parse(fixture("pr-28.json"));
+const json = "application/vnd.github+json";
 const routes: Record<string, { status: number; body: string }> = {
+  [`${json} https://api.github.com/user/repos?per_page=100&page=1&sort=pushed`]: {
+    status: 200,
+    body: JSON.stringify([
+      {
+        full_name: "zbenhajsalah-cc/review-buddy",
+        name: "review-buddy",
+        owner: { login: "zbenhajsalah-cc" },
+        private: false,
+        pushed_at: pr28.updated_at,
+      },
+    ]),
+  },
+  [`${json} ${API}/pulls?state=open&sort=updated&direction=desc&per_page=30&page=1`]: {
+    status: 200,
+    body: JSON.stringify([pr28]),
+  },
   [`application/vnd.github+json ${API}/pulls/28`]: { status: 200, body: fixture("pr-28.json") },
   [`application/vnd.github+json ${API}/compare/${BASE}...${HEAD}?per_page=1&page=2`]: {
     status: 200,
@@ -110,21 +129,24 @@ try {
   const signedIn = await page.evaluate(() => window.reviewBuddy.github.signInWithToken("ghp_e2e"));
   check(signedIn.signedIn, "signed in to the fake GitHub");
 
-  await page.getByLabel("Pull request").fill(PR);
-  await page.getByRole("button", { name: "Review", exact: true }).click();
+  // The page learns about the login on load.
+  await page.reload();
+  await page.getByRole("button", { name: /^zbenhajsalah-cc\/review-buddy/ }).click();
+  await page.getByRole("button", { name: "Review #28", exact: true }).click();
   await page.getByText(`Reviewing ${PR}…`).waitFor();
-  check(true, "the run started");
+  check(true, "the run started from the PR list");
 
   // Wait for the run, printing its steps as they come.
   const started = Date.now();
   let printed = 0;
-  let status = await page.evaluate(() => window.reviewBuddy.review.runStatus());
-  while (status.state === "running") {
+  const job = async () => (await page.evaluate(() => window.reviewBuddy.review.jobs())).at(-1)!;
+  let status = await job();
+  while (status.state === "running" || status.state === "queued") {
     if (Date.now() - started > TIMEOUT_MS) throw new Error("FAIL: the review timed out");
     for (const step of status.steps.slice(printed)) console.log(`  · ${step}`);
     printed = status.steps.length;
     await page.waitForTimeout(1000);
-    status = await page.evaluate(() => window.reviewBuddy.review.runStatus());
+    status = await job();
   }
   for (const step of status.steps.slice(printed)) console.log(`  · ${step}`);
   console.log(mainLog.join("").match(/\[review-buddy\] review-run .*/)?.[0] ?? "");
@@ -201,6 +223,13 @@ try {
   while (!(await text()).includes(farLine) && Date.now() < deadline) await page.waitForTimeout(250);
   check((await text()).includes(farLine), `expand full file shows line ${far + 1} of ${target}`);
   if (shots) await page.screenshot({ path: join(shots, "review-chapter.png") });
+
+  // The PR list now shows the PR as reviewed, at its current head.
+  await page.getByRole("button", { name: "zbenhajsalah-cc/review-buddy", exact: true }).click();
+  await page.getByText("Reviewed", { exact: true }).waitFor();
+  await page.getByRole("button", { name: "Open the review of #28" }).click();
+  await page.getByText(firstLine(review.prologue.why), { exact: false }).first().waitFor();
+  check(true, "the PR list shows #28 as reviewed, and opens its review");
 
   check(errors.length === 0, `no page errors${errors.length ? `: ${errors.join(" | ")}` : ""}`);
   console.log("desktop review e2e: all checks passed");

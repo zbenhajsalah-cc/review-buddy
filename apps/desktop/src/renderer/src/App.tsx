@@ -1,43 +1,50 @@
 import { ReviewViewer } from "@review-buddy/viewer";
 import { Button } from "@review-buddy/viewer/ui";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   type DesktopBridge,
   FIXTURE_REVIEW_KEY,
   type GitHubStatus,
   type RepoSummary,
-  type ReviewRunStatus,
+  type ReviewJobStatus,
 } from "../../shared/ipc.ts";
 import { GitHubSettings } from "./GitHubSettings.tsx";
 import { ipcReviewApi } from "./ipc-review-api.ts";
+import { PullList } from "./PullList.tsx";
 import { RepoList } from "./RepoList.tsx";
 import { ipcErrorMessage, PrForm, RunPanel } from "./ReviewRun.tsx";
 
 const POLL_MS = 700;
 
-type Screen = "repos" | "review" | "settings";
+type Screen = "repos" | "pulls" | "review" | "settings";
+
+/** What the review tab shows. */
+type View =
+  | { kind: "sample" }
+  /** A job: its progress, its failure, or its review once done. */
+  | { kind: "job"; id: number }
+  /** A review opened from the PR list. */
+  | { kind: "review"; reviewKey: string; pr: string };
+
+const isActive = (job: ReviewJobStatus) => job.state === "queued" || job.state === "running";
 
 /**
- * The app shell: a thin bar above the current screen. The app opens on the
- * repository list (US-13); "review" shows the current run or review, or the
- * sample review when none has run. The viewer is unmounted on the other
+ * The app shell: a thin bar with tabs above the current screen. The app
+ * opens on the repository list (US-13); picking a repository opens its PR
+ * list (US-14), where reviews start. The review tab shows the review or job
+ * being followed, or the sample review. The viewer is unmounted on the other
  * screens, so its keyboard shortcuts never see typing in their forms. The
- * repository list stays mounted (hidden), so it keeps its loaded pages.
- *
- * Until the PR list exists (US-14), picking a repository fills the bar's PR
- * box with `owner/repo#`.
+ * repository and PR lists stay mounted (hidden), so they keep their pages.
  */
 export function App({ bridge }: { bridge: DesktopBridge }) {
   const [screen, setScreen] = useState<Screen>("repos");
   // Where the settings' "Back" goes.
   const [back, setBack] = useState<Exclude<Screen, "settings">>("repos");
   const [github, setGitHub] = useState<GitHubStatus | null>(null);
-  const [run, setRun] = useState<ReviewRunStatus | null>(null);
+  const [repo, setRepo] = useState<RepoSummary | null>(null);
+  const [jobs, setJobs] = useState<ReviewJobStatus[]>([]);
+  const [view, setView] = useState<View>({ kind: "sample" });
   const [startError, setStartError] = useState<string | undefined>();
-  const [pr, setPr] = useState("");
-  const prInput = useRef<HTMLInputElement>(null);
-  // The run whose result (or failure) was set aside for the sample review.
-  const [dismissed, setDismissed] = useState(0);
 
   const refreshGitHub = useCallback(() => {
     bridge.github.status().then(setGitHub, () => {});
@@ -45,40 +52,72 @@ export function App({ bridge }: { bridge: DesktopBridge }) {
 
   useEffect(() => {
     refreshGitHub();
-    bridge.review.runStatus().then(setRun, () => {});
+    // A review started with --review-pr (or before a reload) is followed.
+    bridge.review.jobs().then(
+      (found) => {
+        setJobs(found);
+        const last = found.at(-1);
+        if (last) {
+          setView({ kind: "job", id: last.id });
+          setScreen("review");
+        }
+      },
+      () => {},
+    );
   }, [bridge, refreshGitHub]);
 
-  const running = run?.state === "running";
+  const busy = jobs.some(isActive);
   useEffect(() => {
-    if (!running) return;
+    if (!busy) return;
     const timer = setInterval(() => {
-      bridge.review.runStatus().then(setRun, () => {});
+      bridge.review.jobs().then(setJobs, () => {});
     }, POLL_MS);
     return () => clearInterval(timer);
-  }, [bridge, running]);
+  }, [bridge, busy]);
 
-  const current = run && run.run > dismissed && run.state !== "idle" ? run : null;
-  const reviewKey = current?.state === "done" ? current.reviewKey! : FIXTURE_REVIEW_KEY;
+  const job = view.kind === "job" ? jobs.find((j) => j.id === view.id) : undefined;
+  const reviewKey =
+    view.kind === "review"
+      ? view.reviewKey
+      : job?.state === "done"
+        ? job.reviewKey!
+        : FIXTURE_REVIEW_KEY;
   const api = useMemo(() => ipcReviewApi(bridge.review, reviewKey), [bridge, reviewKey]);
+  const reviewTab = view.kind === "review" ? view.pr : (job?.pr ?? "Sample review");
 
-  const start = async (value: string) => {
-    setStartError(undefined);
-    try {
-      setRun(await bridge.review.start(value));
-      setScreen("review");
-    } catch (e) {
-      setStartError(ipcErrorMessage(e));
+  /** Queues reviews; `follow` shows the first one. Resolves with the errors, if any. */
+  const startReviews = async (prs: string[], follow: boolean) => {
+    const errors: string[] = [];
+    let first: ReviewJobStatus | undefined;
+    for (const pr of prs) {
+      try {
+        const started = await bridge.review.start(pr);
+        first ??= started;
+      } catch (e) {
+        errors.push(ipcErrorMessage(e));
+      }
     }
+    setJobs(await bridge.review.jobs().catch(() => jobs));
+    if (follow && first) {
+      setView({ kind: "job", id: first.id });
+      setScreen("review");
+    }
+    return errors.length ? errors.join("\n") : undefined;
   };
 
-  const chooseRepo = (repo: RepoSummary) => {
-    const value = `${repo.fullName}#`;
-    setPr(value);
-    setStartError(undefined);
-    requestAnimationFrame(() => {
-      prInput.current?.focus();
-      prInput.current?.setSelectionRange(value.length, value.length);
-    });
+  const startFromBar = async (value: string) => {
+    const error = await startReviews([value], true);
+    setStartError(error);
+    return !error;
+  };
+
+  const stopJob = (id: number) => {
+    bridge.review.stop(id).then(setJobs, () => {});
+  };
+
+  const openRepo = (chosen: RepoSummary) => {
+    setRepo(chosen);
+    setScreen("pulls");
   };
 
   const openSettings = () => {
@@ -91,6 +130,7 @@ export function App({ bridge }: { bridge: DesktopBridge }) {
       variant={screen === to ? "secondary" : "ghost"}
       size="sm"
       aria-current={screen === to ? "page" : undefined}
+      className="max-w-56 min-w-0 truncate"
       onClick={() => setScreen(to)}
     >
       {label}
@@ -100,12 +140,13 @@ export function App({ bridge }: { bridge: DesktopBridge }) {
   return (
     <div className="flex h-full flex-col">
       <header className="flex h-11 shrink-0 items-center gap-4 border-b px-4">
-        <span className="text-sm font-semibold">Review Buddy</span>
-        <nav className="flex items-center gap-1">
+        <span className="shrink-0 text-sm font-semibold">Review Buddy</span>
+        <nav className="flex min-w-0 items-center gap-1">
           {tab("repos", "Repositories")}
-          {tab("review", current?.pr ?? "Sample review")}
+          {repo ? tab("pulls", repo.fullName) : null}
+          {tab("review", reviewTab)}
         </nav>
-        <PrForm value={pr} onValue={setPr} inputRef={prInput} running={running} onStart={start} />
+        <PrForm onStart={startFromBar} />
         {startError ? (
           <span role="alert" className="min-w-0 truncate text-xs text-destructive">
             {startError}
@@ -129,11 +170,42 @@ export function App({ bridge }: { bridge: DesktopBridge }) {
           <RepoList
             bridge={bridge.github}
             github={github}
-            onChoose={chooseRepo}
+            onChoose={openRepo}
             onSignedOut={refreshGitHub}
             onOpenSettings={openSettings}
-            onSample={() => setScreen("review")}
+            onSample={() => {
+              setView({ kind: "sample" });
+              setScreen("review");
+            }}
           />
+        </div>
+        <div hidden={screen !== "pulls"}>
+          {repo ? (
+            <PullList
+              key={repo.fullName}
+              bridge={bridge.github}
+              repo={repo}
+              jobs={jobs}
+              onReview={(numbers, follow) =>
+                startReviews(
+                  numbers.map((n) => `${repo.fullName}#${n}`),
+                  follow,
+                )
+              }
+              onOpenReview={(review) => {
+                setView({ kind: "review", ...review });
+                setScreen("review");
+              }}
+              onFollow={(id) => {
+                setView({ kind: "job", id });
+                setScreen("review");
+              }}
+              onStop={stopJob}
+              onSignedOut={refreshGitHub}
+              onOpenSettings={openSettings}
+              onBack={() => setScreen("repos")}
+            />
+          ) : null}
         </div>
         {screen === "settings" ? (
           <GitHubSettings
@@ -142,15 +214,16 @@ export function App({ bridge }: { bridge: DesktopBridge }) {
             onStatus={setGitHub}
             onClose={() => setScreen(back)}
           />
-        ) : screen !== "review" ? null : current && current.state !== "done" ? (
+        ) : screen !== "review" ? null : job && job.state !== "done" ? (
           <RunPanel
-            status={current}
-            onStop={() => bridge.review.stop().then(setRun, () => {})}
-            onDismiss={() => setDismissed(current.run)}
+            status={job}
+            ahead={jobs.filter((j) => isActive(j) && j.id < job.id).length}
+            onStop={() => stopJob(job.id)}
+            onDismiss={() => setView({ kind: "sample" })}
           />
         ) : (
-          // A new run remounts the viewer, even for the same PR head.
-          <ReviewViewer key={`${reviewKey}:${current?.run ?? 0}`} api={api} />
+          // A new job remounts the viewer, even for the same PR head.
+          <ReviewViewer key={`${reviewKey}:${view.kind === "job" ? view.id : 0}`} api={api} />
         )}
       </main>
     </div>

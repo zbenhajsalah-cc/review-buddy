@@ -14,12 +14,13 @@ import { app, BrowserWindow, net, protocol, safeStorage, session, shell } from "
 import { FIXTURE_REVIEW_KEY } from "../shared/ipc.ts";
 import { type AgentCheckResult, runAgentCheck } from "./agent/check.ts";
 import { claudeExecutablePath } from "./agent/executable.ts";
-import { ReviewJob } from "./agent/review-job.ts";
+import { ReviewJobs } from "./agent/review-job.ts";
 import { loadFixtureReview } from "./fixture/index.ts";
 import { openGitHubPr } from "./github/api-source.ts";
 import { GitHubAuth } from "./github/auth.ts";
 import { findGh, ghAuthToken } from "./github/gh-cli.ts";
 import { parsePrArg, runPrCheck } from "./github/pr-check.ts";
+import { GitHubPulls } from "./github/pulls.ts";
 import { GitHubRepos } from "./github/repos.ts";
 import { TokenStore } from "./github/token-store.ts";
 import { registerGitHubIpc, registerReviewIpc } from "./ipc.ts";
@@ -189,13 +190,13 @@ function recentList(value: unknown): string[] {
 }
 
 /**
- * The agent review of one PR at a time (US-12): GitHubApiSource with the app's
- * GitHub login, then the Agent SDK with the desktop prompt and the review
- * tools. The SDK is loaded on the first run only. A PR that opens makes its
- * repository "recently used".
+ * The agent reviews, one after another (US-12, US-14): GitHubApiSource with
+ * the app's GitHub login, then the Agent SDK with the desktop prompt and the
+ * review tools. The SDK is loaded on the first run only. A PR that opens makes
+ * its repository "recently used".
  */
-function createReviewJob(store: ReviewStore, github: GitHubAuth, repos: GitHubRepos): ReviewJob {
-  return new ReviewJob({
+function createReviewJobs(store: ReviewStore, github: GitHubAuth, repos: GitHubRepos): ReviewJobs {
+  return new ReviewJobs({
     store,
     open: async (ref, signal) => {
       const source = await openGitHubPr(ref, {
@@ -257,20 +258,25 @@ app.whenReady().then(async () => {
   const settings = appSettings();
   const github = createGitHubAuth(settings);
   const repos = createGitHubRepos(settings, github);
-  const job = createReviewJob(store, github, repos);
-  // Quitting stops a running review (and its Claude Code process).
-  app.on("before-quit", () => job.stop());
+  const jobs = createReviewJobs(store, github, repos);
+  const pulls = new GitHubPulls({
+    fetch: (url, init) => net.fetch(url, init),
+    auth: github,
+    reviewOf: (label) => store.newestFor(label),
+  });
+  // Quitting stops the reviews (and their Claude Code process).
+  app.on("before-quit", () => jobs.stopAll());
 
   hardenSessions();
   serveRenderer();
-  registerReviewIpc(store, job, isTrustedPage);
-  registerGitHubIpc(github, repos, isTrustedPage);
+  registerReviewIpc(store, jobs, isTrustedPage);
+  registerGitHubIpc(github, repos, pulls, isTrustedPage);
   createWindow();
 
   // `--review-pr=<owner/repo#123 | PR URL>`: start reviewing that PR at once.
   if (app.commandLine.hasSwitch("review-pr")) {
     try {
-      job.start(app.commandLine.getSwitchValue("review-pr"));
+      jobs.start(app.commandLine.getSwitchValue("review-pr"));
     } catch (e) {
       console.error(`[review-buddy] --review-pr: ${e instanceof Error ? e.message : e}`);
     }

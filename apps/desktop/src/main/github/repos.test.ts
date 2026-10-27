@@ -1,13 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import recorded from "./fixtures/repo-review-buddy.json" with { type: "json" };
-import {
-  GitHubRepos,
-  hasNextPage,
-  MAX_RECENT,
-  parseFullName,
-  REPOS_PER_PAGE,
-  toRepoSummary,
-} from "./repos.ts";
+import { hasNextPage } from "./list-call.ts";
+import { GitHubRepos, MAX_RECENT, parseFullName, REPOS_PER_PAGE, toRepoSummary } from "./repos.ts";
 
 const API = "https://api.github.com";
 
@@ -224,7 +218,7 @@ describe("list", () => {
     expect(await repos.list(1)).toEqual({
       ok: false,
       reason: "failed",
-      error: "GitHub sent no repository list.",
+      error: "GitHub sent no list of your repositories.",
     });
   });
 });

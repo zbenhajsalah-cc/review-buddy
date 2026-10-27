@@ -22,9 +22,24 @@ interface LoadedReview {
 
 export class ReviewStore {
   #reviews = new Map<string, LoadedReview>();
+  /** The newest review of each PR, by lower-case `owner/repo#123`. */
+  #newest = new Map<string, { reviewKey: string; headSha: string }>();
 
-  add(reviewKey: string, review: ResolvedReview, source: ReviewDataSource): void {
+  /** `pr`: the PR and head the review is for, so the PR list can show it. */
+  add(
+    reviewKey: string,
+    review: ResolvedReview,
+    source: ReviewDataSource,
+    pr?: { label: string; headSha: string },
+  ): void {
     this.#reviews.set(reviewKey, { review, source, allowed: allowedPaths(review) });
+    if (pr) this.#newest.set(pr.label.toLowerCase(), { reviewKey, headSha: pr.headSha });
+  }
+
+  /** The newest review of `owner/repo#123`, at whatever head it had. */
+  newestFor(label: string): { reviewKey: string; headSha: string } | undefined {
+    const found = this.#newest.get(label.toLowerCase());
+    return found && { ...found };
   }
 
   getReview(reviewKey: unknown): ResolvedReview {

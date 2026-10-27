@@ -179,7 +179,9 @@ The template moves to `packages/core/prompts/`.
   one. A large diff comes in parts that join back to the exact string.
 - **Jobs:** a review takes minutes. Run it in main, stream progress to the
   renderer, allow cancel. US-12: one run at a time in main; the renderer polls
-  its status (steps so far) and can stop it.
+  its status (steps so far) and can stop it. US-14: a queue of jobs, run one
+  after another (several PRs at once from the PR list); the renderer polls
+  the job list and follows one job.
 - **Cache:** keep `ResolvedReview` per `owner/repo#n@headSha` in the app data
   folder, so reopening a PR does not re-run the agent. Re-run when the head SHA
   changes.

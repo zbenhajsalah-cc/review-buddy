@@ -3,7 +3,7 @@
  * with Playwright and checks the fixture review end to end — the viewer
  * renders, "Expand full file" gets file bytes over IPC, the security settings
  * hold, links go to the system browser, and "Done" reaches main. The GitHub
- * login and the repository list run against a fake GitHub. The agent review
+ * login and the repository and PR lists run against a fake GitHub. The agent review
  * of a PR is checked up to the point where Claude would start
  * (scripts/review-e2e.ts runs the real agent).
  *
@@ -185,6 +185,20 @@ try {
     });
     const page = (n: number) =>
       `https://api.github.com/user/repos?per_page=100&page=${n}&sort=pushed`;
+    const widgets = "https://api.github.com/repos/octo-org/widgets";
+    const pulls = (n: number) =>
+      `${widgets}/pulls?state=open&sort=updated&direction=desc&per_page=30&page=${n}`;
+    const pull = (n: number, title: string, extra: Record<string, unknown> = {}) => ({
+      number: n,
+      title,
+      user: { login: "mona" },
+      updated_at: new Date(Date.now() - 2 * 3_600_000).toISOString(),
+      draft: false,
+      html_url: `https://github.com/octo-org/widgets/pull/${n}`,
+      head: { sha: String(n).padStart(40, "c"), ref: `feature-${n}` },
+      base: { sha: "d".repeat(40), ref: "main" },
+      ...extra,
+    });
     const answers: Record<string, () => Response> = {
       "https://api.github.com/user": () => Response.json({ login: "octocat", name: "Mona" }),
       [page(1)]: () =>
@@ -197,8 +211,28 @@ try {
           { headers: { link: `<${page(2)}>; rel="next"` } },
         ),
       [page(2)]: () => Response.json([repo("octo-org/widgets", { description: "Widget factory" })]),
-      "https://api.github.com/repos/octo-org/widgets": () =>
-        Response.json(repo("octo-org/widgets", { description: "Widget factory" })),
+      [widgets]: () => Response.json(repo("octo-org/widgets", { description: "Widget factory" })),
+      // #11 has no single-PR answer: no size, and its review fails at once.
+      [pulls(1)]: () =>
+        Response.json(
+          [pull(12, "Add the gear API"), pull(11, "WIP: spring cleaning", { draft: true })],
+          { headers: { link: `<${pulls(2)}>; rel="next"` } },
+        ),
+      [pulls(2)]: () => Response.json([pull(5, "Fix the README")]),
+      [`${widgets}/pulls/12`]: () =>
+        Response.json({
+          ...pull(12, "Add the gear API"),
+          additions: 40,
+          deletions: 2,
+          changed_files: 3,
+        }),
+      [`${widgets}/pulls/5`]: () =>
+        Response.json({
+          ...pull(5, "Fix the README"),
+          additions: 1,
+          deletions: 1,
+          changed_files: 1,
+        }),
     };
     net.fetch = async (input, init) => {
       const auth = new Headers(init?.headers).get("authorization");
@@ -264,11 +298,44 @@ try {
       !(await repoButton("octocat/hello-world").isVisible()),
     "Load more brings page 2; the search filters it",
   );
+
+  // Its PR list (US-14): sizes, draft, Load more; reviews of the selected PRs
+  // run one after another (they fail at the merge base here: no Claude needed).
   await repoButton("octo-org/widgets").click();
+  await page.getByRole("heading", { name: "octo-org/widgets" }).waitFor();
+  const pullRow = (n: number) =>
+    page.getByRole("listitem").filter({ has: page.getByLabel(`Select #${n}`) });
+  await pullRow(12).waitFor();
+  const row12 = await pullRow(12).innerText();
+  const row11 = await pullRow(11).innerText();
   check(
-    (await page.getByLabel("Pull request").inputValue()) === "octo-org/widgets#",
-    "picking a repository fills the PR box with owner/repo#",
+    row12.includes("Add the gear API") &&
+      row12.includes("@mona") &&
+      row12.includes("updated 2 hours ago") &&
+      row12.includes("+40 −2 · 3 files"),
+    "picking a repository opens its open PRs: title, author, updated, size",
   );
+  check(
+    row11.includes("Draft") && !row11.includes("files"),
+    "a draft PR is flagged; a size GitHub does not send is left out",
+  );
+  await page.getByRole("button", { name: "Load more" }).click();
+  await pullRow(5).waitFor();
+  check(true, "Load more brings the next page of PRs");
+  await page.getByLabel("Select #12").check();
+  await page.getByLabel("Select #11").check();
+  await page.getByRole("button", { name: "Review selected (2)" }).click();
+  await pullRow(11).getByText("Last review failed").waitFor({ timeout: 15_000 });
+  await pullRow(12).getByText("Last review failed").waitFor();
+  const queued = await page.evaluate(() => window.reviewBuddy.review.jobs());
+  check(
+    queued.map((j) => `${j.pr} ${j.state}`).join() ===
+      "octo-org/widgets#12 failed,octo-org/widgets#11 failed" &&
+      queued[0]!.error!.startsWith("Merge base of octo-org/widgets#12") &&
+      queued[1]!.error!.startsWith("PR octo-org/widgets#11: not found"),
+    "Review selected queues both PRs in order; each row shows why its review failed",
+  );
+  await page.getByRole("button", { name: "← Repositories" }).click();
   await search.fill("");
   await page.getByRole("button", { name: "Refresh" }).click();
   await page.getByRole("region", { name: "Recently used" }).waitFor();
@@ -362,7 +429,7 @@ try {
   check(inPage.noNode, "no Node globals in the renderer");
   check(
     inPage.bridge.join() ===
-      "github.markRepoUsed,github.repos,github.signInWithToken,github.signOut,github.status,github.useGh,review.done,review.getConfig,review.getFileContent,review.getReview,review.runStatus,review.start,review.stop",
+      "github.markRepoUsed,github.pulls,github.repos,github.signInWithToken,github.signOut,github.status,github.useGh,review.done,review.getConfig,review.getFileContent,review.getReview,review.jobs,review.start,review.stop",
     `preload exposes only the review and GitHub calls (${inPage.bridge.join()})`,
   );
   check(inPage.inlineBlocked, "CSP blocks inline scripts");

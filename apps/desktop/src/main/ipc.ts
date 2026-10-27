@@ -1,7 +1,8 @@
 import { type IpcMainInvokeEvent, ipcMain } from "electron";
 import { IPC } from "../shared/ipc.ts";
-import type { ReviewJob } from "./agent/review-job.ts";
+import type { ReviewJobs } from "./agent/review-job.ts";
 import type { GitHubAuth } from "./github/auth.ts";
+import type { GitHubPulls } from "./github/pulls.ts";
 import type { GitHubRepos } from "./github/repos.ts";
 import { parseDoneResult, type ReviewStore } from "./reviews.ts";
 
@@ -22,7 +23,7 @@ function handle(channel: string, isTrusted: (url: string) => boolean, handler: H
 /** Answers the preload's review calls. */
 export function registerReviewIpc(
   store: ReviewStore,
-  job: ReviewJob,
+  jobs: ReviewJobs,
   isTrusted: (url: string) => boolean,
 ): void {
   handle(IPC.getReview, isTrusted, (reviewKey) => store.getReview(reviewKey));
@@ -36,18 +37,19 @@ export function registerReviewIpc(
     // What "Done" does in desktop (mark finished, post to GitHub) is US-17/US-20.
     console.log(`[review-buddy] review ${String(reviewKey)} done${verdict ? `: ${verdict}` : ""}`);
   });
-  handle(IPC.startReview, isTrusted, (pr) => job.start(pr));
-  handle(IPC.stopReview, isTrusted, () => job.stop());
-  handle(IPC.reviewRunStatus, isTrusted, () => job.status());
+  handle(IPC.startReview, isTrusted, (pr) => jobs.start(pr));
+  handle(IPC.stopReview, isTrusted, (id) => jobs.stop(id));
+  handle(IPC.reviewJobs, isTrusted, () => jobs.jobs());
 }
 
 /**
- * Answers the settings view and the repository list. No answer carries the
- * token: a GitHubStatus, or repositories.
+ * Answers the settings view and the repository and PR lists. No answer
+ * carries the token: a GitHubStatus, repositories, or PRs.
  */
 export function registerGitHubIpc(
   auth: GitHubAuth,
   repos: GitHubRepos,
+  pulls: GitHubPulls,
   isTrusted: (url: string) => boolean,
 ): void {
   handle(IPC.githubStatus, isTrusted, () => auth.status());
@@ -56,4 +58,5 @@ export function registerGitHubIpc(
   handle(IPC.githubSignOut, isTrusted, () => auth.signOut());
   handle(IPC.githubRepos, isTrusted, (page) => repos.list(page));
   handle(IPC.githubMarkRepoUsed, isTrusted, (fullName) => repos.markUsed(fullName));
+  handle(IPC.githubPulls, isTrusted, (fullName, page) => pulls.list(fullName, page));
 }

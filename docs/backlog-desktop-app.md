@@ -379,7 +379,7 @@ Acceptance criteria:
   - "Recently used" = picked in the list, or a review of one of its PRs
     started (at most 8, in `settings.json`). Page 1 brings them, read again
     with the current login (`GET /repos/{o}/{r}` for those not on page 1).
-  - Until US-14, picking a repo fills the top bar with `owner/repo#`.
+  - Until US-14, picking a repo filled the top bar with `owner/repo#`.
   - "Token expired": a 401 on a later call signs the app out
     (`GitHubAuth.tokenRejected`, only if the login did not change meanwhile),
     and the list says why. List failures are answers, not IPC errors.
@@ -397,6 +397,24 @@ Acceptance criteria:
 - Shows if a cached review exists and if it is still up to date with the
   head SHA.
 - The user can start a review for one or more PRs.
+- Decisions made while building it:
+  - REST, not GraphQL: the list endpoint (`pulls?state=open&sort=updated`,
+    30 per page) has no sizes, so main reads each PR's size (8 at a time,
+    10 s each at most, kept per PR head). GraphQL would do it in one call,
+    but the rest of the app is REST, and the build container cannot reach
+    GraphQL to check it.
+  - "Cached review" means the reviews main holds in memory for now
+    (`ReviewStore.newestFor`): **Reviewed** when it is for the PR's current
+    head, **Outdated review** when the PR has moved. US-16 makes them survive
+    a restart.
+  - "One or more PRs": the single review job (US-12) became a queue of jobs
+    (`ReviewJobs`) that run one after another; the renderer polls `jobs()`.
+    **Review** on a row follows that job; **Review selected** queues several
+    and stays on the list. US-15 adds the concurrency limit, the retry
+    button and the rest of the progress design.
+  - The review tab follows one job or an opened review, so a review that
+    finishes in the background never replaces the one you are reading.
+  - Picking a repo opens its PR list (replacing US-13's "fill the PR box").
 
 ### US-15: Review jobs with progress and cancel
 
