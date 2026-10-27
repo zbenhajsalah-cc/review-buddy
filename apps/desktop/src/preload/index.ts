@@ -22,6 +22,8 @@ const bridge: DesktopBridge = {
     signInWithToken: (token) => ipcRenderer.invoke(IPC.githubSignInWithToken, token),
     useGh: () => ipcRenderer.invoke(IPC.githubUseGh),
     signOut: () => ipcRenderer.invoke(IPC.githubSignOut),
+    repos: (page) => ipcRenderer.invoke(IPC.githubRepos, page),
+    markRepoUsed: (fullName) => ipcRenderer.invoke(IPC.githubMarkRepoUsed, fullName),
   },
 };
 

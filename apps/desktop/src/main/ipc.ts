@@ -2,6 +2,7 @@ import { type IpcMainInvokeEvent, ipcMain } from "electron";
 import { IPC } from "../shared/ipc.ts";
 import type { ReviewJob } from "./agent/review-job.ts";
 import type { GitHubAuth } from "./github/auth.ts";
+import type { GitHubRepos } from "./github/repos.ts";
 import { parseDoneResult, type ReviewStore } from "./reviews.ts";
 
 type Handler = (...args: unknown[]) => unknown;
@@ -40,10 +41,19 @@ export function registerReviewIpc(
   handle(IPC.reviewRunStatus, isTrusted, () => job.status());
 }
 
-/** Answers the settings view. Every answer is a GitHubStatus: never the token. */
-export function registerGitHubIpc(auth: GitHubAuth, isTrusted: (url: string) => boolean): void {
+/**
+ * Answers the settings view and the repository list. No answer carries the
+ * token: a GitHubStatus, or repositories.
+ */
+export function registerGitHubIpc(
+  auth: GitHubAuth,
+  repos: GitHubRepos,
+  isTrusted: (url: string) => boolean,
+): void {
   handle(IPC.githubStatus, isTrusted, () => auth.status());
   handle(IPC.githubSignInWithToken, isTrusted, (token) => auth.signInWithToken(token));
   handle(IPC.githubUseGh, isTrusted, () => auth.useGh());
   handle(IPC.githubSignOut, isTrusted, () => auth.signOut());
+  handle(IPC.githubRepos, isTrusted, (page) => repos.list(page));
+  handle(IPC.githubMarkRepoUsed, isTrusted, (fullName) => repos.markUsed(fullName));
 }

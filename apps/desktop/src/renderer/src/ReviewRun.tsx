@@ -1,5 +1,5 @@
 import { Button, Card, CardContent, CardHeader, CardTitle } from "@review-buddy/viewer/ui";
-import { type FormEvent, useState } from "react";
+import type { FormEvent, Ref } from "react";
 import type { ReviewRunStatus } from "../../shared/ipc.ts";
 
 /** The message of a rejected IPC call, without Electron's wrapper text. */
@@ -8,15 +8,23 @@ export function ipcErrorMessage(e: unknown): string {
   return message.replace(/^Error invoking remote method '[^']+': (Error: )?/, "");
 }
 
-/** The top bar's "review this PR" box (until the PR list screens, US-13/14). */
+/**
+ * The top bar's "review this PR" box (until the PR list screen, US-14).
+ * Picking a repository fills in `owner/repo#`.
+ */
 export function PrForm({
+  value,
+  onValue,
+  inputRef,
   running,
   onStart,
 }: {
+  value: string;
+  onValue: (value: string) => void;
+  inputRef?: Ref<HTMLInputElement>;
   running: boolean;
   onStart: (pr: string) => Promise<void>;
 }) {
-  const [value, setValue] = useState("");
   const submit = (e: FormEvent) => {
     e.preventDefault();
     void onStart(value.trim());
@@ -24,10 +32,11 @@ export function PrForm({
   return (
     <form className="flex min-w-0 items-center gap-2" onSubmit={submit}>
       <input
+        ref={inputRef}
         aria-label="Pull request"
         spellCheck={false}
         value={value}
-        onChange={(e) => setValue(e.target.value)}
+        onChange={(e) => onValue(e.target.value)}
         placeholder="owner/repo#123 or PR URL"
         className="h-8 w-72 min-w-0 rounded-md border bg-background px-2.5 font-mono text-xs outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50"
       />

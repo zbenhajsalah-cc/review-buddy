@@ -93,7 +93,7 @@ try {
   page.on("console", (m) => {
     if (m.type() === "error") errors.push(m.text());
   });
-  await page.getByText("Friendlier greetings and calmer retries").first().waitFor();
+  await page.getByLabel("Pull request").waitFor();
 
   await app.evaluate(({ net }, routes) => {
     net.fetch = async (input, init) => {

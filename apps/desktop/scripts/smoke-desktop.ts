@@ -2,8 +2,9 @@
  * Smoke test of the built desktop app (out/): launches the real Electron app
  * with Playwright and checks the fixture review end to end — the viewer
  * renders, "Expand full file" gets file bytes over IPC, the security settings
- * hold, links go to the system browser, and "Done" reaches main. The agent
- * review of a PR is checked up to the point where Claude would start
+ * hold, links go to the system browser, and "Done" reaches main. The GitHub
+ * login and the repository list run against a fake GitHub. The agent review
+ * of a PR is checked up to the point where Claude would start
  * (scripts/review-e2e.ts runs the real agent).
  *
  *   pnpm --filter desktop smoke     (builds first; on Linux without a display,
@@ -80,8 +81,13 @@ try {
     if (m.type() === "error") errors.push(m.text());
   });
 
-  await page.getByText("Friendlier greetings and calmer retries").first().waitFor();
+  // The app opens on the repository list (empty or failing here: no fake
+  // GitHub yet); the sample review is one click away.
+  await page.getByRole("heading", { name: "Repositories" }).waitFor();
   check(page.url().startsWith("app://renderer/"), `renderer served from app:// (${page.url()})`);
+  await page.getByRole("button", { name: "Sample review", exact: true }).click();
+  await page.getByText("Friendlier greetings and calmer retries").first().waitFor();
+  check(true, "the sample review is one click away");
 
   // Security settings, as main applied them and as the page sees them.
   const prefs = await app.evaluate(({ BrowserWindow }) => {
@@ -103,6 +109,8 @@ try {
   );
   // Chapter 1 (src/retry.ts), then "Expand full file": line 21 is outside every
   // hunk, so it can only come from the file bytes sent over IPC.
+  // (Focus off the tab just clicked: Enter on a button clicks it.)
+  await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
   await page.keyboard.press("Enter");
   await waitForText(page, "Retry backoff with jitter");
   await waitForText(page, "lastError = error;");
@@ -160,13 +168,45 @@ try {
 
   // Sign in with a pasted token against a fake GitHub: main's net.fetch is
   // replaced, so this runs the same everywhere (no network, no real token).
+  // It knows the token ghp_smoke (until `__expired` is set) and two pages of
+  // repositories.
   await app.evaluate(({ net }) => {
+    const g = globalThis as Record<string, unknown>;
+    const repo = (fullName: string, extra: Record<string, unknown> = {}) => ({
+      full_name: fullName,
+      name: fullName.split("/")[1],
+      owner: { login: fullName.split("/")[0] },
+      private: false,
+      archived: false,
+      fork: false,
+      description: null,
+      pushed_at: new Date(Date.now() - 3 * 86_400_000).toISOString(),
+      ...extra,
+    });
+    const page = (n: number) =>
+      `https://api.github.com/user/repos?per_page=100&page=${n}&sort=pushed`;
+    const answers: Record<string, () => Response> = {
+      "https://api.github.com/user": () => Response.json({ login: "octocat", name: "Mona" }),
+      [page(1)]: () =>
+        Response.json(
+          [
+            repo("octocat/hello-world", { description: "My first repository" }),
+            repo("octocat/secret-plans", { private: true }),
+            repo("octo-org/old-site", { archived: true }),
+          ],
+          { headers: { link: `<${page(2)}>; rel="next"` } },
+        ),
+      [page(2)]: () => Response.json([repo("octo-org/widgets", { description: "Widget factory" })]),
+      "https://api.github.com/repos/octo-org/widgets": () =>
+        Response.json(repo("octo-org/widgets", { description: "Widget factory" })),
+    };
     net.fetch = async (input, init) => {
       const auth = new Headers(init?.headers).get("authorization");
-      const ok = String(input) === "https://api.github.com/user" && auth === "Bearer ghp_smoke";
-      return ok
-        ? Response.json({ login: "octocat", name: "Mona" })
-        : Response.json({ message: "Bad credentials" }, { status: 401 });
+      if (auth !== "Bearer ghp_smoke" || g.__expired) {
+        return Response.json({ message: "Bad credentials" }, { status: 401 });
+      }
+      const answer = answers[String(input)];
+      return answer ? answer() : Response.json({ message: "Not Found" }, { status: 404 });
     };
   });
   await signInWith("ghp_wrong");
@@ -191,6 +231,76 @@ try {
       : "no OS keychain here: the token is kept in memory, nothing is written",
   );
   check(!(await pageText(page)).includes("ghp_smoke"), "the token is not in the page");
+  await page.getByRole("button", { name: "Back", exact: true }).click();
+  await page
+    .getByText("Review submitted")
+    .or(page.getByText("Friendlier greetings"))
+    .first()
+    .waitFor();
+  check(true, "Back returns to the screen the settings were opened from");
+
+  // The repository list (US-13): pages, search, recently used first.
+  await page.getByRole("button", { name: "Repositories", exact: true }).click();
+  const repoButton = (name: string) => page.getByRole("button", { name: new RegExp(`^${name}`) });
+  await repoButton("octocat/hello-world").waitFor();
+  check(
+    (await repoButton("octocat/secret-plans").innerText()).includes("Private") &&
+      (await repoButton("octo-org/old-site").innerText()).includes("Archived"),
+    "the repositories of page 1 show, with private and archived flags",
+  );
+  check(
+    (await repoButton("octocat/hello-world").innerText()).includes("pushed 3 days ago"),
+    "each repository shows its last push",
+  );
+  const search = page.getByLabel("Search repositories");
+  await search.fill("widget");
+  await page.getByText("No loaded repository matches").waitFor();
+  await page.getByText("The search covers the 3 repositories loaded so far.").waitFor();
+  check(true, "the search covers the loaded pages and says so");
+  await page.getByRole("button", { name: "Load more" }).click();
+  await repoButton("octo-org/widgets").waitFor();
+  check(
+    (await page.getByRole("button", { name: "Load more" }).count()) === 0 &&
+      !(await repoButton("octocat/hello-world").isVisible()),
+    "Load more brings page 2; the search filters it",
+  );
+  await repoButton("octo-org/widgets").click();
+  check(
+    (await page.getByLabel("Pull request").inputValue()) === "octo-org/widgets#",
+    "picking a repository fills the PR box with owner/repo#",
+  );
+  await search.fill("");
+  await page.getByRole("button", { name: "Refresh" }).click();
+  await page.getByRole("region", { name: "Recently used" }).waitFor();
+  const firstRepo = await page.getByRole("list").first().getByRole("button").first().innerText();
+  check(
+    firstRepo.startsWith("octo-org/widgets"),
+    `a repository just used comes first, even from page 2 (${firstRepo.split("\n")[0]})`,
+  );
+
+  // The token expires: the list says so and the app is signed out.
+  await app.evaluate(() => {
+    (globalThis as Record<string, unknown>).__expired = true;
+  });
+  await page.getByRole("button", { name: "Refresh" }).click();
+  await page.getByText(/^GitHub rejected the token: it expired or was revoked/).waitFor();
+  await page.getByRole("button", { name: "Connect GitHub" }).first().waitFor();
+  const tokenAfterExpiry = await app.evaluate(async ({ app }) => {
+    const fs = process.getBuiltinModule("node:fs/promises");
+    return fs.access(`${app.getPath("userData")}/github-token`).then(
+      () => "exists",
+      () => "gone",
+    );
+  });
+  check(tokenAfterExpiry === "gone", "an expired token: the list says so, the app signs out");
+
+  // Sign in again, then sign out with the button.
+  await app.evaluate(() => {
+    (globalThis as Record<string, unknown>).__expired = false;
+  });
+  await page.getByRole("button", { name: "Connect GitHub" }).first().click();
+  await signInWith("ghp_smoke");
+  await page.getByText(/^Signed in as @octocat/).waitFor();
   await page.getByRole("button", { name: "Sign out" }).click();
   await page.getByText("Not connected.").waitFor();
   const afterSignOut = await app.evaluate(async ({ app }) => {
@@ -202,13 +312,9 @@ try {
     );
   });
   check(afterSignOut === "gone", "sign out forgets the token");
-  await page.getByRole("button", { name: "Back to review" }).click();
-  await page
-    .getByText("Review submitted")
-    .or(page.getByText("Friendlier greetings"))
-    .first()
-    .waitFor();
-  check(true, "back to the review");
+  await page.getByRole("button", { name: "Back", exact: true }).click();
+  await page.getByText("Connect GitHub to see your repositories").waitFor();
+  check(true, "signed out, the repository list asks to connect GitHub");
 
   // A PR review (US-12) without Claude: a bad reference is refused in the bar,
   // and a review while signed out fails before the agent starts.
@@ -256,7 +362,7 @@ try {
   check(inPage.noNode, "no Node globals in the renderer");
   check(
     inPage.bridge.join() ===
-      "github.signInWithToken,github.signOut,github.status,github.useGh,review.done,review.getConfig,review.getFileContent,review.getReview,review.runStatus,review.start,review.stop",
+      "github.markRepoUsed,github.repos,github.signInWithToken,github.signOut,github.status,github.useGh,review.done,review.getConfig,review.getFileContent,review.getReview,review.runStatus,review.start,review.stop",
     `preload exposes only the review and GitHub calls (${inPage.bridge.join()})`,
   );
   check(inPage.inlineBlocked, "CSP blocks inline scripts");

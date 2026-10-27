@@ -5,13 +5,14 @@ The desktop app shows a review in the same viewer as the plugin
 instead of HTTP. Plan and stories: `docs/DESIGN-desktop-app-shared-code.md`,
 `docs/backlog-desktop-app.md`.
 
-**Status (US-08 to US-12):** a spike. Type a PR (`owner/repo#123` or its
-URL) in the top bar and press **Review**: main reads it from the GitHub API
-(see "Reading a PR"), Claude reviews it with your Claude login (see "Reviewing
-a PR"), and the viewer shows the result. Until a review runs, the app shows a
-fixed sample review (`src/main/fixture/review.json`). The settings view
-connects GitHub (see "GitHub login"). The repo and PR screens come in later
-stories.
+**Status (US-08 to US-13):** the app opens on your GitHub repositories (see
+"Repositories"). Pick one, type the PR number in the top bar (or type any
+`owner/repo#123` or PR URL) and press **Review**: main reads the PR from the
+GitHub API (see "Reading a PR"), Claude reviews it with your Claude login (see
+"Reviewing a PR"), and the viewer shows the result. The "Sample review" tab
+shows a fixed review (`src/main/fixture/review.json`) until a review runs.
+The settings view connects GitHub (see "GitHub login"). The PR list comes in
+US-14.
 
 ## Run it
 
@@ -48,9 +49,9 @@ that needs the Electron binary and a display.
 ```
 src/main/       # Electron main (Node): window, app:// protocol, IPC handlers, review store
 src/main/agent/ # Agent SDK: the Claude Code binary path, --agent-check, the review tools, runner and job
-src/main/github/ # GitHub login (gh CLI token, pasted token in safeStorage) and GitHubApiSource
+src/main/github/ # GitHub login (gh CLI token, pasted token in safeStorage), the repo list, GitHubApiSource
 src/preload/    # exposes window.reviewBuddy = { review, github }; built as CommonJS
-src/renderer/   # App shell (top bar) + <ReviewViewer api={ipcReviewApi(...)} /> + GitHub settings
+src/renderer/   # App shell (top bar, tabs) + repo list + <ReviewViewer api={ipcReviewApi(...)} /> + GitHub settings
 src/shared/     # the IPC contract (channel names + types), used by all three
 scripts/        # smoke-desktop.ts (no Claude), review-e2e.ts (the real agent)
 electron-builder.yml  # packaging (asarUnpack for the Claude Code binary)
@@ -119,6 +120,11 @@ token is kept and the next status check tries again.
 
 Main uses Electron's `net.fetch`, so system proxy settings apply.
 
+**Later 401s:** if GitHub rejects the token on a later call (the repo list,
+for now), the app signs out the same way: a pasted token is deleted, a gh
+login is just no longer used until "Use the GitHub CLI login", and the reason
+shows once.
+
 **Tests:** unit tests use a fake GitHub and a fake safeStorage. The smoke
 test replaces `net.fetch` in main with a fake GitHub, so sign-in, a rejected
 token and sign-out run the same on every machine, with no network and no real
@@ -127,6 +133,41 @@ checks that the saved file does not contain the token. In the Linux
 container, a GNOME keyring was started for that check (`dbus-run-session` +
 `gnome-keyring-daemon --unlock`); without one, it checks that nothing is
 written.
+
+## Repositories
+
+The start screen (`src/renderer/src/RepoList.tsx`, data from
+`src/main/github/repos.ts`):
+
+- **The list** is `GET /user/repos?sort=pushed`, 100 per page, newest push
+  first: every repo the login owns, collaborates on, or sees through an
+  organization. Each row shows `owner/name`, the description, Private / Fork
+  / Archived, and the last push. **Load more** reads the next page (GitHub's
+  `Link` header says if there is one). A fine-grained token sees only the
+  repos it was given.
+- **Search** filters the loaded pages by name and description (every word
+  must match). While more pages exist, it says how many repos it searched.
+- **Recently used** repos come first (at most 8). A repo is "used" when you
+  pick it, or when a review of one of its PRs starts. The names are kept in
+  `<userData>/settings.json` (`recentRepos`); page 1 reads them again with the
+  current login, so a repo that login cannot see is not shown.
+- **Picking a repo** fills the top bar with `owner/repo#`: type the PR number
+  and press Review. (US-14 opens the repo's PR list instead.)
+- **States:** loading, not connected (a button to the GitHub settings and the
+  sample review), no repos, no match, and errors with **Try again**. A 401
+  means the token expired or was revoked: the list says so and the app signs
+  out (see "GitHub login"). A used-up rate limit says when to try again.
+
+The list stays loaded while you look at a review or the settings; **Refresh**
+reads it again. Failures come back as answers (`{ ok: false, reason, error }`),
+not IPC errors, so the screen can tell "token expired" from the rest.
+
+**Tests:** `repos.test.ts` uses a fake GitHub built from a recorded repo
+(`GET /repos/zbenhajsalah-cc/review-buddy`; `/user/repos` itself could not be
+recorded from the build container, and its items have the same shape). The
+smoke test runs the screen against a fake GitHub with two pages: flags, last
+push, search, Load more, a picked repo first after Refresh, and an expired
+token.
 
 ## Reading a PR (`GitHubApiSource`)
 
@@ -178,8 +219,9 @@ and the 406 body follow GitHub's documented shapes.
 
 ## Reviewing a PR (the agent)
 
-Type `owner/repo#123` or a PR URL in the top bar and press **Review**, or
-start the app with `--review-pr=owner/repo#123`:
+Pick a repo and type the PR number, or type `owner/repo#123` or a PR URL in
+the top bar, and press **Review**. Or start the app with
+`--review-pr=owner/repo#123`:
 
 ```bash
 pnpm --filter desktop dev -- --review-pr=owner/repo#123

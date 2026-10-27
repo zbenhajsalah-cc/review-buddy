@@ -45,11 +45,17 @@ export const MAX_FILE_BYTES = 10 * 1024 * 1024;
 const NAME = /^[A-Za-z0-9_.-]{1,100}$/;
 const SHA = /^[0-9a-f]{40}$/;
 
+/** A GitHub owner or repository name that is safe in a URL path. */
+export function isRepoName(s: string): boolean {
+  return NAME.test(s) && s !== "." && s !== "..";
+}
+
 /** Checks a PR reference before it goes into a URL. */
 export function parsePrRef(ref: PrRef): PrRef {
   const { owner, repo, number } = ref;
-  const name = (s: string) => NAME.test(s) && s !== "." && s !== "..";
-  if (!name(owner) || !name(repo)) throw new Error(`Not a GitHub repository: ${owner}/${repo}`);
+  if (!isRepoName(owner) || !isRepoName(repo)) {
+    throw new Error(`Not a GitHub repository: ${owner}/${repo}`);
+  }
   if (!Number.isSafeInteger(number) || number < 1) throw new Error(`Not a PR number: ${number}`);
   return { owner, repo, number };
 }
@@ -231,7 +237,8 @@ function checkComplete(label: string, pull: PullJson, files: ParsedFile[]): void
   );
 }
 
-async function errorMessage(res: Response): Promise<string> {
+/** The `message` of a GitHub error answer, or "". */
+export async function errorMessage(res: Response): Promise<string> {
   try {
     return errorText(await res.text());
   } catch {

@@ -368,6 +368,24 @@ Acceptance criteria:
   with paging and a search box.
 - Recently used repos are shown first.
 - Loading, empty, and error states (including "token expired") are handled.
+- Decisions made while building it:
+  - The repo list is the start screen. The top bar has two tabs,
+    "Repositories" and the review ("Sample review" until a review runs, then
+    the PR). The list stays mounted while hidden, so it keeps its pages.
+  - Paging: 100 per page, newest push first (`sort=pushed`), with a **Load
+    more** button driven by GitHub's `Link` header. The search filters the
+    loaded pages only and says so while more pages exist (no search API: it
+    cannot cover "every repo this login can see" the same way).
+  - "Recently used" = picked in the list, or a review of one of its PRs
+    started (at most 8, in `settings.json`). Page 1 brings them, read again
+    with the current login (`GET /repos/{o}/{r}` for those not on page 1).
+  - Until US-14, picking a repo fills the top bar with `owner/repo#`.
+  - "Token expired": a 401 on a later call signs the app out
+    (`GitHubAuth.tokenRejected`, only if the login did not change meanwhile),
+    and the list says why. List failures are answers, not IPC errors.
+  - `/user/repos` could not be recorded from the build container (its API is
+    limited to one repo), so the tests use a recorded `GET /repos/{o}/{r}`,
+    which has the same item shape.
 
 ### US-14: PR list screen
 

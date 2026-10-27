@@ -2,7 +2,7 @@
  * The IPC contract between main and the renderer. The preload script exposes
  * `window.reviewBuddy = { review, github }`: the renderer wraps `review` in a
  * `ReviewApi` for the viewer (renderer/src/ipc-review-api.ts) and uses
- * `github` in the settings view. Types only, plus the channel names: both
+ * `github` in the settings view and the repository list. Types only, plus the channel names: both
  * sides import this file, so they cannot drift.
  */
 import type { ResolvedReview } from "@review-buddy/core/types";
@@ -19,9 +19,11 @@ export const IPC = {
   githubSignInWithToken: "github:sign-in-with-token",
   githubUseGh: "github:use-gh",
   githubSignOut: "github:sign-out",
+  githubRepos: "github:repos",
+  githubMarkRepoUsed: "github:mark-repo-used",
 } as const;
 
-/** The review main loads at startup until the PR screens exist (US-13/14). */
+/** The sample review main loads at startup (the "Sample review" tab). */
 export const FIXTURE_REVIEW_KEY = "fixture";
 
 export type FileSide = "base" | "head";
@@ -87,6 +89,40 @@ export interface GitHubStatus {
   error?: string;
 }
 
+/** A repository the GitHub login can see (US-13). */
+export interface RepoSummary {
+  /** `owner/name`, as GitHub spells it. */
+  fullName: string;
+  owner: string;
+  name: string;
+  private: boolean;
+  archived: boolean;
+  fork: boolean;
+  description: string | null;
+  /** Last push (ISO time); null for an empty repository. */
+  pushedAt: string | null;
+}
+
+/** One page of the repositories, most recently pushed first. */
+export interface RepoPage {
+  ok: true;
+  page: number;
+  repos: RepoSummary[];
+  hasMore: boolean;
+  /** Page 1 only: the repositories used last in the app, most recent first. */
+  recent?: RepoSummary[];
+}
+
+export interface RepoListError {
+  ok: false;
+  /**
+   * "signed-out": no GitHub login. "token-rejected": GitHub refused the token
+   * (expired or revoked); main has signed out. "failed": anything else.
+   */
+  reason: "signed-out" | "token-rejected" | "failed";
+  error: string;
+}
+
 /** Every call answers with the new status; failures set `error`. */
 export interface GitHubBridge {
   status(): Promise<GitHubStatus>;
@@ -94,6 +130,10 @@ export interface GitHubBridge {
   signInWithToken(token: string): Promise<GitHubStatus>;
   useGh(): Promise<GitHubStatus>;
   signOut(): Promise<GitHubStatus>;
+  /** Page 1, 2, … of the repositories (100 per page). Failures are answers, not rejections. */
+  repos(page: number): Promise<RepoPage | RepoListError>;
+  /** Marks a repository as just used, so it is listed first next time. */
+  markRepoUsed(fullName: string): Promise<void>;
 }
 
 /** `window.reviewBuddy`. */

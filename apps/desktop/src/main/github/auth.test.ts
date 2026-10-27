@@ -169,6 +169,40 @@ describe("sign out and gh", () => {
   });
 });
 
+describe("tokenRejected (a 401 on a later call)", () => {
+  test("a pasted token: signed out, token deleted, reason said once", async () => {
+    const { auth, store } = setup({ saved: "ghp_good" });
+    await auth.status();
+    await auth.tokenRejected("ghp_good");
+    expect(store.saved).toBeNull();
+    const status = await auth.status();
+    expect(status).toMatchObject({ signedIn: false });
+    expect(status.error).toBe(
+      "GitHub rejected the token: it expired or was revoked. Sign in again.",
+    );
+    expect((await auth.status()).error).toBeUndefined();
+    await expect(auth.token()).rejects.toThrow("Not signed in");
+  });
+
+  test("gh: signed out, gh left as it is, and 'use gh' works again", async () => {
+    const { auth, flags } = setup({ gh: "gho_cli" });
+    await auth.status();
+    await auth.tokenRejected("gho_cli");
+    expect((await auth.status()).error).toContain("Run `gh auth login` again");
+    expect(flags.ghDisabled).toBe(false);
+    expect(await auth.useGh()).toMatchObject({ signedIn: true, source: "gh" });
+  });
+
+  test("an old token's 401 does not sign out a newer login", async () => {
+    const { auth, store } = setup({ saved: "ghp_good", users: { ghp_good: "a", ghp_new: "b" } });
+    await auth.status();
+    await auth.signInWithToken("ghp_new");
+    await auth.tokenRejected("ghp_good");
+    expect(await auth.status()).toMatchObject({ signedIn: true, login: "b" });
+    expect(store.saved).toBe("ghp_new");
+  });
+});
+
 test("no status ever contains the token", async () => {
   const { auth } = setup({ saved: "ghp_good", gh: "gho_cli" });
   const all = [

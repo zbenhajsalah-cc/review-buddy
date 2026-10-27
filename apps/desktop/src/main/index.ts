@@ -20,6 +20,7 @@ import { openGitHubPr } from "./github/api-source.ts";
 import { GitHubAuth } from "./github/auth.ts";
 import { findGh, ghAuthToken } from "./github/gh-cli.ts";
 import { parsePrArg, runPrCheck } from "./github/pr-check.ts";
+import { GitHubRepos } from "./github/repos.ts";
 import { TokenStore } from "./github/token-store.ts";
 import { registerGitHubIpc, registerReviewIpc } from "./ipc.ts";
 import { ReviewStore } from "./reviews.ts";
@@ -150,14 +151,17 @@ async function agentCheck(): Promise<void> {
   app.exit(result.ok ? 0 : 1);
 }
 
+/** Small app settings (never secrets) in the userData folder. */
+function appSettings(): SettingsFile {
+  return new SettingsFile(join(app.getPath("userData"), "settings.json"));
+}
+
 /** The app's GitHub login (US-10). The token lives here, in main, only. */
-function createGitHubAuth(): GitHubAuth {
-  const userData = app.getPath("userData");
-  const settings = new SettingsFile(join(userData, "settings.json"));
+function createGitHubAuth(settings: SettingsFile): GitHubAuth {
   return new GitHubAuth({
     // Chromium's network stack: honors the system proxy settings.
     fetch: (url, init) => net.fetch(url, init),
-    store: new TokenStore(join(userData, "github-token"), safeStorage),
+    store: new TokenStore(join(app.getPath("userData"), "github-token"), safeStorage),
     ghDisabled: {
       get: async () => (await settings.read()).ghDisabled === true,
       set: (ghDisabled) => settings.update({ ghDisabled }),
@@ -167,20 +171,43 @@ function createGitHubAuth(): GitHubAuth {
   });
 }
 
+/** The login's repositories and the recently used ones (US-13). */
+function createGitHubRepos(settings: SettingsFile, github: GitHubAuth): GitHubRepos {
+  return new GitHubRepos({
+    fetch: (url, init) => net.fetch(url, init),
+    auth: github,
+    recent: {
+      get: async () => recentList((await settings.read()).recentRepos),
+      update: (change) =>
+        settings.update((current) => ({ recentRepos: change(recentList(current.recentRepos)) })),
+    },
+  });
+}
+
+function recentList(value: unknown): string[] {
+  return Array.isArray(value) ? value.filter((v): v is string => typeof v === "string") : [];
+}
+
 /**
  * The agent review of one PR at a time (US-12): GitHubApiSource with the app's
  * GitHub login, then the Agent SDK with the desktop prompt and the review
- * tools. The SDK is loaded on the first run only.
+ * tools. The SDK is loaded on the first run only. A PR that opens makes its
+ * repository "recently used".
  */
-function createReviewJob(store: ReviewStore, github: GitHubAuth): ReviewJob {
+function createReviewJob(store: ReviewStore, github: GitHubAuth, repos: GitHubRepos): ReviewJob {
   return new ReviewJob({
     store,
-    open: (ref, signal) =>
-      openGitHubPr(ref, {
+    open: async (ref, signal) => {
+      const source = await openGitHubPr(ref, {
         fetch: (url, init) => net.fetch(url, init),
         token: () => github.token(),
         signal,
-      }),
+      });
+      repos.markUsed(`${ref.owner}/${ref.repo}`).catch((e) => {
+        console.warn(`[review-buddy] recent repos: ${e instanceof Error ? e.message : e}`);
+      });
+      return source;
+    },
     run: async (source, label, onProgress, signal) => {
       const [{ query }, { runReview }] = await Promise.all([
         import("@anthropic-ai/claude-agent-sdk"),
@@ -206,7 +233,7 @@ function createReviewJob(store: ReviewStore, github: GitHubAuth): ReviewJob {
  * 0/1. No window.
  */
 async function prCheck(value: string): Promise<void> {
-  const github = createGitHubAuth();
+  const github = createGitHubAuth(appSettings());
   const result = await runPrCheck(async () =>
     openGitHubPr(parsePrArg(value), {
       fetch: (url, init) => net.fetch(url, init),
@@ -227,15 +254,17 @@ app.whenReady().then(async () => {
   const fixture = await loadFixtureReview();
   for (const warning of fixture.warnings) console.warn(`[review-buddy] fixture: ${warning}`);
   store.add(FIXTURE_REVIEW_KEY, fixture.review, fixture.source);
-  const github = createGitHubAuth();
-  const job = createReviewJob(store, github);
+  const settings = appSettings();
+  const github = createGitHubAuth(settings);
+  const repos = createGitHubRepos(settings, github);
+  const job = createReviewJob(store, github, repos);
   // Quitting stops a running review (and its Claude Code process).
   app.on("before-quit", () => job.stop());
 
   hardenSessions();
   serveRenderer();
   registerReviewIpc(store, job, isTrustedPage);
-  registerGitHubIpc(github, isTrustedPage);
+  registerGitHubIpc(github, repos, isTrustedPage);
   createWindow();
 
   // `--review-pr=<owner/repo#123 | PR URL>`: start reviewing that PR at once.

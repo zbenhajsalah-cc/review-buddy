@@ -6,9 +6,14 @@ import { readFile, rename, writeFile } from "node:fs/promises";
 export interface Settings {
   /** The user signed out of the GitHub CLI login in the app. */
   ghDisabled?: boolean;
+  /** `owner/name` of the repositories used last, most recent first. */
+  recentRepos?: string[];
 }
 
 export class SettingsFile {
+  /** One update at a time, so two changes never overwrite each other. */
+  #queue: Promise<unknown> = Promise.resolve();
+
   constructor(private readonly file: string) {}
 
   async read(): Promise<Settings> {
@@ -20,10 +25,17 @@ export class SettingsFile {
     }
   }
 
-  async update(change: Partial<Settings>): Promise<void> {
-    const next = { ...(await this.read()), ...change };
-    const tmp = `${this.file}.tmp`;
-    await writeFile(tmp, `${JSON.stringify(next, null, 2)}\n`);
-    await rename(tmp, this.file);
+  /** `change` may be a function of the current settings (read inside the queue). */
+  update(change: Partial<Settings> | ((current: Settings) => Partial<Settings>)): Promise<void> {
+    const step = async () => {
+      const current = await this.read();
+      const next = { ...current, ...(typeof change === "function" ? change(current) : change) };
+      const tmp = `${this.file}.tmp`;
+      await writeFile(tmp, `${JSON.stringify(next, null, 2)}\n`);
+      await rename(tmp, this.file);
+    };
+    const done = this.#queue.then(step, step);
+    this.#queue = done.catch(() => {});
+    return done;
   }
 }

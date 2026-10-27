@@ -57,7 +57,7 @@ export function GitHubSettings({
       <div className="mb-6 flex items-center justify-between">
         <h1 className="text-lg font-semibold">Settings</h1>
         <Button variant="outline" size="sm" onClick={onClose}>
-          Back to review
+          Back
         </Button>
       </div>
       <Card>
