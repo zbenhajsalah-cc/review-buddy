@@ -3,6 +3,7 @@ import { IPC } from "../shared/ipc.ts";
 import type { ClaudeCode } from "./agent/claude-code.ts";
 import type { ReviewJobs } from "./agent/review-job.ts";
 import type { GitHubAuth } from "./github/auth.ts";
+import type { PrClones } from "./github/clones.ts";
 import type { GitHubPulls } from "./github/pulls.ts";
 import type { GitHubRepos } from "./github/repos.ts";
 import { parseDoneResult, type ReviewStore } from "./reviews.ts";
@@ -25,6 +26,7 @@ function handle(channel: string, isTrusted: (url: string) => boolean, handler: H
 export function registerReviewIpc(
   store: ReviewStore,
   jobs: ReviewJobs,
+  clones: PrClones,
   isTrusted: (url: string) => boolean,
 ): void {
   handle(IPC.getReview, isTrusted, (reviewKey) => store.getReview(reviewKey));
@@ -53,6 +55,10 @@ export function registerReviewIpc(
     jobs.forgetReview();
     return store.saved();
   });
+  // Local copies of repositories (US-19); the renderer names one by owner/repo.
+  handle(IPC.clones, isTrusted, () => clones.list());
+  handle(IPC.deleteClone, isTrusted, (repo) => clones.delete(repo));
+  handle(IPC.deleteAllClones, isTrusted, () => clones.deleteAll());
 }
 
 /**

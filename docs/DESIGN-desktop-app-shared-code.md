@@ -90,6 +90,12 @@ A is done (US-11): `apps/desktop/src/main/github/api-source.ts`. Beyond the
 406 `too_large` answer, it also refuses any diff whose file and line counts
 differ from the PR's. See `apps/desktop/README.md` "Reading a PR".
 
+B is done as the fallback (US-19), but not with `LocalGitSource`: that one
+reads the PR through `gh pr diff`, which uses the same API and is refused the
+same way. `apps/desktop/src/main/github/clones.ts` keeps a small bare copy per
+repository (only the PR's two commits, one deep, without file contents) and
+runs `git diff` there; file bytes still come from the API.
+
 `git.ts` itself moves to `packages/core` (as a `node`-only subpath export, for
 example `@review-buddy/core/node/git`) so both apps import the same file. Its guards
 (`assertSafeRef`, `assertPrRef`, symlink check) move with it.

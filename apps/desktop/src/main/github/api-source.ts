@@ -10,7 +10,9 @@
  *
  * Never a partial diff shown as complete: GitHub refuses the diff of a very
  * large PR (406 "too_large"), and any diff whose file count or line totals
- * differ from the PR's own numbers is rejected too.
+ * differ from the PR's own numbers is rejected too. For a PR that large,
+ * `largeDiff` (US-19: git, from a local copy) gives the diff instead, and the
+ * same check applies.
  *
  * Dependencies are passed in (no Electron import), so this is tested with bun
  * against recorded responses (fixtures/).
@@ -44,6 +46,24 @@ interface GitHubDeps {
   token: () => Promise<string>;
   /** Cancels every request (the user stopped the review). */
   signal?: AbortSignal;
+}
+
+/** What `largeDiff` gets: the PR, its two commits, and whether it is public. */
+export interface LargePr {
+  ref: PrRef;
+  headSha: string;
+  /** The merge base. */
+  baseSha: string;
+  /** GitHub says the repository is public (git then needs no token). */
+  isPublic: boolean;
+}
+
+export interface OpenDeps extends GitHubDeps {
+  /**
+   * The diff of a PR too large for GitHub's diff API, from elsewhere (a local
+   * copy, US-19). It is checked against the PR's numbers like GitHub's own.
+   */
+  largeDiff?: (pr: LargePr) => Promise<string>;
 }
 
 /** GETs on one repository with the app's token, and errors in words. */
@@ -149,7 +169,7 @@ interface PullJson {
   changed_files?: number;
   additions?: number;
   deletions?: number;
-  base?: { ref?: string; sha?: string };
+  base?: { ref?: string; sha?: string; repo?: { private?: boolean } | null };
   head?: { ref?: string; sha?: string };
 }
 
@@ -157,7 +177,7 @@ interface PullJson {
  * Opens a PR: reads its metadata and merge base once. The diff is read on the
  * first `diff()` (and kept), file bytes on demand.
  */
-export async function openGitHubPr(prRef: PrRef, deps: GitHubDeps): Promise<GitHubApiSource> {
+export async function openGitHubPr(prRef: PrRef, deps: OpenDeps): Promise<GitHubApiSource> {
   const ref = parsePrRef(prRef);
   const { repoUrl, label, get, fail } = repoCalls(ref, deps);
 
@@ -192,17 +212,27 @@ export async function openGitHubPr(prRef: PrRef, deps: GitHubDeps): Promise<GitH
   const loadDiff = () => {
     diffLoad ??= (async () => {
       const res = await get(`${repoUrl}/pulls/${ref.number}`, "application/vnd.github.diff");
-      if (!res.ok) {
+      let raw: string;
+      if (res.ok) {
+        raw = await res.text();
+      } else {
         const body = await res.text();
-        if (isTooLarge(res.status, body)) {
+        if (!isTooLarge(res.status, body)) {
+          throw new Error(`Diff of ${label}: GitHub answered ${res.status}.`);
+        }
+        const why = `${label} is too large for GitHub's diff API (${errorText(body) || res.status})`;
+        if (!deps.largeDiff) throw new PrTooLargeError(`${why}. Reviewing it needs a local clone.`);
+        try {
+          // A public repository is one GitHub says is public; else git gets the token.
+          const isPublic = pull.base?.repo?.private === false;
+          raw = await deps.largeDiff({ ref, headSha, baseSha, isPublic });
+        } catch (e) {
+          if (deps.signal?.aborted) throw e;
           throw new PrTooLargeError(
-            `${label} is too large for GitHub's diff API (${errorText(body) || res.status}). ` +
-              "Reviewing it needs a local clone.",
+            `${why}, and the local copy did not work: ${e instanceof Error ? e.message : String(e)}`,
           );
         }
-        throw new Error(`Diff of ${label}: GitHub answered ${res.status}.`);
       }
-      const raw = await res.text();
       const parsed = parseDiff(raw);
       checkComplete(label, pull, parsed);
       return { raw, files: new Map(parsed.map((f) => [f.path, f])) };

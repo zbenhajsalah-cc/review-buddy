@@ -21,8 +21,16 @@ export const MAX_RUNNING = 2;
 
 export interface ReviewJobDeps {
   store: ReviewStore;
-  /** `signal` stops the PR's GitHub requests when the user stops the run. */
-  open(ref: PrRef, signal: AbortSignal): Promise<GitHubApiSource>;
+  /**
+   * `signal` stops the PR's GitHub requests when the user stops the run;
+   * `onProgress` gets steps that happen later, while the diff loads (a local
+   * copy of a PR too large for the API, US-19).
+   */
+  open(
+    ref: PrRef,
+    signal: AbortSignal,
+    onProgress: (progress: ReviewProgress) => void,
+  ): Promise<GitHubApiSource>;
   run(
     source: GitHubApiSource,
     label: string,
@@ -187,7 +195,7 @@ export class ReviewJobs {
     try {
       let source: GitHubApiSource;
       try {
-        source = await this.deps.open(ref, signal);
+        source = await this.deps.open(ref, signal, onProgress);
       } catch (e) {
         throw Object.assign(e instanceof Error ? e : new Error(String(e)), {
           kind: e instanceof PrTooLargeError ? "too-large" : "github",

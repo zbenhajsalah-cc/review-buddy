@@ -17,6 +17,8 @@
 /// <reference lib="dom.iterable" />
 /// <reference path="../src/renderer/src/env.d.ts" />
 // (page.evaluate callbacks run in the renderer: DOM types and window.reviewBuddy.)
+
+import { execFileSync } from "node:child_process";
 import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
@@ -105,6 +107,12 @@ writeFileSync(fakeClaudeVersion, "2.1.0 (Claude Code)\n");
 writeFileSync(fakeClaude, `#!/bin/sh\ncat "${fakeClaudeVersion}"\n`);
 chmodSync(fakeClaude, 0o755);
 writeFileSync(join(userDataDir, "settings.json"), JSON.stringify({ claudePath: fakeClaude }));
+
+// A local copy of a repository (US-19), as a large PR's review leaves it.
+const copyDir = join(userDataDir, "clones", "octo-org", "big-repo.git");
+mkdirSync(copyDir, { recursive: true });
+execFileSync("git", ["init", "--bare", "--quiet", copyDir]);
+writeFileSync(join(copyDir, "review-buddy-used"), new Date().toISOString());
 
 const app: ElectronApplication = await _electron.launch({
   executablePath: packaged ?? electronPath,
@@ -510,7 +518,7 @@ try {
     "a deleted review is gone from the PR list",
   );
   await page.getByRole("button", { name: "GitHub: @octocat" }).click();
-  await page.getByRole("button", { name: "Delete all" }).click();
+  await page.getByRole("button", { name: "Delete all", exact: true }).click();
   await page.getByRole("button", { name: "Yes, delete all" }).click();
   await page.getByText("No saved reviews.").waitFor();
   const savedOnDisk = await app.evaluate(async ({ app }) => {
@@ -521,6 +529,24 @@ try {
     );
   });
   check(savedOnDisk === "gone", "Delete all removes the saved files");
+
+  // Local copies of repositories (US-19): listed with their size, deletable.
+  const copies = page.getByRole("list", { name: "Local copies" });
+  const copyRow = copies.getByRole("listitem").filter({ hasText: "octo-org/big-repo" });
+  check(
+    /\d+ KB · used just now/.test(await copyRow.innerText()),
+    "the settings list the local copy of a repository, with its size and when it was used",
+  );
+  await page.getByRole("button", { name: "Delete the local copy of octo-org/big-repo" }).click();
+  await page.getByText("No local copies.").waitFor();
+  const copyOnDisk = await app.evaluate(async ({ app }) => {
+    const fs = process.getBuiltinModule("node:fs/promises");
+    return fs.readdir(`${app.getPath("userData")}/clones`).then(
+      (names) => names.join() || "empty",
+      () => "gone",
+    );
+  });
+  check(copyOnDisk === "empty", `Delete removes the copy from disk (${copyOnDisk})`);
   await page.getByRole("button", { name: "Back", exact: true }).click();
   await page.getByRole("button", { name: "← Repositories" }).click();
   await search.fill("");
@@ -644,7 +670,7 @@ try {
   check(inPage.noNode, "no Node globals in the renderer");
   check(
     inPage.bridge.join() ===
-      "claude.check,claude.choose,claude.search,claude.status,github.markRepoUsed,github.pulls,github.repos,github.signInWithToken,github.signOut,github.status,github.useGh,review.deleteAllSaved,review.deleteSaved,review.done,review.getConfig,review.getFileContent,review.getReview,review.jobs,review.onJobs,review.saved,review.start,review.stop",
+      "claude.check,claude.choose,claude.search,claude.status,github.markRepoUsed,github.pulls,github.repos,github.signInWithToken,github.signOut,github.status,github.useGh,review.clones,review.deleteAllClones,review.deleteAllSaved,review.deleteClone,review.deleteSaved,review.done,review.getConfig,review.getFileContent,review.getReview,review.jobs,review.onJobs,review.saved,review.start,review.stop",
     `preload exposes only the review, GitHub and Claude Code calls (${inPage.bridge.join()})`,
   );
   check(inPage.inlineBlocked, "CSP blocks inline scripts");

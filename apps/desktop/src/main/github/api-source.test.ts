@@ -188,6 +188,67 @@ describe("never a partial diff", () => {
     ).rejects.toBeInstanceOf(PrTooLargeError);
   });
 
+  test("too large: the diff comes from largeDiff (US-19), checked like GitHub's", async () => {
+    const tooLarge = {
+      [`${DIFF} ${API}/pulls/28`]: () =>
+        new Response(fixture("pr-diff-too-large-406.json"), { status: 406 }),
+    };
+    const asked: unknown[] = [];
+    const withLarge = (
+      gh: ReturnType<typeof fakeGitHub>,
+      largeDiff: (pr: unknown) => Promise<string>,
+    ) => openGitHubPr(REF, { fetch: gh.fetch, token: async () => "ghp_test", largeDiff });
+
+    const source = await withLarge(fakeGitHub(tooLarge), async (pr) => {
+      asked.push(pr);
+      return fixture("pr-28.diff");
+    });
+    expect(await source.diff()).toBe(fixture("pr-28.diff"));
+    expect((await source.files()).map((f) => f.path)).toContain(
+      "packages/viewer/src/ReviewViewer.tsx",
+    );
+    // Not known to be public (the recorded PR has no base.repo): git gets the token.
+    expect(asked).toEqual([{ ref: REF, headSha: HEAD, baseSha: BASE, isPublic: false }]);
+
+    const publicPull = JSON.parse(fixture("pr-28.json"));
+    publicPull.base.repo = { private: false };
+    asked.length = 0;
+    await (
+      await withLarge(
+        fakeGitHub({
+          ...tooLarge,
+          [`${JSON_ACCEPT} ${API}/pulls/28`]: () => Response.json(publicPull),
+        }),
+        async (pr) => {
+          asked.push(pr);
+          return fixture("pr-28.diff");
+        },
+      )
+    ).diff();
+    expect(asked).toMatchObject([{ isPublic: true }]);
+
+    // A cut diff from the copy is refused too.
+    const cut = fixture("pr-28.diff")
+      .split(/(?=^diff --git )/m)
+      .slice(0, 2)
+      .join("");
+    await expect(
+      (await withLarge(fakeGitHub(tooLarge), async () => cut)).diff(),
+    ).rejects.toBeInstanceOf(IncompleteDiffError);
+
+    // The copy failed: still "too large", with both reasons.
+    const failed = await (
+      await withLarge(fakeGitHub(tooLarge), async () => {
+        throw new Error("Install git, then try again.");
+      })
+    )
+      .diff()
+      .catch((e) => e);
+    expect(failed).toBeInstanceOf(PrTooLargeError);
+    expect(String(failed)).toContain("maximum number of files (300)");
+    expect(String(failed)).toContain("the local copy did not work: Install git, then try again.");
+  });
+
   test("a diff that does not match the PR's counts is refused", async () => {
     const pull = JSON.parse(fixture("pr-28.json"));
     const cut = fixture("pr-28.diff")

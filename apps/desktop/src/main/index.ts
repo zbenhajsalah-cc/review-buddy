@@ -18,6 +18,7 @@ import { ReviewJobs } from "./agent/review-job.ts";
 import { loadFixtureReview } from "./fixture/index.ts";
 import { openGitHubPr, prFileReader } from "./github/api-source.ts";
 import { GitHubAuth } from "./github/auth.ts";
+import { findGit, PrClones } from "./github/clones.ts";
 import { findGh, ghAuthToken } from "./github/gh-cli.ts";
 import { parsePrArg, runPrCheck } from "./github/pr-check.ts";
 import { GitHubPulls } from "./github/pulls.ts";
@@ -273,14 +274,17 @@ function createReviewJobs(
   github: GitHubAuth,
   repos: GitHubRepos,
   claudeCode: ClaudeCode,
+  clones: PrClones,
 ): ReviewJobs {
   const jobs: ReviewJobs = new ReviewJobs({
     store,
-    open: async (ref, signal) => {
+    open: async (ref, signal, onProgress) => {
       const source = await openGitHubPr(ref, {
         fetch: (url, init) => net.fetch(url, init),
         token: () => github.token(),
         signal,
+        // Too large for the API (US-19): git, from a local copy.
+        largeDiff: (pr) => clones.diff(pr, (step) => onProgress({ phase: "github", step }), signal),
       });
       // Before the job shows the PR's head, which makes the repository list
       // read its recent repos again.
@@ -360,7 +364,13 @@ app.whenReady().then(async () => {
     const found = status.state === "ok" ? `${status.version} at ${status.path}` : status.message;
     console.log(`[review-buddy] claude code: ${status.state}: ${found}`);
   });
-  const jobs = createReviewJobs(store, github, repos, claudeCode);
+  // Local copies of repositories, for PRs too large for the API (US-19).
+  const clones = new PrClones({
+    dir: join(app.getPath("userData"), "clones"),
+    git: () => findGit(),
+    token: () => github.token(),
+  });
+  const jobs = createReviewJobs(store, github, repos, claudeCode, clones);
   const pulls = new GitHubPulls({
     fetch: (url, init) => net.fetch(url, init),
     auth: github,
@@ -371,7 +381,7 @@ app.whenReady().then(async () => {
 
   hardenSessions();
   serveRenderer();
-  registerReviewIpc(store, jobs, isTrustedPage);
+  registerReviewIpc(store, jobs, clones, isTrustedPage);
   registerGitHubIpc(github, repos, pulls, isTrustedPage);
   registerClaudeIpc(claudeCode, chooseClaudePath, isTrustedPage);
   createWindow();

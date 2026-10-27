@@ -14,6 +14,12 @@
  *                                   (on Linux without a display: xvfb-run -a)
  *   node scripts/review-e2e.ts --executable release/linux-unpacked/review-buddy
  *                                   (the same run in a packaged app)
+ *   node scripts/review-e2e.ts --too-large
+ *                                   (US-19: the fake GitHub refuses the diff as
+ *                                    too large, so the app fetches the PR's two
+ *                                    commits from the real, public github.com
+ *                                    repository with git and diffs them locally:
+ *                                    needs git and the network)
  */
 /// <reference lib="dom" />
 /// <reference path="../src/renderer/src/env.d.ts" />
@@ -34,6 +40,7 @@ const arg = (name: string) => {
 // A packaged app is its own executable; in the repo, the electron binary runs appDir.
 const packaged = arg("--executable");
 const shots = arg("--screenshots");
+const tooLarge = process.argv.includes("--too-large");
 const fixtures = join(appDir, "src/main/github/fixtures");
 const fixture = (name: string) => readFileSync(join(fixtures, name), "utf8");
 
@@ -78,6 +85,18 @@ const routes: Record<string, { status: number; body: string }> = {
   },
   [`application/vnd.github.diff ${API}/pulls/28`]: { status: 200, body: diff },
 };
+if (tooLarge) {
+  // GitHub's answer for a PR over its diff limits; the repository is public,
+  // as GitHub says it in the PR's base.repo.
+  routes[`application/vnd.github.diff ${API}/pulls/28`] = {
+    status: 406,
+    body: fixture("pr-diff-too-large-406.json"),
+  };
+  routes[`application/vnd.github+json ${API}/pulls/28`] = {
+    status: 200,
+    body: JSON.stringify({ ...pr28, base: { ...pr28.base, repo: { private: false } } }),
+  };
+}
 const show = (sha: string, path: string) =>
   execFileSync("git", ["show", `${sha}:${path}`], { cwd: appDir, encoding: "utf8" });
 for (const file of parseDiff(diff)) {
@@ -160,6 +179,18 @@ try {
     status.state === "done",
     `the run finished (${status.state}${status.error ? `: ${status.error}` : ""})`,
   );
+  if (tooLarge) {
+    check(
+      status.steps.some((s) => s.startsWith(`Fetching the commits of ${PR}`)) &&
+        status.steps.includes(`Reading the diff of ${PR} from the local copy`),
+      "too large for the API: the diff came from a local copy, with its progress in the steps",
+    );
+    const copies = await page.evaluate(() => window.reviewBuddy.review.clones());
+    check(
+      copies.length === 1 && copies[0]!.repo === "zbenhajsalah-cc/review-buddy",
+      `the local copy is listed (${copies.map((c) => `${c.repo} ${c.bytes} B`).join()})`,
+    );
+  }
   const claude = await page.evaluate(() => window.reviewBuddy.claude.status());
   check(
     claude.state === "ok" && !claude.path!.includes("app.asar") && !claude.path!.includes(appDir),
