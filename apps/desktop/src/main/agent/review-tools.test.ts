@@ -22,7 +22,7 @@ async function connect(overrides: Partial<ReviewToolsInput> = {}) {
     diff: fixture.diff,
     fileContent: async (path, side) => files[`${side}:${path}`] ?? "",
     generatedBy: () => "test-model",
-    onProgress: (step) => steps.push(step),
+    onProgress: ({ phase, step }) => steps.push(`${phase}: ${step}`),
     ...overrides,
   });
   const client = await connectMcp(tools.server);
@@ -81,7 +81,7 @@ describe("get_pr_diff", () => {
     expect(text).toContain("Author: @octocat · base `main` ← head `feature/greeting-suffix`");
     expect(text).toContain("The retry change follows the outage on Monday");
     expect(text).toEndWith(`Diff:\n\n${fixture.diff}`);
-    expect(steps).toEqual(["Reading the diff"]);
+    expect(steps).toEqual(["reading: Reading the diff"]);
   });
 
   test("a large diff comes in parts that join to the exact diff", async () => {
@@ -101,7 +101,10 @@ describe("get_pr_diff", () => {
       text: "There are only 2 part(s).",
       isError: true,
     });
-    expect(steps).toEqual(["Reading the diff (part 1 of 2)", "Reading the diff (part 2 of 2)"]);
+    expect(steps).toEqual([
+      "reading: Reading the diff (part 1 of 2)",
+      "reading: Reading the diff (part 2 of 2)",
+    ]);
   });
 });
 
@@ -138,7 +141,10 @@ describe("read_file", () => {
     );
     const base = await call("read_file", { path: "src/retry.ts", side: "base" });
     expect(base.text).toContain(`1\t${files["base:src/retry.ts"]!.split("\n")[0]}`);
-    expect(steps).toEqual(["Reading src/retry.ts", "Reading src/retry.ts (before the PR)"]);
+    expect(steps).toEqual([
+      "reading: Reading src/retry.ts",
+      "reading: Reading src/retry.ts (before the PR)",
+    ]);
   });
 
   test("a very long line is cut, so a minified file still fits one answer", async () => {
@@ -216,7 +222,10 @@ describe("submit_review", () => {
     expect(latest.review.chapters.map((c) => c.title)).toEqual(
       fixture.agent.chapters.map((c) => c.title),
     );
-    expect(steps).toEqual(["Review submitted"]);
+    expect(steps).toEqual([
+      "checking: Checking the chapters against the diff",
+      "checking: Review submitted",
+    ]);
   });
 
   test("anchors that miss come back as notes; resubmits are capped", async () => {

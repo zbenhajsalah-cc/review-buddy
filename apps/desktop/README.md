@@ -5,12 +5,13 @@ The desktop app shows a review in the same viewer as the plugin
 instead of HTTP. Plan and stories: `docs/DESIGN-desktop-app-shared-code.md`,
 `docs/backlog-desktop-app.md`.
 
-**Status (US-08 to US-14):** the app opens on your GitHub repositories (see
+**Status (US-08 to US-15):** the app opens on your GitHub repositories (see
 "Repositories"). Pick one to see its open PRs (see "Pull requests") and
 review one or several of them (or type any `owner/repo#123` or PR URL in the
 top bar): main reads each PR from the GitHub API (see "Reading a PR"), Claude
 reviews it with your Claude login (see "Reviewing a PR"), and the viewer
-shows the result. The "Sample review" tab shows a fixed review
+shows the result. You see each review's progress as it runs, can stop it,
+and can try again after a failure. The "Sample review" tab shows a fixed review
 (`src/main/fixture/review.json`) until you follow a review. The settings view
 connects GitHub (see "GitHub login"). Reviews are kept in memory only, until
 the app quits (the review cache is US-16).
@@ -185,12 +186,13 @@ A repo's open PRs (`src/renderer/src/PullList.tsx`, data from
   current head, with **Open review**), **Outdated review** (the PR has new
   commits since; **Open review** or **Review again**), **Queued** (with
   **Remove**), **Reviewing…** (with **Show progress**), or "Last review
-  failed: …" with the reason. Reviews are in memory until the app quits
-  (US-16 saves them).
+  failed: …" with the reason. While a review runs, the row shows its phase
+  and time. Reviews are in memory until the app quits (US-16 saves them).
 - **Starting reviews:** **Review** on a row starts one and shows its
   progress. Tick several rows and press **Review selected** to queue them;
-  you stay on the list and the rows show their progress. Reviews run one
-  after another (see "Reviewing a PR").
+  you stay on the list and the rows show their progress. Two reviews run at
+  a time; the others wait (see "Reviewing a PR"). After a failure, the
+  row's button is **Try again**.
 - **States:** loading, no open PRs, errors with **Try again**; "not found"
   when the repo is gone or the token cannot see it; a 401 signs the app out,
   as in the repo list.
@@ -261,17 +263,46 @@ top bar and press **Review**. Or start the app with
 pnpm --filter desktop dev -- --review-pr=owner/repo#123
 ```
 
-Each review is a job in main (`src/main/agent/review-job.ts`). Jobs run one
-after another, in the order they were started; a PR that is already queued
-or running cannot be queued again. (US-15 lets a few run at once.) The
-review tab follows one job: while it waits, how many run before it; while it
-runs, the steps (reading the diff, reading files, submitting) and a **Stop**
-button; when it is done, the viewer shows the review. **Stop** cancels the
-GitHub requests and the Claude run, and a stopped run shows no review, even
-if Claude had already submitted one; on a queued job it takes it out of the
-queue. A failure shows its reason (not signed in to GitHub or Claude, PR too
-large, …). Main keeps the last 20 finished jobs for the renderer, and every
-review in its store. The console gets
+Each review is a job in main (`src/main/agent/review-job.ts`). **Two run at
+a time** (`MAX_RUNNING`: each is a Claude Code process); the others wait and
+start in the order they were queued. A PR that is already queued or running
+cannot be queued again. Main keeps the last 20 finished jobs for the
+renderer, and every review in its store.
+
+**Progress events.** Main sends the whole job list to the page on every
+change (`review:jobs-changed`, at most every 100 ms); the renderer does not
+poll. Each running job has a **phase**:
+
+| Phase | What happens | Steps you see |
+|---|---|---|
+| `github` | main reads the PR, its merge base and its diff | "Loading owner/repo#1 from GitHub" |
+| `reading` | Claude starts and reads the diff and files | "Reading the diff (part 1 of 2)", "Reading src/a.ts" |
+| `writing` | Claude writes the `submit_review` call | "Writing chapter 2: <its title>" |
+| `checking` | the app resolves the chapters' anchors against the diff | "Review submitted with 1 resolution note(s)" |
+
+"Writing" is seen live: the run asks the SDK for streamed output
+(`includePartialMessages`) and reads the chapter titles from the
+`submit_review` input while Claude writes it. The review tab shows the four
+phases, the current step, the time, and all steps on demand. If Claude
+resubmits after resolution notes, the phase goes back to "writing".
+
+**Stop** cancels the GitHub requests and the Claude run, and a stopped run
+shows no review, even if Claude had already submitted one; on a queued job it
+takes it out of the queue.
+
+**Failures** say what failed (`errorKind`), with the reason and, when it
+helps, what to do:
+
+| Kind | When | Title |
+|---|---|---|
+| `github` | not signed in, not found, no access, GitHub unreachable, a diff that does not match the PR | "Could not read owner/repo#1 from GitHub" |
+| `too-large` | GitHub sends no diff (406 `too_large`) | "owner/repo#1 is too large for the GitHub API" |
+| `claude` | Claude Code cannot start, or Claude reports an error code: not signed in (`authentication_failed`: "Run `claude /login`"), billing, rate limit, overloaded, … | "Claude could not review owner/repo#1" |
+| `agent` | Claude ran but no review came out (out of turns, timed out, gave up) | "Claude did not finish the review of owner/repo#1" |
+| `stopped` | you pressed Stop | "The review of owner/repo#1 was stopped" |
+
+**Try again** starts the same PR as a new job and follows it (not offered
+for "too large": it would fail the same way). The console gets
 one `[review-buddy] review-run {…}` line per run, with the turns, cost and
 number of resolution notes.
 
@@ -309,7 +340,8 @@ It fakes GitHub inside main with the recorded PR #28 of this repo (and file
 bytes from this repo's git history), picks the repo, presses **Review** on
 #28 in the PR list, waits for the agent, and checks that the Prologue and
 every chapter show, that "expand full file" shows a line far from the hunks,
-and that the PR list then shows #28 as **Reviewed**. It passed in dev and in a
+and that the PR list then shows #28 as **Reviewed**. It also checks that the
+streamed "Writing chapter 1: …" step came. It passed in dev and in a
 packaged Linux build: about 15–25 s, 4 turns, a few cents, no resolution
 notes. Use `--screenshots <dir>` to keep two screenshots.
 

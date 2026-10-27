@@ -325,6 +325,7 @@ try {
   await page.getByLabel("Select #12").check();
   await page.getByLabel("Select #11").check();
   await page.getByRole("button", { name: "Review selected (2)" }).click();
+  // (No polling in the renderer: the rows change on main's job events.)
   await pullRow(11).getByText("Last review failed").waitFor({ timeout: 15_000 });
   await pullRow(12).getByText("Last review failed").waitFor();
   const queued = await page.evaluate(() => window.reviewBuddy.review.jobs());
@@ -334,6 +335,10 @@ try {
       queued[0]!.error!.startsWith("Merge base of octo-org/widgets#12") &&
       queued[1]!.error!.startsWith("PR octo-org/widgets#11: not found"),
     "Review selected queues both PRs in order; each row shows why its review failed",
+  );
+  check(
+    (await page.getByRole("button", { name: "Review #12" }).innerText()) === "Try again",
+    "a failed PR offers Try again",
   );
   await page.getByRole("button", { name: "← Repositories" }).click();
   await search.fill("");
@@ -392,9 +397,18 @@ try {
   check(true, "a malformed PR reference is refused");
   await prField.fill("https://github.com/octocat/hello-world/pull/42");
   await page.getByRole("button", { name: "Review", exact: true }).click();
-  await page.getByText("The review of octocat/hello-world#42 failed").waitFor();
+  await page.getByText("Could not read octocat/hello-world#42 from GitHub").waitFor();
   await page.getByText(/^Not signed in to GitHub/).waitFor();
-  check(true, "a review while signed out fails with the reason");
+  await page.getByText(/^Check the GitHub login in Settings/).waitFor();
+  check(true, "a review while signed out fails as a GitHub error, with the reason and a hint");
+  const before = (await page.evaluate(() => window.reviewBuddy.review.jobs())).length;
+  await page.getByRole("button", { name: "Try again" }).click();
+  await page.waitForFunction(
+    (n) => window.reviewBuddy.review.jobs().then((jobs) => jobs.length === n + 1),
+    before,
+  );
+  await page.getByText("Could not read octocat/hello-world#42 from GitHub").waitFor();
+  check(true, "Try again runs the review again (a new job, followed)");
   await page.getByRole("button", { name: "Show the sample review" }).click();
   await page
     .getByText("Review submitted")
@@ -429,7 +443,7 @@ try {
   check(inPage.noNode, "no Node globals in the renderer");
   check(
     inPage.bridge.join() ===
-      "github.markRepoUsed,github.pulls,github.repos,github.signInWithToken,github.signOut,github.status,github.useGh,review.done,review.getConfig,review.getFileContent,review.getReview,review.jobs,review.start,review.stop",
+      "github.markRepoUsed,github.pulls,github.repos,github.signInWithToken,github.signOut,github.status,github.useGh,review.done,review.getConfig,review.getFileContent,review.getReview,review.jobs,review.onJobs,review.start,review.stop",
     `preload exposes only the review and GitHub calls (${inPage.bridge.join()})`,
   );
   check(inPage.inlineBlocked, "CSP blocks inline scripts");

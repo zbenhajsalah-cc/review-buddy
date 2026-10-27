@@ -15,6 +15,8 @@ export const IPC = {
   startReview: "review:start",
   stopReview: "review:stop",
   reviewJobs: "review:jobs",
+  /** Main → renderer: the job list changed (an event, not a call). */
+  reviewJobsChanged: "review:jobs-changed",
   githubStatus: "github:status",
   githubSignInWithToken: "github:sign-in-with-token",
   githubUseGh: "github:use-gh",
@@ -43,9 +45,24 @@ export interface IpcDoneResult {
 }
 
 /**
- * One agent review of a PR (US-12, US-14), as the renderer sees it. Main runs
- * the jobs one after another, in the order they were started; the renderer
- * polls them while any is queued or running.
+ * Where a review is (US-15), in order: reading the PR from GitHub, Claude
+ * starting and reading the diff and files, Claude writing the chapters, and
+ * the app checking the chapters' anchors against the diff.
+ */
+export type ReviewPhase = "github" | "reading" | "writing" | "checking";
+
+/**
+ * Why a review failed (US-15): "github" (GitHub could not give the PR),
+ * "too-large" (GitHub sends no diff for a PR this large), "claude" (Claude
+ * could not run: login, account, rate limit, service), "agent" (Claude ran
+ * but submitted no review), "stopped" (the user stopped it).
+ */
+export type ReviewErrorKind = "github" | "too-large" | "claude" | "agent" | "stopped";
+
+/**
+ * One agent review of a PR (US-12, US-14, US-15), as the renderer sees it.
+ * Main runs a few at a time, in the order they were started, and sends the
+ * whole list on every change (`onJobs`).
  */
 export interface ReviewJobStatus {
   /** 1, 2, … in start order; also remounts the viewer per job. */
@@ -57,11 +74,17 @@ export interface ReviewJobStatus {
   headSha?: string;
   /** Set when done: the review to load with getReview. */
   reviewKey?: string;
+  /** Set while running: where it is. */
+  phase?: ReviewPhase;
   /** What the agent did so far, oldest first (the last few). */
   steps: string[];
+  /** When it started running, and when it ended (ms since the epoch). */
+  startedAt?: number;
+  endedAt?: number;
   /** Resolution notes of the review shown: places its anchors did not match. */
   notes?: string[];
   error?: string;
+  errorKind?: ReviewErrorKind;
 }
 
 /** What the preload script exposes. Every call names the review it is about. */
@@ -71,14 +94,17 @@ export interface ReviewBridge {
   getConfig(): Promise<{ roundtrip: boolean }>;
   done(reviewKey: string, result: IpcDoneResult): Promise<void>;
   /**
-   * Queues a review of a PR ("owner/repo#123" or its URL); it starts when the
-   * jobs before it are done. Rejects a PR that is already queued or running.
+   * Queues a review of a PR ("owner/repo#123" or its URL); it starts when a
+   * slot is free. Rejects a PR that is already queued or running. Also the
+   * "Try again" of a failed review.
    */
   start(pr: string): Promise<ReviewJobStatus>;
   /** Stops a running job, or takes a queued one out of the queue. */
   stop(id: number): Promise<ReviewJobStatus[]>;
   /** Queued and running jobs, and the last finished ones, oldest first. */
   jobs(): Promise<ReviewJobStatus[]>;
+  /** Calls `listener` with the job list on every change; returns "unsubscribe". */
+  onJobs(listener: (jobs: ReviewJobStatus[]) => void): () => void;
 }
 
 /**

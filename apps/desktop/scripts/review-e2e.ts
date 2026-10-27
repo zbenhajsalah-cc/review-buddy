@@ -158,6 +158,10 @@ try {
     status.reviewKey === `${PR}@${HEAD.slice(0, 12)}`,
     `the review key names the PR head (${status.reviewKey})`,
   );
+  check(
+    status.steps.some((step) => step.startsWith("Writing chapter 1: ")),
+    "the review was seen while Claude wrote it (streamed chapter titles)",
+  );
   console.log(`  resolution notes: ${status.notes?.length ?? 0}`);
   for (const note of status.notes ?? []) console.log(`    - ${note}`);
 

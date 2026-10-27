@@ -427,6 +427,25 @@ Acceptance criteria:
 - The user can cancel a job; the agent run stops.
 - Errors (GitHub, agent, too-large PR) are shown clearly with a retry button.
 - Several jobs can run at once, with a small limit.
+- Decisions made while building it:
+  - Jobs, cancel and the queue came with US-14; this story adds the rest.
+  - Progress events: main sends the whole job list on every change
+    (`review:jobs-changed`, at most every 100 ms; the preload exposes
+    `onJobs`, which hands the page the list only). The renderer no longer
+    polls.
+  - Each step has a phase: `github`, `reading`, `writing`, `checking`.
+    "Writing" is real: the run streams Claude's output
+    (`includePartialMessages`) and reads the chapter titles from the
+    `submit_review` input as it is written ("Writing chapter 2: …").
+    Checked with the real agent.
+  - Errors have a kind: `github`, `too-large`, `claude` (Claude Code cannot
+    start, or an SDK error code such as `authentication_failed` or
+    `rate_limit`, said in words), `agent` (no review came out), `stopped`.
+    **Try again** queues the same PR again and follows it; not for
+    "too large".
+  - At most 2 reviews run at once (`MAX_RUNNING`): each is a Claude Code
+    process, and two cover "review the selected PRs" without hitting rate
+    limits. Not a setting yet.
 
 ### US-16: Review cache
 

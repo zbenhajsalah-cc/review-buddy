@@ -181,7 +181,11 @@ The template moves to `packages/core/prompts/`.
   renderer, allow cancel. US-12: one run at a time in main; the renderer polls
   its status (steps so far) and can stop it. US-14: a queue of jobs, run one
   after another (several PRs at once from the PR list); the renderer polls
-  the job list and follows one job.
+  the job list and follows one job. US-15: two jobs run at once; main pushes
+  the job list on every change (no polling); each step has a phase (GitHub,
+  reading, writing — seen live from Claude's streamed output — checking);
+  failures have a kind (GitHub, too large, Claude, agent, stopped) and a
+  retry.
 - **Cache:** keep `ResolvedReview` per `owner/repo#n@headSha` in the app data
   folder, so reopening a PR does not re-run the agent. Re-run when the head SHA
   changes.

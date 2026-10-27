@@ -14,8 +14,6 @@ import { PullList } from "./PullList.tsx";
 import { RepoList } from "./RepoList.tsx";
 import { ipcErrorMessage, PrForm, RunPanel } from "./ReviewRun.tsx";
 
-const POLL_MS = 700;
-
 type Screen = "repos" | "pulls" | "review" | "settings";
 
 /** What the review tab shows. */
@@ -25,8 +23,6 @@ type View =
   | { kind: "job"; id: number }
   /** A review opened from the PR list. */
   | { kind: "review"; reviewKey: string; pr: string };
-
-const isActive = (job: ReviewJobStatus) => job.state === "queued" || job.state === "running";
 
 /**
  * The app shell: a thin bar with tabs above the current screen. The app
@@ -66,14 +62,8 @@ export function App({ bridge }: { bridge: DesktopBridge }) {
     );
   }, [bridge, refreshGitHub]);
 
-  const busy = jobs.some(isActive);
-  useEffect(() => {
-    if (!busy) return;
-    const timer = setInterval(() => {
-      bridge.review.jobs().then(setJobs, () => {});
-    }, POLL_MS);
-    return () => clearInterval(timer);
-  }, [bridge, busy]);
+  // Main sends the job list on every change (US-15): no polling.
+  useEffect(() => bridge.review.onJobs(setJobs), [bridge]);
 
   const job = view.kind === "job" ? jobs.find((j) => j.id === view.id) : undefined;
   const reviewKey =
@@ -130,10 +120,11 @@ export function App({ bridge }: { bridge: DesktopBridge }) {
       variant={screen === to ? "secondary" : "ghost"}
       size="sm"
       aria-current={screen === to ? "page" : undefined}
-      className="max-w-56 min-w-0 truncate"
+      className="min-w-0 max-w-64"
+      title={label}
       onClick={() => setScreen(to)}
     >
-      {label}
+      <span className="truncate">{label}</span>
     </Button>
   );
 
@@ -217,8 +208,9 @@ export function App({ bridge }: { bridge: DesktopBridge }) {
         ) : screen !== "review" ? null : job && job.state !== "done" ? (
           <RunPanel
             status={job}
-            ahead={jobs.filter((j) => isActive(j) && j.id < job.id).length}
+            ahead={jobs.filter((j) => j.state === "queued" && j.id < job.id).length}
             onStop={() => stopJob(job.id)}
+            onRetry={() => void startReviews([job.pr], true).then(setStartError)}
             onDismiss={() => setView({ kind: "sample" })}
           />
         ) : (

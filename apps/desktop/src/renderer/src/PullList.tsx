@@ -9,7 +9,7 @@ import type {
   ReviewJobStatus,
 } from "../../shared/ipc.ts";
 import { timeAgo } from "./RepoList.tsx";
-import { ipcErrorMessage } from "./ReviewRun.tsx";
+import { elapsed, ipcErrorMessage, PHASES, useNow } from "./ReviewRun.tsx";
 
 /** What the app has for one PR: a job in progress, a review, a failure. */
 export interface PullRowState {
@@ -271,6 +271,7 @@ function PullRow({
 }) {
   const n = pull.number;
   const { job, review, failed } = row;
+  const now = useNow(job?.state === "running");
   return (
     <li className="flex items-center gap-3 px-4 py-2.5">
       <input
@@ -301,7 +302,7 @@ function PullRow({
           {failed ? (
             <span className="text-destructive" title={failed}>
               {" "}
-              · Last review failed: {failed}
+              · Last review failed: {failed.split("\n")[0]}
             </span>
           ) : null}
         </div>
@@ -310,6 +311,10 @@ function PullRow({
         {job?.state === "running" ? (
           <>
             <Badge>Reviewing…</Badge>
+            <span className="text-xs tabular-nums text-muted-foreground">
+              {PHASES.find((p) => p.phase === job.phase)?.short ?? "starting"}
+              {job.startedAt !== undefined ? ` · ${elapsed(now - job.startedAt)}` : ""}
+            </span>
             <Button
               variant="outline"
               size="sm"
@@ -354,7 +359,7 @@ function PullRow({
             ) : null}
             {review?.current ? null : (
               <Button size="sm" aria-label={`Review #${n}`} onClick={onReview}>
-                {review ? "Review again" : "Review"}
+                {failed ? "Try again" : review ? "Review again" : "Review"}
               </Button>
             )}
           </>

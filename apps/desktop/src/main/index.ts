@@ -11,7 +11,7 @@ import { readFile } from "node:fs/promises";
 import { extname, join } from "node:path";
 import desktopPrompt from "@review-buddy/core/prompts/review-desktop.md?raw";
 import { app, BrowserWindow, net, protocol, safeStorage, session, shell } from "electron";
-import { FIXTURE_REVIEW_KEY } from "../shared/ipc.ts";
+import { FIXTURE_REVIEW_KEY, IPC } from "../shared/ipc.ts";
 import { type AgentCheckResult, runAgentCheck } from "./agent/check.ts";
 import { claudeExecutablePath } from "./agent/executable.ts";
 import { ReviewJobs } from "./agent/review-job.ts";
@@ -152,6 +152,18 @@ async function agentCheck(): Promise<void> {
   app.exit(result.ok ? 0 : 1);
 }
 
+/** Calls `fn` once, `ms` after the first of a burst of calls. */
+function atMostEvery(ms: number, fn: () => void): () => void {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  return () => {
+    if (timer) return;
+    timer = setTimeout(() => {
+      timer = undefined;
+      fn();
+    }, ms);
+  };
+}
+
 /** Small app settings (never secrets) in the userData folder. */
 function appSettings(): SettingsFile {
   return new SettingsFile(join(app.getPath("userData"), "settings.json"));
@@ -196,7 +208,7 @@ function recentList(value: unknown): string[] {
  * its repository "recently used".
  */
 function createReviewJobs(store: ReviewStore, github: GitHubAuth, repos: GitHubRepos): ReviewJobs {
-  return new ReviewJobs({
+  const jobs: ReviewJobs = new ReviewJobs({
     store,
     open: async (ref, signal) => {
       const source = await openGitHubPr(ref, {
@@ -225,7 +237,17 @@ function createReviewJobs(store: ReviewStore, github: GitHubAuth, repos: GitHubR
       });
     },
     log: (line) => console.log(`[review-buddy] review-run ${line}`),
+    // Progress events (US-15): the whole list, to our own page only, at most
+    // every 100 ms (a streamed review makes many small steps).
+    onChange: atMostEvery(100, () => {
+      const list = jobs.jobs();
+      for (const win of BrowserWindow.getAllWindows()) {
+        const page = win.webContents;
+        if (isTrustedPage(page.getURL())) page.send(IPC.reviewJobsChanged, list);
+      }
+    }),
   });
+  return jobs;
 }
 
 /**

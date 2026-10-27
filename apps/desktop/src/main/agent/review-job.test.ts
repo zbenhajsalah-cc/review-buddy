@@ -1,14 +1,19 @@
 import { describe, expect, test } from "bun:test";
 import { loadFixtureReview } from "../fixture/index.ts";
 import type { GitHubApiSource, PrRef } from "../github/api-source.ts";
+import { PrTooLargeError } from "../github/api-source.ts";
 import { ReviewStore } from "../reviews.ts";
-import { MAX_FINISHED, type ReviewJobDeps, ReviewJobs } from "./review-job.ts";
+import { MAX_FINISHED, MAX_RUNNING, type ReviewJobDeps, ReviewJobs } from "./review-job.ts";
 import type { ReviewRunResult } from "./runner.ts";
 
 const HEAD = "7e8e70534d5fdb0a8ef1a5a0bf8407774b007b00";
 const FAILED: ReviewRunResult = { ok: false, warnings: [], submissions: 0, durationMs: 0 };
 
-async function setup(run?: ReviewJobDeps["run"]) {
+/**
+ * Jobs over a fake PR and agent. One job runs at a time unless `maxRunning`
+ * says otherwise, so queue tests read simply; the clock is fixed at 1000.
+ */
+async function setup(run?: ReviewJobDeps["run"], more: Partial<ReviewJobDeps> = {}) {
   const { review, source } = await loadFixtureReview();
   const store = new ReviewStore();
   const opened: PrRef[] = [];
@@ -24,12 +29,17 @@ async function setup(run?: ReviewJobDeps["run"]) {
     run:
       run ??
       (async (_source, _label, onProgress) => {
-        onProgress("Reading the diff");
+        onProgress({ phase: "reading", step: "Reading the diff" });
         return { ok: true, review, warnings: ["a note"], submissions: 1, durationMs: 5 };
       }),
     log: (line) => logs.push(line),
+    onChange: () => changes.push(jobs.jobs()),
+    maxRunning: 1,
+    now: () => 1000,
+    ...more,
   });
-  return { jobs, store, opened, signals, logs, review };
+  const changes: ReturnType<ReviewJobs["jobs"]>[] = [];
+  return { jobs, store, opened, signals, logs, review, changes };
 }
 
 /** A run that waits until `release(label)` (or a stop), then fails. */
@@ -59,7 +69,14 @@ describe("ReviewJobs", () => {
     expect(jobs.jobs()).toEqual([]);
     const started = jobs.start("https://github.com/octocat/hello-world/pull/42");
     // Nothing before it: it runs at once.
-    expect(started).toEqual({ id: 1, pr: "octocat/hello-world#42", state: "running", steps: [] });
+    expect(started).toEqual({
+      id: 1,
+      pr: "octocat/hello-world#42",
+      state: "running",
+      phase: "github",
+      steps: [],
+      startedAt: 1000,
+    });
     await jobs.whenIdle();
     expect(opened).toEqual([{ owner: "octocat", repo: "hello-world", number: 42 }]);
     const key = "octocat/hello-world#42@7e8e70534d5f";
@@ -71,6 +88,8 @@ describe("ReviewJobs", () => {
         headSha: HEAD,
         reviewKey: key,
         steps: ["Reading the diff"],
+        startedAt: 1000,
+        endedAt: 1000,
         notes: ["a note"],
       },
     ]);
@@ -83,6 +102,31 @@ describe("ReviewJobs", () => {
       submissions: 1,
       durationMs: 5,
     });
+  });
+
+  test("every change is announced: start, steps, end", async () => {
+    const { jobs, changes } = await setup();
+    jobs.start("octocat/hello-world#42");
+    await jobs.whenIdle();
+    expect(
+      changes.map((c) => `${c[0]!.state} ${c[0]!.phase ?? "-"} ${c[0]!.steps.length}`),
+    ).toEqual(["running github 0", "running reading 1", "done - 1"]);
+  });
+
+  test(`at most ${MAX_RUNNING} run at once by default; the rest wait in order`, async () => {
+    const held = heldRuns();
+    const { jobs } = await setup(held.run, { maxRunning: undefined });
+    for (const n of [1, 2, 3, 4]) jobs.start(`octocat/hello-world#${n}`);
+    await held.whenStarted("octocat/hello-world#2");
+    expect(jobs.jobs().map((j) => j.state)).toEqual(["running", "running", "queued", "queued"]);
+    await held.release("octocat/hello-world#2");
+    await held.whenStarted("octocat/hello-world#3");
+    expect(jobs.jobs().map((j) => j.state)).toEqual(["running", "failed", "running", "queued"]);
+    await held.release("octocat/hello-world#1");
+    await held.release("octocat/hello-world#3");
+    await held.release("octocat/hello-world#4");
+    await jobs.whenIdle();
+    expect(held.started).toEqual([1, 2, 3, 4].map((n) => `octocat/hello-world#${n}`));
   });
 
   test("several PRs run one after another, in start order", async () => {
@@ -140,7 +184,36 @@ describe("ReviewJobs", () => {
     });
     jobs.start("octocat/hello-world#42");
     await jobs.whenIdle();
-    expect(jobs.jobs()[0]).toMatchObject({ state: "failed", error: "Not signed in to GitHub." });
+    expect(jobs.jobs()[0]).toMatchObject({
+      state: "failed",
+      error: "Not signed in to GitHub.",
+      errorKind: "agent",
+    });
+  });
+
+  test("the error kind: GitHub, too large, or what the run said", async () => {
+    const opening = await setup(undefined, {
+      open: async (ref) => {
+        if (ref.number === 1) throw new Error("PR octocat/hello-world#1: not found.");
+        throw new PrTooLargeError("octocat/hello-world#2 is too large.");
+      },
+    });
+    opening.jobs.start("octocat/hello-world#1");
+    opening.jobs.start("octocat/hello-world#2");
+    await opening.jobs.whenIdle();
+    expect(opening.jobs.jobs().map((j) => j.errorKind)).toEqual(["github", "too-large"]);
+
+    const { jobs } = await setup(async () => ({
+      ...FAILED,
+      error: "Claude is not signed in.",
+      errorKind: "claude",
+    }));
+    jobs.start("octocat/hello-world#3");
+    await jobs.whenIdle();
+    expect(jobs.jobs()[0]).toMatchObject({
+      errorKind: "claude",
+      error: "Claude is not signed in.",
+    });
   });
 
   test("stop: a running job is stopped; a queued one leaves the queue", async () => {
@@ -150,10 +223,10 @@ describe("ReviewJobs", () => {
     const second = jobs.start("octocat/hello-world#2");
     const third = jobs.start("octocat/hello-world#3");
     const after = jobs.stop(second.id);
-    expect(after.map((j) => [j.state, j.error])).toEqual([
-      ["running", undefined],
-      ["failed", "Stopped."],
-      ["queued", undefined],
+    expect(after.map((j) => [j.state, j.error, j.errorKind])).toEqual([
+      ["running", undefined, undefined],
+      ["failed", "Stopped.", "stopped"],
+      ["queued", undefined, undefined],
     ]);
     await held.whenStarted("octocat/hello-world#1");
     jobs.stop(first.id);
@@ -177,7 +250,7 @@ describe("ReviewJobs", () => {
       (_s, _l, onProgress, signal) =>
         new Promise((resolve) => {
           // The agent has submitted; the run is still going when Stop comes.
-          onProgress("Review submitted");
+          onProgress({ phase: "checking", step: "Review submitted" });
           submitted();
           signal.addEventListener("abort", () =>
             resolve({ ok: true, review, warnings: [], submissions: 1, durationMs: 0 }),
