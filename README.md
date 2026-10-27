@@ -37,30 +37,29 @@ Review Buddy is a **Claude Code plugin**. It registers an MCP server (`review-bu
 
 ### Install
 
-The viewer ships **prebuilt** in the repo, so there's no build step on either path.
+The viewer and the plugin's MCP server + hook ship **prebuilt** in the repo (`apps/plugin/ui/dist/`, `apps/plugin/dist/`), so there's no build or install step on either path.
 
 #### Quick install (from GitHub)
 
-Claude Code can add the marketplace directly from GitHub — it clones the repo into its local plugin cache for you. No manual `git clone` and no `bun install` needed.
+Claude Code can add the marketplace directly from GitHub — it clones the repo into its local plugin cache for you. No manual `git clone` and no install step needed.
 
 ```text
 /plugin marketplace add ziedhajsalah/review-buddy
 /plugin install review-buddy@review-buddy
 ```
 
-[Bun](https://bun.sh) is still required — the plugin's MCP server and hook run on it. The cached copy has no `node_modules`; Bun auto-installs the two runtime dependencies (`@modelcontextprotocol/sdk`, `zod`) on first launch, so that first launch needs network access and may take a few extra seconds.
+[Bun](https://bun.sh) is still required — the plugin's MCP server and hook run on it. They are self-contained bundles with every dependency inlined, so nothing is downloaded on first launch.
 
 Restart Claude Code (or reload plugins) if prompted, so the MCP server and hook load.
 
 #### Install from a local clone
 
-For development, or if you'll also use the standalone harnesses (Cursor / Copilot / Codex — see below), clone the repo and install deps yourself:
+For development, or if you'll also use the standalone harnesses (Cursor / Copilot / Codex — see below), clone the repo yourself. No install step is needed to run the plugin (for development, see [Development](#development)):
 
 ```bash
-# 1. Clone and install the backend deps (for the MCP server + hook)
+# 1. Clone
 git clone https://github.com/ziedhajsalah/review-buddy
 cd review-buddy
-bun install
 ```
 
 ```text
@@ -86,7 +85,7 @@ The agent tells the hook what it reviewed (working tree vs PR) so the hook captu
 
 ### Other harnesses (Cursor / VS Code Copilot / Codex)
 
-There's no plugin or hook outside Claude Code — instead you register the same MCP server with the `--standalone` flag, and `submit_review` itself captures the diff and opens the viewer. The **Install from a local clone** path above is the one you need. Copy the MCP config and review prompt for your harness from [`integrations/`](integrations) and follow the per-harness steps in [`docs/HARNESSES.md`](docs/HARNESSES.md).
+There's no plugin or hook outside Claude Code — instead you register the same MCP server with the `--standalone` flag, and `submit_review` itself captures the diff and opens the viewer. The **Install from a local clone** path above is the one you need. Copy the MCP config and review prompt for your harness from [`apps/plugin/integrations/`](apps/plugin/integrations) and follow the per-harness steps in [`docs/HARNESSES.md`](docs/HARNESSES.md).
 
 ### Update / uninstall
 
@@ -97,6 +96,8 @@ There's no plugin or hook outside Claude Code — instead you register the same 
 
 GitHub-sourced installs refresh from GitHub directly. Path-sourced installs (local clone): `git pull` first.
 
+> **Path change after 0.4.0:** the plugin now lives in `apps/plugin/` (the marketplace points there, so marketplace installs pick it up on update). If you load the plugin with `--plugin-dir`, point it at `apps/plugin`. Cursor / Copilot / Codex configs must use `apps/plugin/dist/server.js` instead of `dist/server.js` or `src/mcp/server.ts`.
+
 ### Troubleshooting
 
 Hitting an install or runtime snag (e.g. a Windows `EPERM` on install, `bun: command not found`, the browser not opening)? See [`docs/TROUBLESHOOTING.md`](docs/TROUBLESHOOTING.md).
@@ -104,40 +105,49 @@ Hitting an install or runtime snag (e.g. a Windows `EPERM` on install, `bun: com
 ## Layout
 
 ```
-src/
-  mcp/server.ts      # MCP server exposing submit_review
-  cli/index.ts       # PreToolUse hook entry (open-review)
-  server/            # diff capture, chapter resolution, local HTTP server, browser open
-  ui/                # Vite + React 19 + Tailwind v4 viewer (@pierre/diffs)
-  types/review.ts    # shared agent + UI/server contracts
+.claude-plugin/marketplace.json  # marketplace; the plugin "source" is ./apps/plugin
+apps/plugin/         # the Claude Code plugin + standalone MCP server (self-contained)
+  .claude-plugin/    # plugin.json
+  hooks/ skills/     # PreToolUse wiring, the /review skill
+  src/mcp/server.ts  # MCP server exposing submit_review
+  src/cli/index.ts   # PreToolUse hook entry (open-review)
+  src/server/        # session lifecycle, local HTTP server, browser open
+  ui/                # Vite entry: mounts the viewer with the HTTP ReviewApi; committed build in ui/dist
+  dist/              # committed bundles: server.js, hook.js
+  integrations/      # Cursor / VS Code Copilot / Codex configs + review prompts
+  examples/hooks.json # example Claude Code plugin hook config
+packages/core/       # @review-buddy/core: contracts, diff parser, chapter resolution, validation, git capture (src/node)
+  schemas/           # review.schema.json = submit_review input schema
+packages/viewer/     # @review-buddy/viewer: <ReviewViewer api /> — React 19 + Tailwind v4 + @pierre/diffs, data via a ReviewApi
 docs/                # PRD, ARCHITECTURE, review-contract, build-plan, HARNESSES
-schemas/             # review.schema.json = submit_review input schema
-examples/hooks.json  # example Claude Code plugin hook config
-integrations/        # Cursor / VS Code Copilot / Codex configs + review prompts
 ```
 
 ## Development
 
-Backend runs on [Bun](https://bun.sh); the viewer is a separate Vite package.
+The repo is a [pnpm](https://pnpm.io) workspace: the plugin (`apps/plugin`: MCP server + hook, and `apps/plugin/ui`, the Vite entry that builds its viewer), the review UI (`packages/viewer`), and the shared review logic (`packages/core`). pnpm installs everything; [Bun](https://bun.sh) still runs the backend, the scripts, and the tests. Versions: pnpm from `package.json` `packageManager`, Bun from `.bun-version`.
 
-`bun run verify` is the fast local loop (tests + both typechecks); `bun run verify:ci` is the exact gate CI runs on every pull request and on pushes to `main`/`develop` (it adds the UI production build). Run `bun run verify:ci` before opening a PR. Note that `verify` assumes deps are already installed in both packages (run the `bun install` steps first).
+`pnpm verify` is the fast local loop (tests + typechecks); `pnpm verify:ci` is the exact gate CI runs on every pull request and on pushes to `main`/`develop` (it adds the UI and plugin builds, the committed-artifact freshness checks, and the plugin smoke test). Run `pnpm verify:ci` before opening a PR.
 
 ```bash
-bun run verify         # fast local loop: backend tests + backend & UI typechecks
-bun run verify:ci      # full gate CI runs: verify + UI production build
-bun install            # backend deps
-bun test               # backend tests
-bun run typecheck      # backend tsc
+pnpm install           # all workspace deps (backend + viewer), from pnpm-lock.yaml
+pnpm verify            # fast local loop: core + backend tests, all typechecks, viewer + UI tests
+pnpm verify:ci         # full gate CI runs: verify + builds + freshness + plugin smoke test
+pnpm test:core         # core tests
+pnpm typecheck:core    # core tsc (rejects Bun/Node/DOM APIs)
+pnpm test              # plugin backend tests
+pnpm typecheck         # plugin backend tsc
+pnpm test:viewer       # viewer tests (components, with a fake in-memory ReviewApi)
+pnpm test:ui           # plugin viewer entry tests (the HTTP ReviewApi)
 
-cd src/ui
-bun install
-bun run dev            # viewer dev server (proxies /api → 127.0.0.1:5199)
-bun run build          # typecheck + production build (writes the committed src/ui/dist)
+pnpm --filter review-buddy-ui dev     # viewer dev server (proxies /api → 127.0.0.1:5199)
+pnpm build:ui                         # typecheck + production build (writes the committed apps/plugin/ui/dist)
+pnpm build:plugin                     # bundle the MCP server + hook (writes the committed apps/plugin/dist)
+pnpm smoke:plugin                     # run apps/plugin alone, like an installed plugin: no node_modules, no auto-install
 ```
 
-Component stories live in `src/ui`. Run `cd src/ui && bun run storybook` for the dev catalog on port 6006, or `bun run build-storybook` for a static build.
+Component stories live in `packages/viewer` and use a fake in-memory `ReviewApi`. Run `pnpm --filter @review-buddy/viewer storybook` for the dev catalog on port 6006, or `pnpm --filter @review-buddy/viewer build-storybook` for a static build.
 
-> **Contributors:** `src/ui/dist` is a **committed** prebuilt artifact (so installs need no build). If you change viewer source, rebuild (`cd src/ui && bun run build`) and commit the updated `src/ui/dist` in the same PR — CI fails otherwise. The build is deterministic and grammar chunks are content-hashed, so a typical UI change only rewrites the small core chunk. Reviewers verify the CI freshness check rather than reviewing the artifact bytes.
+> **Contributors:** `apps/plugin/ui/dist` (viewer) and `apps/plugin/dist` (plugin bundles) are **committed** prebuilt artifacts (so installs need no build). If you change viewer source (`packages/viewer` or `apps/plugin/ui`), rebuild (`pnpm build:ui`); if you change plugin or `packages/core` source, rebuild (`pnpm build:plugin`); commit the updated artifacts in the same PR — CI fails otherwise. `pnpm smoke:plugin` runs the bundles from a `node_modules`-free copy with Bun auto-install disabled. The build is deterministic and grammar chunks are content-hashed, so a typical UI change only rewrites the small core chunk. Reviewers verify the CI freshness check rather than reviewing the artifact bytes.
 
 See `docs/build-plan.md` for the phased task breakdown and `docs/review-contract.md` for the agent vs UI/server contracts.
 

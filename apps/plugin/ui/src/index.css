@@ -1,0 +1,12 @@
+/* Scope Tailwind's content scanning to the plugin's viewer entry (this
+   directory) and the viewer package. Without `source(...)`, Tailwind v4
+   auto-detects content across the whole repo and leaks incidental utilities
+   from plain English in docs/README into the bundle — which makes the
+   committed `ui/dist` (plan 016) non-reproducible w.r.t. UI source. We do NOT
+   widen to `../` because that would scan the committed ui/dist and feed built
+   output back into the build. index.html is scanned explicitly in case a
+   utility class is ever added to it. */
+@import "tailwindcss" source(".");
+@import "@review-buddy/viewer/theme.css";
+@source "../index.html";
+@source "../../../../packages/viewer/src";

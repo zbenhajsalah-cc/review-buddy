@@ -1,0 +1,9 @@
+{
+  // Tests run on Bun (bun:test) and may use node:* to build fixtures.
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "types": ["bun-types"]
+  },
+  "include": ["src/**/*.ts"],
+  "exclude": []
+}

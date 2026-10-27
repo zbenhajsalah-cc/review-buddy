@@ -1,20 +1,39 @@
 /**
- * Generates the per-harness review prompts under integrations/ from the single
- * template (integrations/prompt-template.md). The variants differ only in:
- *  - frontmatter (VS Code prompt files require it),
- *  - how the review target reaches the agent (trailing text vs `$ARGUMENTS`),
- *  - the blocking-verdict section (Codex is the only harness that can run
- *    `--standalone=blocking`).
+ * Generates every review prompt from the single template
+ * (packages/core/prompts/review-template.md):
  *
- * Run `bun run gen:prompts` after editing the template (or the /review skill
- * it mirrors — see integrations/README.md); CI's verify:prompts-fresh fails if
- * the generated files drift from the template.
+ *  - the standalone MCP prompts under apps/plugin/integrations/ (Cursor,
+ *    VS Code Copilot, Codex), which differ only in frontmatter (VS Code prompt
+ *    files require it), how the review target reaches the agent (trailing
+ *    text vs `$ARGUMENTS`), and the blocking-verdict section (Codex is the
+ *    only harness that can run `--standalone=blocking`);
+ *  - the desktop app's system prompt (packages/core/prompts/review-desktop.md),
+ *    whose Step 0 is the `get_pr_diff` tool and whose submit has no `source`
+ *    or `cwd`.
+ *
+ * The template marks variant-only text with `{{#standalone}}…{{/standalone}}`
+ * and `{{#desktop}}…{{/desktop}}` blocks (tags on their own lines); Steps 1–3
+ * and the Critical rules are shared.
+ *
+ * Run `pnpm gen:prompts` after editing the template (or the /review skill it
+ * mirrors — see packages/core/prompts/README.md); CI's verify:prompts-fresh
+ * fails if the generated files drift from the template.
  */
 import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 const root = join(import.meta.dir, "..");
-const template = readFileSync(join(root, "integrations", "prompt-template.md"), "utf8");
+const template = readFileSync(join(root, "packages/core/prompts/review-template.md"), "utf8");
+
+type Kind = "standalone" | "desktop";
+
+/** Keep the `kind` blocks (without their tags), drop the other kind's blocks. */
+function selectBlocks(text: string, kind: Kind): string {
+  return text.replace(
+    /\{\{#(standalone|desktop)\}\}\n([\s\S]*?)\{\{\/\1\}\}\n?/g,
+    (_, block: Kind, body: string) => (block === kind ? body : ""),
+  );
+}
 
 const COPILOT_FRONTMATTER = `---
 mode: agent
@@ -44,29 +63,45 @@ requested edits, then call \`submit_review\` again with the same \`source\` and
 directly rather than looping.
 `;
 
-const variants = [
+const variants: {
+  out: string;
+  kind: Kind;
+  frontmatter: string;
+  target: string;
+  blocking: string;
+}[] = [
   {
-    out: "integrations/cursor/commands/review-buddy.md",
+    out: "apps/plugin/integrations/cursor/commands/review-buddy.md",
+    kind: "standalone",
     frontmatter: "",
     target: TRAILING_TEXT_TARGET,
     blocking: "",
   },
   {
-    out: "integrations/vscode-copilot/prompts/review-buddy.prompt.md",
+    out: "apps/plugin/integrations/vscode-copilot/prompts/review-buddy.prompt.md",
+    kind: "standalone",
     frontmatter: COPILOT_FRONTMATTER,
     target: TRAILING_TEXT_TARGET,
     blocking: "",
   },
   {
-    out: "integrations/codex/prompts/review-buddy.md",
+    out: "apps/plugin/integrations/codex/prompts/review-buddy.md",
+    kind: "standalone",
     frontmatter: "",
     target: ARGUMENTS_TARGET,
     blocking: CODEX_BLOCKING_SECTION,
   },
+  {
+    out: "packages/core/prompts/review-desktop.md",
+    kind: "desktop",
+    frontmatter: "",
+    target: "",
+    blocking: "",
+  },
 ];
 
 for (const v of variants) {
-  const content = template
+  const content = selectBlocks(template, v.kind)
     .replace("{{FRONTMATTER}}", v.frontmatter)
     .replace("{{TARGET_PARAGRAPH}}", v.target)
     .replace("{{BLOCKING_SECTION}}", v.blocking);

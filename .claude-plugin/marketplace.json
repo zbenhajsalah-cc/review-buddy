@@ -4,7 +4,7 @@
   "plugins": [
     {
       "name": "review-buddy",
-      "source": ".",
+      "source": "./apps/plugin",
       "description": "Narrative code review: Prologue + risk-rated Chapters over a real git diff, reviewed in the browser. Run /review."
     }
   ]

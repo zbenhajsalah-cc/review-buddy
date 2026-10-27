@@ -10,7 +10,7 @@
 # - reads the current version from package.json (the source of truth)
 # - computes the next version from a bump keyword (patch/minor/major) or an
 #   explicit X.Y.Z you pass in
-# - writes that version into all three version files
+# - writes that version into every version file
 # - verifies every file now agrees
 # - commits the bump on develop
 # - fast-forwards main to the release commit and tags it v<version> (annotated)
@@ -59,8 +59,11 @@ REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 # because it is the source of truth the current version is read from.
 VERSION_FILES=(
   "package.json"
-  ".claude-plugin/plugin.json"
-  "src/ui/package.json"
+  "apps/plugin/package.json"
+  "apps/plugin/.claude-plugin/plugin.json"
+  "apps/plugin/ui/package.json"
+  "packages/core/package.json"
+  "packages/viewer/package.json"
 )
 
 # Blockers are collected during preflight so a dry run can show them all at once.
@@ -309,7 +312,7 @@ main() {
   # -- Execute or preview ---------------------------------------------------
 
   if is_dry_run; then
-    step "Rebuild the committed viewer (src/ui/dist) and stage it with the release"
+    step "Rebuild the committed viewer (apps/plugin/ui/dist) and plugin bundles (apps/plugin/dist)"
     step "Write ${version} into ${VERSION_FILES[*]}"
     step "Verify every version file agrees"
     step "Commit on ${develop_branch}: chore(release): ${tag_name}"
@@ -324,14 +327,15 @@ main() {
       step "Skip GitHub Release (gh not installed or not authenticated)"
     fi
   else
-    # Rebuild the committed viewer so every release ships current bytes. The
-    # build is deterministic (content-hashed chunks), so this is a no-op stage
-    # when src/ui/dist is already fresh; when UI source moved ahead of the
-    # committed artifact, it brings dist up to date (plan 016). `bun` is only
-    # required for a real release, not for a dry-run preview.
-    require_command bun
-    (cd "$REPO_ROOT/src/ui" && bun install --frozen-lockfile) && bun run build:ui
-    step "Rebuild the committed viewer (src/ui/dist)"
+    # Rebuild the committed viewer and plugin bundles so every release ships
+    # current bytes. Both builds are deterministic, so this is a no-op stage
+    # when apps/plugin/ui/dist and apps/plugin/dist are already fresh; when
+    # source moved ahead of the committed artifacts, it brings them up to date
+    # (plan 016, US-04).
+    # `pnpm` is only required for a real release, not for a dry-run preview.
+    require_command pnpm
+    (cd "$REPO_ROOT" && pnpm install --frozen-lockfile && pnpm build:ui && pnpm build:plugin)
+    step "Rebuild the committed viewer (apps/plugin/ui/dist) and plugin bundles (apps/plugin/dist)"
 
     for f in "${VERSION_FILES[@]}"; do
       write_version_to "$f" "$version"
@@ -344,7 +348,7 @@ main() {
     done
     step "Verify every version file agrees"
 
-    git add "${VERSION_FILES[@]}" src/ui/dist
+    git add "${VERSION_FILES[@]}" apps/plugin/ui/dist apps/plugin/dist
     if git diff --cached --quiet; then
       log_error "No staged changes — files may already be at $version"
       exit 1

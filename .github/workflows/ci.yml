@@ -10,13 +10,20 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      # Bun runs the plugin, the scripts and the tests. Its version lives in
+      # .bun-version (package.json "packageManager" names pnpm).
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
-      - name: Install (backend)
-        run: bun install --frozen-lockfile
-      - name: Install (UI)
-        run: bun install --frozen-lockfile --cwd src/ui
+        with:
+          bun-version-file: .bun-version
+      # pnpm owns installs + workspaces; the exact version comes from
+      # package.json "packageManager".
+      - name: Install pnpm
+        run: npm install -g "$(node -p 'require("./package.json").packageManager')"
+      - name: Install
+        run: pnpm install --frozen-lockfile
       # verify:ci ends with verify:dist-fresh: after build:ui rebuilds the
-      # committed viewer (plan 016), it fails if src/ui/dist drifted from git —
-      # i.e. a PR changed UI source without committing the rebuilt artifact.
+      # committed viewer (plan 016) and build:plugin the plugin bundles (US-04),
+      # it fails if apps/plugin/ui/dist or apps/plugin/dist drifted from git —
+      # i.e. a PR changed source without committing the rebuilt artifact.
       - name: Verify (tests + typechecks + UI build + committed-viewer freshness)
-        run: bun run verify:ci
+        run: pnpm verify:ci

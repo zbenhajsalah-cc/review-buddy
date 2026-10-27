@@ -11,11 +11,10 @@
       "**",
       "!!docs/**/*.html",
       "!!**/node_modules",
-      "!!src/ui/dist",
+      "!!apps/plugin/ui/dist",
+      "!!apps/plugin/dist",
       "!!storybook-static",
-      "!!**/*.tsbuildinfo",
-      "!!bun.lock",
-      "!!src/ui/bun.lock"
+      "!!**/*.tsbuildinfo"
     ]
   },
   "formatter": {

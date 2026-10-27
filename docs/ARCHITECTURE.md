@@ -69,7 +69,7 @@ The structuring prompt's original output format had the agent transcribe diff li
 
 - Plugin `hooks.json` registers a **`PreToolUse`** hook. A plugin-bundled MCP server names its tools `mcp__plugin_<plugin>_<server>__<tool>`, so the real tool name is `mcp__plugin_review-buddy_review-buddy__submit_review` (a user-configured `.mcp.json` server would instead use `mcp__review-buddy__submit_review`). The matcher is an alternation covering both forms. See `examples/hooks.json` and [the MCP docs](https://code.claude.com/docs/en/mcp#plugin-provided-mcp-servers).
 - The hook command receives the tool call on stdin: `{ tool_name, tool_input: <review JSON>, cwd, session_id, transcript_path, permission_mode }`.
-- **The hook re-captures the diff (source B) — and must capture the SAME one the agent reviewed.** It never sees `/review`'s arguments, so the agent's payload carries a `source`: `worktree` (default → `git diff HEAD`), `pr` → `gh pr diff <ref>`, or `branch` → `git diff <ref>`. Without this a PR review would re-run the local `git diff HEAD` (usually empty, since the PR branch isn't checked out) and the viewer would render zero hunks. See `captureForSource` in `src/server/session.ts`.
+- **The hook re-captures the diff (source B) — and must capture the SAME one the agent reviewed.** It never sees `/review`'s arguments, so the agent's payload carries a `source`: `worktree` (default → `git diff HEAD`), `pr` → `gh pr diff <ref>`, or `branch` → `git diff <ref>`. Without this a PR review would re-run the local `git diff HEAD` (usually empty, since the PR branch isn't checked out) and the viewer would render zero hunks. See `localGitSource` in `packages/core/src/node/local-source.ts` (an implementation of the `ReviewDataSource` interface, `packages/core/src/source.ts`).
 - It reads files on demand (C), starts the server, opens the browser, and **blocks** until `/api/done` (long timeout, e.g. `345600`).
 - **Phase 1 return:** `{ hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "allow" } }` (the review was informational; let the agent proceed).
 - **Later (round-trip):** return `permissionDecision: "deny"` with the human's annotations as `permissionDecisionReason`, so the agent acts on the feedback.
@@ -78,7 +78,7 @@ Why `PreToolUse` over `PermissionRequest`: `PreToolUse` always fires; `Permissio
 
 ## Validation strategy
 
-Define the `submit_review` MCP tool's `inputSchema` = `schemas/review.schema.json`. Claude Code validates the tool call against it and makes the model retry on mismatch — so malformed/truncated review JSON is caught before the hook ever runs. This is a concrete advantage of the tool-call transport over file/stdout.
+Define the `submit_review` MCP tool's `inputSchema` = `packages/core/schemas/review.schema.json`. Claude Code validates the tool call against it and makes the model retry on mismatch — so malformed/truncated review JSON is caught before the hook ever runs. This is a concrete advantage of the tool-call transport over file/stdout.
 
 ## Diff & rendering notes
 
@@ -86,7 +86,7 @@ Define the `submit_review` MCP tool's `inputSchema` = `schemas/review.schema.jso
 - **Word-level:** intra-line highlights are computed client-side by `@pierre/diffs`. Never expect this from the agent.
 - **Collapse / expand:** the diff view shows changed hunks + a few context lines by default; "N unmodified lines" expanders and "expand full file" call `/api/file-content`.
 - **Syntax highlighting:** derive language from the file extension (`path`); highlight client-side with Shiki (`shiki-js`, via `@pierre/diffs`).
-- **Distribution:** the viewer is **prebuilt and committed** to `src/ui/dist/` (served by the hook's `uiDir()`), so `/plugin install` needs no build step. Shipped as the multi-file build (not single-file) because Shiki's grammars are ~9.9 MB of lazy chunks and the server already serves `assets/*`; kept reproducible + fresh by `verify:dist-fresh`. See [`DESIGN-prebuilt-distribution.md`](./DESIGN-prebuilt-distribution.md).
+- **Distribution:** the viewer is **prebuilt and committed** to `apps/plugin/ui/dist/` (served by the hook's `uiDir()`), so `/plugin install` needs no build step. Shipped as the multi-file build (not single-file) because Shiki's grammars are ~9.9 MB of lazy chunks and the server already serves `assets/*`; kept reproducible + fresh by `verify:dist-fresh`. See [`DESIGN-prebuilt-distribution.md`](./DESIGN-prebuilt-distribution.md).
 - **Multi-chapter files:** viewed-state is keyed by `(chapterIndex, path)`, so the same file can appear in multiple chapters with independent viewed flags (shipped in the viewer's client-side state).
 
 ## Client-side state (source D)

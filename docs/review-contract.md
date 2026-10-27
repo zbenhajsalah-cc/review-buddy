@@ -2,10 +2,10 @@
 
 Two distinct shapes. Don't conflate them.
 
-1. **Agent contract** — what the agent emits via `submit_review`. Narrative + grouping + hunk *anchors*. Validated by `schemas/review.schema.json`. No diff line content.
+1. **Agent contract** — what the agent emits via `submit_review`. Narrative + grouping + hunk *anchors*. Validated by `packages/core/schemas/review.schema.json`. No diff line content.
 2. **UI/server contract** — what `GET /api/review` returns to the React app. The agent JSON **merged** with the real diff (B), full-file capability (C), PR metadata, server `meta`, and tool-computed stats. Hunks here are **resolved** (real line content attached).
 
-Types for both live in `src/types/review.ts`.
+Types for both live in `packages/core/src/types.ts`.
 
 ---
 

@@ -61,35 +61,41 @@ purpose.
 ## Prerequisites (all harnesses)
 
 - [Bun](https://bun.sh) ≥ 1.3 on your PATH (runs the MCP server and viewer).
-- A clone of this repo with backend deps installed: `bun install` (the viewer
-  ships prebuilt in `src/ui/dist/`, so there is no build step).
+- A clone of this repo. Nothing to install or build: the MCP server ships
+  prebuilt as `apps/plugin/dist/server.js` (all dependencies inlined) and the
+  viewer as `apps/plugin/ui/dist/`. Older configs point at `dist/server.js` or
+  `src/mcp/server.ts` at the repo root; those paths no longer exist since the
+  plugin moved to `apps/plugin/`, so update them to
+  `apps/plugin/dist/server.js`.
 - `gh` CLI authenticated if you want PR reviews (`source.type = "pr"`).
 
 ## Cursor
 
-1. Merge `integrations/cursor/mcp.json` into `.cursor/mcp.json` (project) or
-   `~/.cursor/mcp.json` (global), fixing the absolute path.
-2. Copy `integrations/cursor/commands/review-buddy.md` into `.cursor/commands/`
-   (project) or `~/.cursor/commands/` (global).
+1. Merge `apps/plugin/integrations/cursor/mcp.json` into `.cursor/mcp.json`
+   (project) or `~/.cursor/mcp.json` (global), fixing the absolute path.
+2. Copy `apps/plugin/integrations/cursor/commands/review-buddy.md` into
+   `.cursor/commands/` (project) or `~/.cursor/commands/` (global).
 3. In chat: `/review-buddy` (optionally followed by a PR number/URL or base ref).
 
 ## VS Code + GitHub Copilot (agent mode)
 
-1. Save `integrations/vscode-copilot/mcp.json` as `.vscode/mcp.json`, fixing the
-   absolute path. `REVIEW_BUDDY_CWD: "${workspaceFolder}"` makes the repo
-   location robust even if the model omits `cwd`.
-2. Copy `integrations/vscode-copilot/prompts/review-buddy.prompt.md` into
-   `.github/prompts/`.
+1. Save `apps/plugin/integrations/vscode-copilot/mcp.json` as
+   `.vscode/mcp.json`, fixing the absolute path.
+   `REVIEW_BUDDY_CWD: "${workspaceFolder}"` makes the repo location robust even
+   if the model omits `cwd`.
+2. Copy `apps/plugin/integrations/vscode-copilot/prompts/review-buddy.prompt.md`
+   into `.github/prompts/`.
 3. In Copilot Chat (agent mode): `/review-buddy`. Note: prompt files work in
    VS Code / Visual Studio / JetBrains — the Copilot CLI doesn't support custom
    slash commands yet.
 
 ## Codex (CLI / IDE extension)
 
-1. Merge `integrations/codex/config.toml` into `~/.codex/config.toml`, fixing
-   the absolute path. For verdict round-trip, use the `blocking` variant in
-   that file's comments.
-2. Copy `integrations/codex/prompts/review-buddy.md` into `~/.codex/prompts/`.
+1. Merge `apps/plugin/integrations/codex/config.toml` into
+   `~/.codex/config.toml`, fixing the absolute path. For verdict round-trip,
+   use the `blocking` variant in that file's comments.
+2. Copy `apps/plugin/integrations/codex/prompts/review-buddy.md` into
+   `~/.codex/prompts/`.
 3. In Codex: `/review-buddy` (arguments become `$ARGUMENTS`).
 
 ## How the pieces map
@@ -104,7 +110,7 @@ purpose.
 Two behavioral differences vs Claude Code to be aware of:
 
 - **Schema enforcement**: Claude Code validates the tool input against
-  `schemas/review.schema.json` before the call; other harnesses may not, so the
+  `packages/core/schemas/review.schema.json` before the call; other harnesses may not, so the
   standalone handler validates itself and returns the reason as a tool error
   for the model to fix and retry.
 - **Turn semantics**: in detached mode the agent's turn continues immediately —

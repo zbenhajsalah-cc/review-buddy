@@ -1,0 +1,9 @@
+{
+  "_comment": "Merge into .cursor/mcp.json (project) or ~/.cursor/mcp.json (global). Replace /ABSOLUTE/PATH/TO with where you cloned review-buddy. --standalone = detached: submit_review returns the URL immediately (Cursor cancels MCP calls after ~5 minutes, so the tool must not block on the human review).",
+  "mcpServers": {
+    "review-buddy": {
+      "command": "bun",
+      "args": ["run", "/ABSOLUTE/PATH/TO/review-buddy/apps/plugin/dist/server.js", "--standalone"]
+    }
+  }
+}

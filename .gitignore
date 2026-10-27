@@ -13,5 +13,11 @@ storybook-static
 # rule above. Rebuilt by CI + scripts/release.sh; grammar chunks are
 # content-hashed and stable, so a UI-source change only rewrites the small core
 # chunk, not the ~300 syntax grammars. Treated as generated in .gitattributes.
-!src/ui/dist/
-!src/ui/dist/**
+!/apps/plugin/ui/dist/
+!/apps/plugin/ui/dist/**
+
+# Prebuilt plugin bundles (dist/server.js, dist/hook.js) — committed for the
+# same reason: an installed plugin runs them directly, with no node_modules and
+# no build (US-04). Rebuilt by `pnpm build:plugin`; checked by verify:dist-fresh.
+!/apps/plugin/dist/
+!/apps/plugin/dist/**
