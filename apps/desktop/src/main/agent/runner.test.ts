@@ -6,10 +6,11 @@ import type {
 } from "@anthropic-ai/claude-agent-sdk";
 import { fixtureSource } from "../fixture/index.ts";
 import fixture from "../fixture/review.json" with { type: "json" };
+import { PrTooLargeError } from "../github/api-source.ts";
 import type { QueryFn } from "./check.ts";
 import { connectMcp } from "./mcp-test-client.ts";
 import { ALLOWED_TOOLS } from "./review-tools.ts";
-import { runReview } from "./runner.ts";
+import { chapterTitles, runReview } from "./runner.ts";
 
 type Call = (name: string, args?: Record<string, unknown>) => Promise<string>;
 
@@ -20,6 +21,8 @@ type Call = (name: string, args?: Record<string, unknown>) => Promise<string>;
 function fakeQuery(
   agent: (call: Call) => Promise<void>,
   end: Record<string, unknown> = { subtype: "success", is_error: false, result: "Done." },
+  /** Messages sent after init, before the agent calls tools (stream events, …). */
+  before: Record<string, unknown>[] = [],
 ) {
   const seen: { prompt?: string; options?: Options } = {};
   const query: QueryFn = ({ prompt, options }) => {
@@ -27,6 +30,7 @@ function fakeQuery(
     seen.options = options;
     async function* messages() {
       yield { type: "system", subtype: "init", model: "test-model" };
+      yield* before;
       const client = await connectMcp(
         options!.mcpServers!["review-buddy"] as McpSdkServerConfigWithInstance,
       );
@@ -65,6 +69,7 @@ describe("runReview", () => {
     expect(o.strictMcpConfig).toBe(true);
     expect(Object.keys(o.mcpServers!)).toEqual(["review-buddy"]);
     expect(o.persistSession).toBe(false);
+    expect(o.includePartialMessages).toBe(true);
     expect(o.pathToClaudeCodeExecutable).toBe("/fake/claude");
     expect(o.env?.CLAUDE_AGENT_SDK_CLIENT_APP).toBe("review-buddy-desktop/test");
   });
@@ -80,7 +85,7 @@ describe("runReview", () => {
     const result = await runReview(query, {
       ...base,
       source: fixtureSource(),
-      onProgress: (s) => steps.push(s),
+      onProgress: ({ phase, step }) => steps.push(`${phase}: ${step}`),
     });
     expect(diffText).toEndWith(fixture.diff);
     expect(result).toMatchObject({
@@ -95,13 +100,15 @@ describe("runReview", () => {
     expect(result.review!.meta.generatedBy).toBe("test-model");
     expect(result.review!.chapters[0]!.title).toBe(fixture.agent.chapters[0]!.title);
     expect(steps).toEqual([
-      "Loading octocat/hello-world#42 from GitHub",
-      "Starting Claude",
-      "Claude is reading the PR (test-model)",
-      "Reading the diff",
-      "Reading src/retry.ts",
-      "Review submitted",
+      "github: Loading octocat/hello-world#42 from GitHub",
+      "reading: Starting Claude",
+      "reading: Claude is reading the PR (test-model)",
+      "reading: Reading the diff",
+      "reading: Reading src/retry.ts",
+      "checking: Checking the chapters against the diff",
+      "checking: Review submitted",
     ]);
+    expect(result.errorKind).toBeUndefined();
   });
 
   test("the last submission is shown, with its notes", async () => {
@@ -137,6 +144,7 @@ describe("runReview", () => {
     expect(none).toMatchObject({
       ok: false,
       error: "Claude finished without submitting a review.",
+      errorKind: "agent",
     });
 
     const login = await runReview(
@@ -147,7 +155,90 @@ describe("runReview", () => {
       }).query,
       { ...base, source: fixtureSource() },
     );
-    expect(login).toMatchObject({ ok: false, error: "Not logged in · Please run /login" });
+    expect(login).toMatchObject({
+      ok: false,
+      error: "Not logged in · Please run /login",
+      errorKind: "claude",
+    });
+
+    const turns = await runReview(
+      fakeQuery(async () => {}, {
+        subtype: "error_max_turns",
+        errors: ["Reached maximum number of turns (40)"],
+      }).query,
+      { ...base, source: fixtureSource() },
+    );
+    expect(turns).toMatchObject({ ok: false, errorKind: "agent" });
+  });
+
+  test("an error code from Claude is said in words", async () => {
+    const result = await runReview(
+      fakeQuery(
+        async () => {},
+        { subtype: "success", is_error: true, result: "API Error: 429 rate limited" },
+        [{ type: "assistant", error: "rate_limit", message: { content: [] } }],
+      ).query,
+      { ...base, source: fixtureSource() },
+    );
+    expect(result).toMatchObject({
+      ok: false,
+      errorKind: "claude",
+      error: "Claude's usage limit is reached. Try again later.\nAPI Error: 429 rate limited",
+    });
+  });
+
+  test("Claude Code that cannot start is a Claude error", async () => {
+    const query: QueryFn = () => {
+      throw new Error("spawn /fake/claude ENOENT");
+    };
+    const result = await runReview(query, { ...base, source: fixtureSource() });
+    expect(result).toMatchObject({ errorKind: "claude", error: "spawn /fake/claude ENOENT" });
+  });
+
+  test("the review is seen while it is written, chapter by chapter", async () => {
+    const steps: string[] = [];
+    const json = JSON.stringify(fixture.agent);
+    const cut = (n: number) => json.slice((json.length * n) / 4, (json.length * (n + 1)) / 4);
+    const delta = (text: string) => ({
+      type: "stream_event",
+      event: {
+        type: "content_block_delta",
+        index: 1,
+        delta: { type: "input_json_delta", partial_json: text },
+      },
+    });
+    const { query } = fakeQuery(
+      async (call) => {
+        await call("submit_review", fixture.agent);
+      },
+      undefined,
+      [
+        { type: "stream_event", event: { type: "message_start" } },
+        {
+          type: "stream_event",
+          event: { type: "content_block_start", index: 0, content_block: { type: "text" } },
+        },
+        {
+          type: "stream_event",
+          event: {
+            type: "content_block_start",
+            index: 1,
+            content_block: { type: "tool_use", name: "mcp__review-buddy__submit_review" },
+          },
+        },
+        ...[0, 1, 2, 3].map((n) => delta(cut(n))),
+        { type: "stream_event", event: { type: "content_block_stop", index: 1 } },
+      ],
+    );
+    await runReview(query, {
+      ...base,
+      source: fixtureSource(),
+      onProgress: ({ phase, step }) => steps.push(`${phase}: ${step}`),
+    });
+    expect(steps.filter((s) => s.startsWith("writing"))).toEqual([
+      "writing: Claude is writing the review",
+      ...fixture.agent.chapters.map((c, i) => `writing: Writing chapter ${i + 1}: ${c.title}`),
+    ]);
   });
 
   test("a PR that cannot be read fails before Claude starts", async () => {
@@ -159,7 +250,7 @@ describe("runReview", () => {
     const source = {
       ...fixtureSource(),
       diff: async () => {
-        throw new Error("octocat/hello-world#42 is too large for GitHub's diff API");
+        throw new PrTooLargeError("octocat/hello-world#42 is too large for GitHub's diff API");
       },
     };
     const result = await runReview(query, { ...base, source });
@@ -167,6 +258,21 @@ describe("runReview", () => {
     expect(result).toMatchObject({
       ok: false,
       error: "octocat/hello-world#42 is too large for GitHub's diff API",
+      errorKind: "too-large",
+    });
+
+    const offline = await runReview(query, {
+      ...base,
+      source: {
+        ...fixtureSource(),
+        pr: async () => {
+          throw new Error("Could not reach GitHub (offline).");
+        },
+      },
+    });
+    expect(offline).toMatchObject({
+      errorKind: "github",
+      error: "Could not reach GitHub (offline).",
     });
   });
 
@@ -185,6 +291,20 @@ describe("runReview", () => {
       source: fixtureSource(),
       signal: stop.signal,
     });
-    expect(result).toMatchObject({ ok: false, error: "stopped" });
+    expect(result).toMatchObject({ ok: false, error: "stopped", errorKind: "stopped" });
   });
+});
+
+test("chapterTitles reads the titles complete so far", () => {
+  const json = JSON.stringify({
+    prologue: { why: 'A "title": "not this one"' },
+    chapters: [
+      { index: 1, title: 'Retry "backoff"', files: [] },
+      { index: 2, title: "Greeting" },
+    ],
+  });
+  expect(chapterTitles(json)).toEqual(['Retry "backoff"', "Greeting"]);
+  // Cut inside the second title: only the first is complete.
+  expect(chapterTitles(json.slice(0, json.indexOf("Greeting") + 3))).toEqual(['Retry "backoff"']);
+  expect(chapterTitles("")).toEqual([]);
 });

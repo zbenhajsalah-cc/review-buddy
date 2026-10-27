@@ -31,6 +31,13 @@ export interface ReviewApi {
   getConfig(): Promise<{ roundtrip: boolean }>;
   /** The reviewer is finished (Done, or a verdict when round-trip is on). */
   done(result: DoneResult): Promise<void>;
+  /**
+   * What the viewer does after `done`. "close" (the default, the plugin): the
+   * review is over, so its viewed / collapsed state is cleared and the viewer
+   * says it was submitted. "keep" (the desktop app, which keeps reviews): the
+   * state stays and the review stays open, with the Done button showing it.
+   */
+  afterDone?: "close" | "keep";
 }
 
 const ReviewApiContext = createContext<ReviewApi | null>(null);

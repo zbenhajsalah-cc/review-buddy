@@ -2,7 +2,7 @@
 import { afterEach, expect, mock, test } from "bun:test";
 import { act, cleanup, fireEvent, screen } from "@testing-library/react";
 import { renderWithApi } from "../../test/render.tsx";
-import { fakeResolvedReview } from "../stories/fixtures.ts";
+import { fakeResolvedReview, fakeReviewApi } from "../stories/fixtures.ts";
 
 mock.module("@pierre/diffs/react", () => ({
   PatchDiff: () => <div data-testid="patch-diff" />,
@@ -214,4 +214,47 @@ test("typing c inside the filter input does not copy", async () => {
   });
 
   expect(writeText).toHaveBeenCalledTimes(0);
+});
+
+test("Done (default): the review's viewed state is cleared and the viewer says submitted", async () => {
+  const done = mock(async () => {});
+  renderWithApi(
+    <ChapterReview
+      review={fakeResolvedReview}
+      position={0}
+      onNavigate={() => {}}
+      onExit={() => {}}
+    />,
+    fakeReviewApi({ overrides: { done } }),
+  );
+  fireEvent.click(screen.getByLabelText("viewed"));
+  expect(localStorage.getItem(VIEWED_KEY)).not.toBeNull();
+  await act(async () => {
+    fireEvent.click(screen.getByRole("button", { name: "Done" }));
+  });
+  expect(done).toHaveBeenCalledTimes(1);
+  expect(localStorage.getItem(VIEWED_KEY)).toBeNull();
+  expect(screen.getByText("Review submitted — you can close this tab.")).toBeTruthy();
+});
+
+test('Done with afterDone "keep": the state stays and the review stays open', async () => {
+  const done = mock(async () => {});
+  renderWithApi(
+    <ChapterReview
+      review={fakeResolvedReview}
+      position={0}
+      onNavigate={() => {}}
+      onExit={() => {}}
+    />,
+    fakeReviewApi({ overrides: { done, afterDone: "keep" } }),
+  );
+  fireEvent.click(screen.getByLabelText("viewed"));
+  await act(async () => {
+    fireEvent.click(screen.getByRole("button", { name: "Done" }));
+  });
+  expect(done).toHaveBeenCalledTimes(1);
+  expect(JSON.parse(localStorage.getItem(VIEWED_KEY)!)).toHaveLength(1);
+  expect(screen.queryByText(/Review submitted/)).toBeNull();
+  const button = screen.getByRole("button", { name: "Done ✓" }) as HTMLButtonElement;
+  expect(button.disabled).toBe(true);
 });

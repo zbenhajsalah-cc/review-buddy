@@ -21,11 +21,19 @@ export function ChapterReview({
   position,
   onNavigate,
   onExit,
+  markedDone,
+  onMarkedDone,
 }: {
   review: ResolvedReview;
   position: number;
   onNavigate: (position: number) => void;
   onExit: () => void;
+  /**
+   * afterDone "keep": the review was marked done. Kept by the parent, so it
+   * outlives this chapter (back to the overview, another chapter).
+   */
+  markedDone?: boolean;
+  onMarkedDone?: () => void;
 }) {
   const chapter = review.chapters[position];
   if (!chapter) {
@@ -38,6 +46,8 @@ export function ChapterReview({
       onNavigate={onNavigate}
       onExit={onExit}
       chapter={chapter}
+      markedDone={markedDone}
+      onMarkedDone={onMarkedDone}
     />
   );
 }
@@ -48,12 +58,16 @@ function ChapterReviewBody({
   onNavigate,
   onExit,
   chapter,
+  markedDone: parentDone = false,
+  onMarkedDone,
 }: {
   review: ResolvedReview;
   position: number;
   onNavigate: (position: number) => void;
   onExit: () => void;
   chapter: ResolvedChapter;
+  markedDone?: boolean;
+  onMarkedDone?: () => void;
 }) {
   const [settings, updateSettings] = useDisplaySettings();
   const chapters = review.chapters;
@@ -74,6 +88,9 @@ function ChapterReviewBody({
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [submitted, setSubmitted] = useState(false);
+  // afterDone "keep": done, but the review stays open (desktop).
+  const [doneHere, setDoneHere] = useState(false);
+  const markedDone = parentDone || doneHere;
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [roundtrip, setRoundtrip] = useState(false);
   const [requesting, setRequesting] = useState(false); // textarea open
@@ -140,8 +157,13 @@ function ChapterReviewBody({
     setSubmitError(null);
     try {
       await api.done(result);
-      clearReviewFileState(api.reviewKey);
-      setSubmitted(true);
+      if (api.afterDone === "keep") {
+        setDoneHere(true);
+        onMarkedDone?.();
+      } else {
+        clearReviewFileState(api.reviewKey);
+        setSubmitted(true);
+      }
     } catch (e) {
       setSubmitError(String(e));
     } finally {
@@ -220,8 +242,8 @@ function ChapterReviewBody({
                 Request changes
               </Button>
             )}
-            <Button size="sm" onClick={done} disabled={submitting}>
-              {submitting ? "Submitting…" : "Done"}
+            <Button size="sm" onClick={done} disabled={submitting || markedDone}>
+              {submitting ? "Submitting…" : markedDone ? "Done ✓" : "Done"}
             </Button>
           </div>
           {roundtrip && requesting && (

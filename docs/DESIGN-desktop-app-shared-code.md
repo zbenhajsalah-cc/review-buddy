@@ -121,6 +121,8 @@ interface ReviewApi {
   getFileContent(path: string, side: "base" | "head"): Promise<FileContent>;
   getConfig(): Promise<{ roundtrip: boolean }>;
   done(result: DoneResult): Promise<void>;
+  /** US-17: "close" (default, plugin) clears viewed state after Done; "keep" (desktop) keeps it. */
+  afterDone?: "close" | "keep";
 }
 ```
 
@@ -179,10 +181,18 @@ The template moves to `packages/core/prompts/`.
   one. A large diff comes in parts that join back to the exact string.
 - **Jobs:** a review takes minutes. Run it in main, stream progress to the
   renderer, allow cancel. US-12: one run at a time in main; the renderer polls
-  its status (steps so far) and can stop it.
+  its status (steps so far) and can stop it. US-14: a queue of jobs, run one
+  after another (several PRs at once from the PR list); the renderer polls
+  the job list and follows one job. US-15: two jobs run at once; main pushes
+  the job list on every change (no polling); each step has a phase (GitHub,
+  reading, writing — seen live from Claude's streamed output — checking);
+  failures have a kind (GitHub, too large, Claude, agent, stopped) and a
+  retry.
 - **Cache:** keep `ResolvedReview` per `owner/repo#n@headSha` in the app data
   folder, so reopening a PR does not re-run the agent. Re-run when the head SHA
-  changes.
+  changes. US-16: one file per PR head (`<userData>/reviews`), with
+  the SHAs and the diff's file list, so "expand full file" works after a
+  restart; an outdated review is shown with a "Review again" bar.
 
 ## 5. pnpm monorepo
 

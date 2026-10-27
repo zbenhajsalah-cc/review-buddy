@@ -19,6 +19,7 @@ import reviewSchema from "@review-buddy/core/review.schema.json" with { type: "j
 import type { AgentReview, PrMetadata, ResolvedReview } from "@review-buddy/core/types";
 import { validateAgentReview } from "@review-buddy/core/validate";
 import { z } from "zod";
+import type { ReviewPhase } from "../../shared/ipc.ts";
 
 export const SERVER_NAME = "review-buddy";
 export const TOOL_NAMES = ["get_pr_diff", "read_file", "submit_review"] as const;
@@ -122,8 +123,14 @@ export interface ReviewToolsInput {
   fileContent(path: string, side: "base" | "head"): Promise<string>;
   /** The model name for the review's meta. */
   generatedBy(): string;
-  /** A short line for the app's progress view. */
-  onProgress?(step: string): void;
+  /** A short line for the app's progress view, with the phase it belongs to. */
+  onProgress?(progress: ReviewProgress): void;
+}
+
+/** One progress event: a short line, and the phase it belongs to. */
+export interface ReviewProgress {
+  phase: ReviewPhase;
+  step: string;
 }
 
 export interface Submission {
@@ -158,11 +165,13 @@ export function createReviewTools(input: ReviewToolsInput): ReviewTools {
     { part: z.number().int().min(1).optional().describe("Which part (default 1).") },
     async ({ part = 1 }) => {
       if (part > parts.length) return err(`There are only ${parts.length} part(s).`);
-      progress(
-        parts.length > 1
-          ? `Reading the diff (part ${part} of ${parts.length})`
-          : "Reading the diff",
-      );
+      progress({
+        phase: "reading",
+        step:
+          parts.length > 1
+            ? `Reading the diff (part ${part} of ${parts.length})`
+            : "Reading the diff",
+      });
       const lines: string[] = [];
       if (part === 1) {
         lines.push(
@@ -200,7 +209,10 @@ export function createReviewTools(input: ReviewToolsInput): ReviewTools {
       if (!paths.has(path)) {
         return err(`${path} is not a file in this PR's diff; read_file reads only those.`);
       }
-      progress(`Reading ${path}${side === "base" ? " (before the PR)" : ""}`);
+      progress({
+        phase: "reading",
+        step: `Reading ${path}${side === "base" ? " (before the PR)" : ""}`,
+      });
       let text: string;
       try {
         text = await input.fileContent(path, side);
@@ -253,6 +265,7 @@ export function createReviewTools(input: ReviewToolsInput): ReviewTools {
       const invalid = validateAgentReview(args);
       if (invalid) return err(`Invalid review payload — fix and resubmit: ${invalid}`);
       resolved++;
+      progress({ phase: "checking", step: "Checking the chapters against the diff" });
       const { review, warnings } = resolveReview(
         args as unknown as AgentReview,
         diff,
@@ -260,11 +273,12 @@ export function createReviewTools(input: ReviewToolsInput): ReviewTools {
         pr,
       );
       latest = { review, warnings, number: resolved };
-      progress(
-        warnings.length
+      progress({
+        phase: "checking",
+        step: warnings.length
           ? `Review submitted with ${warnings.length} resolution note(s)`
           : "Review submitted",
-      );
+      });
       const notes = resolutionNotesMessage(warnings);
       if (!notes) {
         return ok(

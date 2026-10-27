@@ -1,12 +1,20 @@
-# Packaging (US-09 checks the Agent SDK in a packaged app; US-18 finishes it).
-# `pnpm --filter desktop package` builds an unpacked app into release/.
+# Packaging (US-09 checked the Agent SDK in a packaged app; US-18 makes it an
+# installable app). Build on the OS you install on: the Claude Code binary
+# comes from the SDK's package for that OS and CPU only.
+#   pnpm --filter desktop dist      installer for this OS in release/
+#   pnpm --filter desktop package   unpacked app only (quick checks)
 appId: dev.review-buddy.desktop
 productName: Review Buddy
 executableName: review-buddy
+# No spaces in file names: review-buddy-0.4.0-x86_64.AppImage, …-arm64.dmg, …
+artifactName: review-buddy-${version}-${arch}.${ext}
 # No auto-update feed (personal use).
 publish: null
 directories:
   output: release
+  # icon.png (1024 px, rendered from icon.svg); electron-builder makes the
+  # .icns and .ico from it.
+  buildResources: build
 # main, preload and renderer are bundled into out/. electron-builder adds the
 # production `dependencies` (only the Agent SDK) from node_modules.
 files:
@@ -17,8 +25,29 @@ asarUnpack:
   # app.asar cannot be executed (see src/main/agent/executable.ts).
   - "**/node_modules/@anthropic-ai/claude-agent-sdk-*/**"
 linux:
-  target: dir
+  # One file, no root: chmod +x and run (or let an AppImage launcher add it
+  # to the menu). A .deb would need a maintainer e-mail address.
+  target: AppImage
+  category: Development
+  synopsis: Narrative code review of GitHub pull requests
+  # The window belongs to the menu entry (desktopName in package.json).
+  syncDesktopName: true
 mac:
-  target: dir
+  target:
+    - dmg
+    - zip
+  category: public.app-category.developer-tools
+  # No Apple Developer ID (personal use): sign ad hoc, which Apple Silicon
+  # needs to run the app at all, without the hardened runtime (only needed
+  # for notarization).
+  identity: "-"
+  hardenedRuntime: false
+  # Keep the Claude Code binary's own (Anthropic) signature: do not re-sign it.
+  signIgnore:
+    - "claude-agent-sdk-darwin-[^/]+/claude$"
 win:
-  target: dir
+  target: nsis
+nsis:
+  # A per-user install, no admin rights; a shortcut in the Start menu.
+  oneClick: true
+  perMachine: false

@@ -34,6 +34,8 @@ function ReviewScreens() {
   const [review, setReview] = useState<ResolvedReview | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [view, setView] = useState<View>({ mode: "overview" });
+  // Marked done (afterDone "keep"): kept here, so every chapter shows it.
+  const [markedDone, setMarkedDone] = useState(false);
 
   useEffect(() => {
     // Validate at the boundary: the data comes from another process (HTTP or
@@ -70,6 +72,8 @@ function ReviewScreens() {
         position={view.position}
         onNavigate={(position) => setView({ mode: "chapter", position })}
         onExit={() => setView({ mode: "overview" })}
+        markedDone={markedDone}
+        onMarkedDone={() => setMarkedDone(true)}
       />
     );
   }

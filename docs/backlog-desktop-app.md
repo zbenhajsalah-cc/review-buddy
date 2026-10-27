@@ -368,6 +368,24 @@ Acceptance criteria:
   with paging and a search box.
 - Recently used repos are shown first.
 - Loading, empty, and error states (including "token expired") are handled.
+- Decisions made while building it:
+  - The repo list is the start screen. The top bar has two tabs,
+    "Repositories" and the review ("Sample review" until a review runs, then
+    the PR). The list stays mounted while hidden, so it keeps its pages.
+  - Paging: 100 per page, newest push first (`sort=pushed`), with a **Load
+    more** button driven by GitHub's `Link` header. The search filters the
+    loaded pages only and says so while more pages exist (no search API: it
+    cannot cover "every repo this login can see" the same way).
+  - "Recently used" = picked in the list, or a review of one of its PRs
+    started (at most 8, in `settings.json`). Page 1 brings them, read again
+    with the current login (`GET /repos/{o}/{r}` for those not on page 1).
+  - Until US-14, picking a repo filled the top bar with `owner/repo#`.
+  - "Token expired": a 401 on a later call signs the app out
+    (`GitHubAuth.tokenRejected`, only if the login did not change meanwhile),
+    and the list says why. List failures are answers, not IPC errors.
+  - `/user/repos` could not be recorded from the build container (its API is
+    limited to one repo), so the tests use a recorded `GET /repos/{o}/{r}`,
+    which has the same item shape.
 
 ### US-14: PR list screen
 
@@ -379,6 +397,24 @@ Acceptance criteria:
 - Shows if a cached review exists and if it is still up to date with the
   head SHA.
 - The user can start a review for one or more PRs.
+- Decisions made while building it:
+  - REST, not GraphQL: the list endpoint (`pulls?state=open&sort=updated`,
+    30 per page) has no sizes, so main reads each PR's size (8 at a time,
+    10 s each at most, kept per PR head). GraphQL would do it in one call,
+    but the rest of the app is REST, and the build container cannot reach
+    GraphQL to check it.
+  - "Cached review" means the reviews main holds in memory for now
+    (`ReviewStore.newestFor`): **Reviewed** when it is for the PR's current
+    head, **Outdated review** when the PR has moved. US-16 makes them survive
+    a restart.
+  - "One or more PRs": the single review job (US-12) became a queue of jobs
+    (`ReviewJobs`) that run one after another; the renderer polls `jobs()`.
+    **Review** on a row follows that job; **Review selected** queues several
+    and stays on the list. US-15 adds the concurrency limit, the retry
+    button and the rest of the progress design.
+  - The review tab follows one job or an opened review, so a review that
+    finishes in the background never replaces the one you are reading.
+  - Picking a repo opens its PR list (replacing US-13's "fill the PR box").
 
 ### US-15: Review jobs with progress and cancel
 
@@ -391,6 +427,25 @@ Acceptance criteria:
 - The user can cancel a job; the agent run stops.
 - Errors (GitHub, agent, too-large PR) are shown clearly with a retry button.
 - Several jobs can run at once, with a small limit.
+- Decisions made while building it:
+  - Jobs, cancel and the queue came with US-14; this story adds the rest.
+  - Progress events: main sends the whole job list on every change
+    (`review:jobs-changed`, at most every 100 ms; the preload exposes
+    `onJobs`, which hands the page the list only). The renderer no longer
+    polls.
+  - Each step has a phase: `github`, `reading`, `writing`, `checking`.
+    "Writing" is real: the run streams Claude's output
+    (`includePartialMessages`) and reads the chapter titles from the
+    `submit_review` input as it is written ("Writing chapter 2: …").
+    Checked with the real agent.
+  - Errors have a kind: `github`, `too-large`, `claude` (Claude Code cannot
+    start, or an SDK error code such as `authentication_failed` or
+    `rate_limit`, said in words), `agent` (no review came out), `stopped`.
+    **Try again** queues the same PR again and follows it; not for
+    "too large".
+  - At most 2 reviews run at once (`MAX_RUNNING`): each is a Claude Code
+    process, and two cover "review the selected PRs" without hitting rate
+    limits. Not a setting yet.
 
 ### US-16: Review cache
 
@@ -403,6 +458,23 @@ Acceptance criteria:
 - When the head SHA changed, the app says the review is out of date and offers
   to re-run.
 - The user can delete cached reviews.
+- Decisions made while building it:
+  - One JSON file per PR head in `<userData>/reviews/<owner>/<repo>/`, plus
+    an `index.json` for lists and lookups. The key stays
+    `owner/repo#n@<first 12 of the head SHA>` (the viewer's local state is
+    keyed by it); the file name has the full SHA.
+  - A saved review keeps the resolved review, the head and merge-base SHAs,
+    and the diff's file list. After a restart, "expand full file" reads the
+    files from GitHub at those SHAs (`prFileReader`, shared with the open
+    PR), so the review's file reads stay what they were.
+  - Starting a review of a PR head that has a saved review opens it without
+    Claude; **Run again** asks for a fresh run (`start(pr, { fresh: true })`).
+  - Out of date: the PR list compares the newest saved review's head with
+    the PR's head; the review view shows a bar with **Review again**.
+  - Deleting is in Settings (each, or all after a second click). A deleted
+    review also leaves the jobs list, and the PR list reloads.
+  - The smoke test writes its saved reviews itself, in the file format, so a
+    change to the format that would lose saved reviews fails it.
 
 ### US-17: "Done" and viewed state in desktop
 
@@ -412,6 +484,24 @@ Acceptance criteria:
 Acceptance criteria:
 - Viewed / collapsed state survives an app restart (keyed by `reviewKey`).
 - "Done" marks the review as finished; the PR list shows it.
+- Decisions made while building it:
+  - Viewed / collapsed state stays where the viewer keeps it: the page's
+    `localStorage`, keyed by `reviewKey`. The app's `app://renderer` origin
+    stores it in the profile, so it survives a restart (checked by
+    `review-e2e` after a real restart). No new IPC for it.
+  - The viewer cleared that state on Done and said "Review submitted — you
+    can close this tab", which is right for the plugin only. A new optional
+    `ReviewApi.afterDone` ("close" by default, so the plugin is unchanged;
+    "keep" in the app) keeps the state and the open review, with a
+    **Done ✓** button. The plugin's UI bundle was rebuilt for it; its
+    behavior is the same.
+  - Done is saved with the review (`doneAt` in the saved-review index) and
+    shown in the PR list (**Done ✓**), on the review ("You marked this review
+    done …") and in Settings.
+  - Viewed files and Done belong to the commit: **Run again** on the same
+    head replaces only Claude's text, and keeps both (changed after the PR
+    review; before, Done was reset while the viewed files stayed).
+  - Deleting a saved review also removes its viewed / collapsed state.
 
 ### US-18: Packaged app
 
@@ -423,6 +513,23 @@ Acceptance criteria:
   personal use).
 - The Agent SDK and GitHub flows work in the packaged build (not only in dev).
 - Build steps are in the README.
+- Decisions made while building it:
+  - `pnpm --filter desktop dist` (root: `pnpm dist:desktop`) builds the
+    installer for the OS it runs on: a `.dmg` + `.zip` on macOS, an NSIS
+    per-user installer on Windows, an AppImage on Linux (a `.deb` would need
+    a maintainer e-mail address). `package` still makes the unpacked app.
+  - No code signing: macOS builds are signed ad hoc (Apple Silicon needs a
+    signature to run) without the hardened runtime, and the Claude Code
+    binary keeps Anthropic's signature. The README says how to open an
+    unsigned app on each OS.
+  - The Claude Code binary stays bundled (the app runs the version it was
+    tested with), so the AppImage is about 240 MB.
+  - An app icon (`build/icon.svg` → `icon.png`): risk-rated chapters.
+  - Checked on Linux with the AppImage itself: the smoke test, `--agent-check`
+    and the real-agent review (with a restart). macOS and Windows installers
+    must be built on those systems and were not built here. electron-builder
+    starts AppImages with `--no-sandbox`; the README explains it and how to
+    keep the OS sandbox with the unpacked app.
 
 ## Epic D: Later
 

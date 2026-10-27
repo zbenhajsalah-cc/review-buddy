@@ -1,7 +1,9 @@
 import { type IpcMainInvokeEvent, ipcMain } from "electron";
 import { IPC } from "../shared/ipc.ts";
-import type { ReviewJob } from "./agent/review-job.ts";
+import type { ReviewJobs } from "./agent/review-job.ts";
 import type { GitHubAuth } from "./github/auth.ts";
+import type { GitHubPulls } from "./github/pulls.ts";
+import type { GitHubRepos } from "./github/repos.ts";
 import { parseDoneResult, type ReviewStore } from "./reviews.ts";
 
 type Handler = (...args: unknown[]) => unknown;
@@ -21,7 +23,7 @@ function handle(channel: string, isTrusted: (url: string) => boolean, handler: H
 /** Answers the preload's review calls. */
 export function registerReviewIpc(
   store: ReviewStore,
-  job: ReviewJob,
+  jobs: ReviewJobs,
   isTrusted: (url: string) => boolean,
 ): void {
   handle(IPC.getReview, isTrusted, (reviewKey) => store.getReview(reviewKey));
@@ -29,21 +31,44 @@ export function registerReviewIpc(
     store.getFileContent(reviewKey, path, side),
   );
   handle(IPC.getConfig, isTrusted, () => ({ roundtrip: false }));
-  handle(IPC.done, isTrusted, (reviewKey, result) => {
-    store.getReview(reviewKey); // unknown review → error
+  handle(IPC.done, isTrusted, async (reviewKey, result) => {
     const { verdict } = parseDoneResult(result);
-    // What "Done" does in desktop (mark finished, post to GitHub) is US-17/US-20.
+    // Marked finished, and kept with the saved review (US-17). Posting the
+    // review to GitHub is US-20.
+    await store.markDone(reviewKey); // unknown review → error
     console.log(`[review-buddy] review ${String(reviewKey)} done${verdict ? `: ${verdict}` : ""}`);
   });
-  handle(IPC.startReview, isTrusted, (pr) => job.start(pr));
-  handle(IPC.stopReview, isTrusted, () => job.stop());
-  handle(IPC.reviewRunStatus, isTrusted, () => job.status());
+  handle(IPC.startReview, isTrusted, (pr, options) => jobs.start(pr, options));
+  handle(IPC.stopReview, isTrusted, (id) => jobs.stop(id));
+  handle(IPC.reviewJobs, isTrusted, () => jobs.jobs());
+  handle(IPC.savedReviews, isTrusted, () => store.saved());
+  handle(IPC.deleteSavedReview, isTrusted, async (reviewKey) => {
+    await store.delete(reviewKey);
+    jobs.forgetReview(reviewKey);
+    return store.saved();
+  });
+  handle(IPC.deleteAllSavedReviews, isTrusted, async () => {
+    await store.deleteAll();
+    jobs.forgetReview();
+    return store.saved();
+  });
 }
 
-/** Answers the settings view. Every answer is a GitHubStatus: never the token. */
-export function registerGitHubIpc(auth: GitHubAuth, isTrusted: (url: string) => boolean): void {
+/**
+ * Answers the settings view and the repository and PR lists. No answer
+ * carries the token: a GitHubStatus, repositories, or PRs.
+ */
+export function registerGitHubIpc(
+  auth: GitHubAuth,
+  repos: GitHubRepos,
+  pulls: GitHubPulls,
+  isTrusted: (url: string) => boolean,
+): void {
   handle(IPC.githubStatus, isTrusted, () => auth.status());
   handle(IPC.githubSignInWithToken, isTrusted, (token) => auth.signInWithToken(token));
   handle(IPC.githubUseGh, isTrusted, () => auth.useGh());
   handle(IPC.githubSignOut, isTrusted, () => auth.signOut());
+  handle(IPC.githubRepos, isTrusted, (page) => repos.list(page));
+  handle(IPC.githubMarkRepoUsed, isTrusted, (fullName) => repos.markUsed(fullName));
+  handle(IPC.githubPulls, isTrusted, (fullName, page) => pulls.list(fullName, page));
 }

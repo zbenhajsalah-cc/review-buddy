@@ -143,6 +143,26 @@ export class GitHubAuth {
     });
   }
 
+  /**
+   * A GitHub call made with `token` got 401: it expired or was revoked. Signs
+   * out (a pasted token is forgotten) and keeps the reason for the next
+   * status. Does nothing if the login changed since that call.
+   */
+  tokenRejected(token: string): Promise<void> {
+    return this.#run(async () => {
+      const session = this.#session;
+      if (!session || session.token !== token) return;
+      this.#session = null;
+      if (session.source === "token") {
+        await this.deps.store.clear();
+        this.#error = "GitHub rejected the token: it expired or was revoked. Sign in again.";
+      } else {
+        this.#error =
+          "GitHub rejected the GitHub CLI's token: it expired or was revoked. Run `gh auth login` again, then use it here.";
+      }
+    });
+  }
+
   /** First use: the saved token, else gh. A network failure is retried next time. */
   async #load(): Promise<void> {
     this.#loaded = true;

@@ -65,3 +65,25 @@ test("a new api (another review) starts fresh and keeps that review's saved prog
   expect(screen.queryByText(/^Chapter 1 of/)).toBeNull();
   expect(JSON.parse(localStorage.getItem("rb.viewed.review-b") ?? "[]")).toEqual(["1:kept.ts"]);
 });
+
+test('afterDone "keep": Done stays marked when the reviewer goes back and opens a chapter', async () => {
+  const done = mock(async () => {});
+  render(<ReviewViewer api={fakeReviewApi({ overrides: { done, afterDone: "keep" } })} />);
+  await screen.findByRole("heading", { level: 2 });
+  act(() => {
+    fireEvent.keyDown(document.body, { key: "Enter" });
+  });
+  await act(async () => {
+    fireEvent.click(await screen.findByRole("button", { name: "Done" }));
+  });
+  expect(screen.getByRole("button", { name: "Done ✓" })).toBeTruthy();
+
+  fireEvent.click(screen.getByRole("button", { name: /Overview/ }));
+  await screen.findByRole("heading", { level: 2 });
+  act(() => {
+    fireEvent.keyDown(document.body, { key: "Enter" });
+  });
+  const button = (await screen.findByRole("button", { name: "Done ✓" })) as HTMLButtonElement;
+  expect(button.disabled).toBe(true);
+  expect(done).toHaveBeenCalledTimes(1);
+});

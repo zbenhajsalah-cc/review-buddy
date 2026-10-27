@@ -12,6 +12,10 @@ an HTML change and two source files):
 - `ReviewViewer.tsx@<sha>.txt`: `GET /contents/packages/viewer/src/ReviewViewer.tsx?ref=<sha>`
   with `Accept: application/vnd.github.raw+json` (byte-identical to `git show`).
 - `contents-404.json`: the contents endpoint for a path that does not exist.
+- `repo-review-buddy.json` (repos.test.ts): `GET /repos/zbenhajsalah-cc/review-buddy`,
+  without the `parent`, `source` and `organization` objects. The items of
+  `GET /user/repos` have the same shape; that endpoint itself is not
+  available to the recording session.
 
 Not recorded (no PR in this repo the recording session could read):
 

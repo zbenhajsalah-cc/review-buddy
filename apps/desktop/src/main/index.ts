@@ -11,17 +11,20 @@ import { readFile } from "node:fs/promises";
 import { extname, join } from "node:path";
 import desktopPrompt from "@review-buddy/core/prompts/review-desktop.md?raw";
 import { app, BrowserWindow, net, protocol, safeStorage, session, shell } from "electron";
-import { FIXTURE_REVIEW_KEY } from "../shared/ipc.ts";
+import { FIXTURE_REVIEW_KEY, IPC } from "../shared/ipc.ts";
 import { type AgentCheckResult, runAgentCheck } from "./agent/check.ts";
 import { claudeExecutablePath } from "./agent/executable.ts";
-import { ReviewJob } from "./agent/review-job.ts";
+import { ReviewJobs } from "./agent/review-job.ts";
 import { loadFixtureReview } from "./fixture/index.ts";
-import { openGitHubPr } from "./github/api-source.ts";
+import { openGitHubPr, prFileReader } from "./github/api-source.ts";
 import { GitHubAuth } from "./github/auth.ts";
 import { findGh, ghAuthToken } from "./github/gh-cli.ts";
 import { parsePrArg, runPrCheck } from "./github/pr-check.ts";
+import { GitHubPulls } from "./github/pulls.ts";
+import { GitHubRepos } from "./github/repos.ts";
 import { TokenStore } from "./github/token-store.ts";
 import { registerGitHubIpc, registerReviewIpc } from "./ipc.ts";
+import { ReviewCache } from "./review-cache.ts";
 import { ReviewStore } from "./reviews.ts";
 import {
   APP_HOST,
@@ -150,14 +153,53 @@ async function agentCheck(): Promise<void> {
   app.exit(result.ok ? 0 : 1);
 }
 
+/**
+ * The reviews main serves (US-16): this run's, and the saved ones in
+ * `<userData>/reviews`, whose file reads go to GitHub at the saved SHAs.
+ */
+async function createReviewStore(github: GitHubAuth): Promise<ReviewStore> {
+  const cache = new ReviewCache(join(app.getPath("userData"), "reviews"));
+  await cache.load();
+  return new ReviewStore({
+    cache,
+    reopen: (saved) => {
+      const files = new Map(saved.files.map((f) => [f.path, f]));
+      return {
+        fileContent: prFileReader(
+          parsePrArg(saved.pr),
+          { headSha: saved.headSha, baseSha: saved.baseSha },
+          async () => files,
+          { fetch: (url, init) => net.fetch(url, init), token: () => github.token() },
+        ),
+      };
+    },
+    log: (line) => console.warn(`[review-buddy] reviews: ${line}`),
+  });
+}
+
+/** Calls `fn` once, `ms` after the first of a burst of calls. */
+function atMostEvery(ms: number, fn: () => void): () => void {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  return () => {
+    if (timer) return;
+    timer = setTimeout(() => {
+      timer = undefined;
+      fn();
+    }, ms);
+  };
+}
+
+/** Small app settings (never secrets) in the userData folder. */
+function appSettings(): SettingsFile {
+  return new SettingsFile(join(app.getPath("userData"), "settings.json"));
+}
+
 /** The app's GitHub login (US-10). The token lives here, in main, only. */
-function createGitHubAuth(): GitHubAuth {
-  const userData = app.getPath("userData");
-  const settings = new SettingsFile(join(userData, "settings.json"));
+function createGitHubAuth(settings: SettingsFile): GitHubAuth {
   return new GitHubAuth({
     // Chromium's network stack: honors the system proxy settings.
     fetch: (url, init) => net.fetch(url, init),
-    store: new TokenStore(join(userData, "github-token"), safeStorage),
+    store: new TokenStore(join(app.getPath("userData"), "github-token"), safeStorage),
     ghDisabled: {
       get: async () => (await settings.read()).ghDisabled === true,
       set: (ghDisabled) => settings.update({ ghDisabled }),
@@ -167,20 +209,45 @@ function createGitHubAuth(): GitHubAuth {
   });
 }
 
+/** The login's repositories and the recently used ones (US-13). */
+function createGitHubRepos(settings: SettingsFile, github: GitHubAuth): GitHubRepos {
+  return new GitHubRepos({
+    fetch: (url, init) => net.fetch(url, init),
+    auth: github,
+    recent: {
+      get: async () => recentList((await settings.read()).recentRepos),
+      update: (change) =>
+        settings.update((current) => ({ recentRepos: change(recentList(current.recentRepos)) })),
+    },
+  });
+}
+
+function recentList(value: unknown): string[] {
+  return Array.isArray(value) ? value.filter((v): v is string => typeof v === "string") : [];
+}
+
 /**
- * The agent review of one PR at a time (US-12): GitHubApiSource with the app's
- * GitHub login, then the Agent SDK with the desktop prompt and the review
- * tools. The SDK is loaded on the first run only.
+ * The agent reviews, one after another (US-12, US-14): GitHubApiSource with
+ * the app's GitHub login, then the Agent SDK with the desktop prompt and the
+ * review tools. The SDK is loaded on the first run only. A PR that opens makes
+ * its repository "recently used".
  */
-function createReviewJob(store: ReviewStore, github: GitHubAuth): ReviewJob {
-  return new ReviewJob({
+function createReviewJobs(store: ReviewStore, github: GitHubAuth, repos: GitHubRepos): ReviewJobs {
+  const jobs: ReviewJobs = new ReviewJobs({
     store,
-    open: (ref, signal) =>
-      openGitHubPr(ref, {
+    open: async (ref, signal) => {
+      const source = await openGitHubPr(ref, {
         fetch: (url, init) => net.fetch(url, init),
         token: () => github.token(),
         signal,
-      }),
+      });
+      // Before the job shows the PR's head, which makes the repository list
+      // read its recent repos again.
+      await repos.markUsed(`${ref.owner}/${ref.repo}`).catch((e) => {
+        console.warn(`[review-buddy] recent repos: ${e instanceof Error ? e.message : e}`);
+      });
+      return source;
+    },
     run: async (source, label, onProgress, signal) => {
       const [{ query }, { runReview }] = await Promise.all([
         import("@anthropic-ai/claude-agent-sdk"),
@@ -197,7 +264,17 @@ function createReviewJob(store: ReviewStore, github: GitHubAuth): ReviewJob {
       });
     },
     log: (line) => console.log(`[review-buddy] review-run ${line}`),
+    // Progress events (US-15): the whole list, to our own page only, at most
+    // every 100 ms (a streamed review makes many small steps).
+    onChange: atMostEvery(100, () => {
+      const list = jobs.jobs();
+      for (const win of BrowserWindow.getAllWindows()) {
+        const page = win.webContents;
+        if (isTrustedPage(page.getURL())) page.send(IPC.reviewJobsChanged, list);
+      }
+    }),
   });
+  return jobs;
 }
 
 /**
@@ -206,7 +283,7 @@ function createReviewJob(store: ReviewStore, github: GitHubAuth): ReviewJob {
  * 0/1. No window.
  */
 async function prCheck(value: string): Promise<void> {
-  const github = createGitHubAuth();
+  const github = createGitHubAuth(appSettings());
   const result = await runPrCheck(async () =>
     openGitHubPr(parsePrArg(value), {
       fetch: (url, init) => net.fetch(url, init),
@@ -223,25 +300,32 @@ app.whenReady().then(async () => {
     return prCheck(app.commandLine.getSwitchValue("pr-check"));
   }
 
-  const store = new ReviewStore();
+  const settings = appSettings();
+  const github = createGitHubAuth(settings);
+  const store = await createReviewStore(github);
   const fixture = await loadFixtureReview();
   for (const warning of fixture.warnings) console.warn(`[review-buddy] fixture: ${warning}`);
   store.add(FIXTURE_REVIEW_KEY, fixture.review, fixture.source);
-  const github = createGitHubAuth();
-  const job = createReviewJob(store, github);
-  // Quitting stops a running review (and its Claude Code process).
-  app.on("before-quit", () => job.stop());
+  const repos = createGitHubRepos(settings, github);
+  const jobs = createReviewJobs(store, github, repos);
+  const pulls = new GitHubPulls({
+    fetch: (url, init) => net.fetch(url, init),
+    auth: github,
+    reviewOf: (label) => store.newestFor(label),
+  });
+  // Quitting stops the reviews (and their Claude Code process).
+  app.on("before-quit", () => jobs.stopAll());
 
   hardenSessions();
   serveRenderer();
-  registerReviewIpc(store, job, isTrustedPage);
-  registerGitHubIpc(github, isTrustedPage);
+  registerReviewIpc(store, jobs, isTrustedPage);
+  registerGitHubIpc(github, repos, pulls, isTrustedPage);
   createWindow();
 
   // `--review-pr=<owner/repo#123 | PR URL>`: start reviewing that PR at once.
   if (app.commandLine.hasSwitch("review-pr")) {
     try {
-      job.start(app.commandLine.getSwitchValue("review-pr"));
+      jobs.start(app.commandLine.getSwitchValue("review-pr"));
     } catch (e) {
       console.error(`[review-buddy] --review-pr: ${e instanceof Error ? e.message : e}`);
     }
