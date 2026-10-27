@@ -13,6 +13,9 @@ const bridge: DesktopBridge = {
       ipcRenderer.invoke(IPC.getFileContent, reviewKey, path, side),
     getConfig: () => ipcRenderer.invoke(IPC.getConfig),
     done: (reviewKey, result) => ipcRenderer.invoke(IPC.done, reviewKey, result),
+    start: (pr) => ipcRenderer.invoke(IPC.startReview, pr),
+    stop: () => ipcRenderer.invoke(IPC.stopReview),
+    runStatus: () => ipcRenderer.invoke(IPC.reviewRunStatus),
   },
   github: {
     status: () => ipcRenderer.invoke(IPC.githubStatus),

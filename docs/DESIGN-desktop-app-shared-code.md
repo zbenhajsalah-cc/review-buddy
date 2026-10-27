@@ -172,9 +172,14 @@ The template moves to `packages/core/prompts/`.
   and returns the resolution notes to the agent, so it can fix bad anchors in
   the same run. Give the agent read-only tools backed by the data source
   (`get_pr_diff`, `read_file`), not a shell. The agent and `resolveReview` read
-  the **same** diff string, so anchors line up exactly.
+  the **same** diff string, so anchors line up exactly. Done in US-12
+  (`apps/desktop/src/main/agent/`). The SDK's `tool()` takes zod, so the
+  shared JSON schema (minus `cwd` and `source`) goes through
+  `z.fromJSONSchema`; a test checks the schema the agent sees is the shared
+  one. A large diff comes in parts that join back to the exact string.
 - **Jobs:** a review takes minutes. Run it in main, stream progress to the
-  renderer, allow cancel.
+  renderer, allow cancel. US-12: one run at a time in main; the renderer polls
+  its status (steps so far) and can stop it.
 - **Cache:** keep `ResolvedReview` per `owner/repo#n@headSha` in the app data
   folder, so reopening a PR does not re-run the agent. Re-run when the head SHA
   changes.

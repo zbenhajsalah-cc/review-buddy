@@ -5,12 +5,12 @@ The desktop app shows a review in the same viewer as the plugin
 instead of HTTP. Plan and stories: `docs/DESIGN-desktop-app-shared-code.md`,
 `docs/backlog-desktop-app.md`.
 
-**Status (US-08 to US-11):** a skeleton. Main loads one fixed review
-(`src/main/fixture/review.json`) through core (`validateAgentReview` →
-`resolveReview`) and shows it. A command-line check proves the Agent SDK runs
-from main with your Claude login (see "Claude (Agent SDK)"). The settings view
-connects GitHub (see "GitHub login"). Main can read a PR from the GitHub API
-(see "Reading a PR"); the review agent and the PR screens come in later
+**Status (US-08 to US-12):** a spike. Type a PR (`owner/repo#123` or its
+URL) in the top bar and press **Review**: main reads it from the GitHub API
+(see "Reading a PR"), Claude reviews it with your Claude login (see "Reviewing
+a PR"), and the viewer shows the result. Until a review runs, the app shows a
+fixed sample review (`src/main/fixture/review.json`). The settings view
+connects GitHub (see "GitHub login"). The repo and PR screens come in later
 stories.
 
 ## Run it
@@ -24,6 +24,7 @@ pnpm --filter desktop smoke    # build, then drive the real app with Playwright
 pnpm --filter desktop test     # unit tests (bun)
 pnpm --filter desktop typecheck
 pnpm --filter desktop agent-check  # one Agent SDK query from main (dev mode)
+pnpm --filter desktop review-e2e   # build, then one real agent review in the app (costs tokens)
 pnpm --filter desktop package  # unpacked app for this OS in release/ (electron-builder --dir)
 ```
 
@@ -46,12 +47,12 @@ that needs the Electron binary and a display.
 
 ```
 src/main/       # Electron main (Node): window, app:// protocol, IPC handlers, review store
-src/main/agent/ # Agent SDK: the Claude Code binary path, the --agent-check run
+src/main/agent/ # Agent SDK: the Claude Code binary path, --agent-check, the review tools, runner and job
 src/main/github/ # GitHub login (gh CLI token, pasted token in safeStorage) and GitHubApiSource
 src/preload/    # exposes window.reviewBuddy = { review, github }; built as CommonJS
 src/renderer/   # App shell (top bar) + <ReviewViewer api={ipcReviewApi(...)} /> + GitHub settings
 src/shared/     # the IPC contract (channel names + types), used by all three
-scripts/        # smoke-desktop.ts
+scripts/        # smoke-desktop.ts (no Claude), review-e2e.ts (the real agent)
 electron-builder.yml  # packaging (asarUnpack for the Claude Code binary)
 ```
 
@@ -174,6 +175,59 @@ repo, which has no PRs, so the diff, merge base, contents and 404 were
 recorded from the same commits through `compare` and `contents`. The PR JSON
 and the 406 body follow GitHub's documented shapes.
 
+## Reviewing a PR (the agent)
+
+Type `owner/repo#123` or a PR URL in the top bar and press **Review**, or
+start the app with `--review-pr=owner/repo#123`:
+
+```bash
+pnpm --filter desktop dev -- --review-pr=owner/repo#123
+```
+
+Main runs one review at a time (`src/main/agent/review-job.ts`). The window
+shows the steps (reading the diff, reading files, submitting) and a **Stop**
+button; when it is done, the viewer shows the review. A failure shows its
+reason (not signed in to GitHub or Claude, PR too large, …). The console gets
+one `[review-buddy] review-run {…}` line per run, with the turns, cost and
+number of resolution notes.
+
+**What the agent can do** (`src/main/agent/runner.ts`). Agent SDK `query()`
+with the desktop prompt (`packages/core/prompts/review-desktop.md`) as the
+system prompt, and three tools from an in-process MCP server
+(`src/main/agent/review-tools.ts`):
+
+| Tool | What it does |
+|---|---|
+| `get_pr_diff` | The PR's metadata and its diff. A large diff comes in parts of at most 40k characters (Claude Code cuts MCP output at about 25k tokens), split at files, then hunks; the parts join back to the exact diff. |
+| `read_file` | One of the PR's files at the head or the base, with line numbers, in windows. Other paths are refused. |
+| `submit_review` | `validateAgentReview` → `resolveReview` against the same diff string, then answers with the resolution notes so the agent can fix its anchors. At most 3 submissions (the first + 2 fixes, as the prompt says); the app shows the last one. |
+
+Nothing else: `tools: []` turns off every built-in tool (no shell, no file
+read or write, no web), only the three tools are allowed (`permissionMode:
+"dontAsk"`), no settings files are read (`settingSources: []`, so no
+CLAUDE.md, hooks or your own MCP servers), and it runs in a temp folder with
+no saved session. The input schema of `submit_review` is the shared
+`review.schema.json` without `cwd` and `source`. The SDK's `tool()` takes zod,
+so it is converted with `z.fromJSONSchema`; a test checks that the schema the
+agent sees is the shared one.
+
+The PR's metadata and diff are read **before** Claude starts, so a PR that is
+too large for the API fails without spending tokens.
+
+**End-to-end check with the real agent** (not in CI: it costs one review):
+
+```bash
+pnpm --filter desktop review-e2e        # on Linux without a display: under xvfb-run -a
+node scripts/review-e2e.ts --executable release/linux-unpacked/review-buddy   # packaged
+```
+
+It fakes GitHub inside main with the recorded PR #28 of this repo (and file
+bytes from this repo's git history), types the PR in the top bar, waits for
+the agent, and checks that the Prologue and every chapter show and that
+"expand full file" shows a line far from the hunks. It passed in dev and in a
+packaged Linux build: about 15–25 s, 4 turns, a few cents, no resolution
+notes. Use `--screenshots <dir>` to keep two screenshots.
+
 ## Claude (Agent SDK)
 
 The app uses the Claude Agent SDK (`@anthropic-ai/claude-agent-sdk`, the only
@@ -234,7 +288,9 @@ simulated with a fake API that answers 401; it gives the error above.
   Code version that the app does not control.
 - **Peers.** The SDK's peer dependencies (`@anthropic-ai/sdk`,
   `@modelcontextprotocol/sdk`, `zod`) are only needed for types. Its runtime
-  imports only Node built-ins, and they are not packaged.
+  imports only Node built-ins, and they are not packaged. The review tools
+  (US-12) use zod themselves; it is a devDependency, so it is bundled into
+  main like core.
 
 **Fallback if the login does not work in a packaged app:** ask for an
 Anthropic API key once, keep it with Electron `safeStorage` (encrypted by the

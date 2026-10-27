@@ -6,9 +6,10 @@ import { defineConfig } from "electron-vite";
  * Three builds into out/: main (Node, ESM), preload (CommonJS: sandboxed
  * preloads cannot load ES modules) and the renderer (the viewer).
  *
- * Every package is a devDependency, so main and preload bundle all their
- * imports (core, zod) and only `electron` and Node built-ins stay external:
- * the app needs no node_modules at runtime.
+ * electron-vite keeps `dependencies` external and bundles the rest. Every
+ * package but the Agent SDK is a devDependency, so main and preload bundle
+ * their imports (core, zod); the SDK stays in node_modules next to its Claude
+ * Code binary. `electron` and Node built-ins are external too.
  */
 export default defineConfig({
   main: {},

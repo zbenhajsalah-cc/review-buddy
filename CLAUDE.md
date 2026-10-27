@@ -65,7 +65,7 @@ review-buddy/
 │   ├── integrations/          # Cursor / VS Code Copilot / Codex MCP configs + GENERATED review prompts
 │   ├── examples/hooks.json    # example plugin hook config (installed-binary form)
 │   └── scripts/               # build-plugin.ts (bundles → dist/), smoke-plugin.ts (runs apps/plugin alone)
-├── apps/desktop/              # Electron desktop app (in progress, see apps/desktop/README.md): main (window, app:// + CSP, IPC, Agent SDK `--agent-check`, GitHub login: gh or a pasted token in safeStorage, never sent to the renderer; `GitHubApiSource` = ReviewDataSource over the GitHub REST API, `--pr-check`), preload (window.reviewBuddy = { review, github }), renderer (<ReviewViewer api={ipcReviewApi} />); `package` = electron-builder --dir
+├── apps/desktop/              # Electron desktop app (in progress, see apps/desktop/README.md): main (window, app:// + CSP, IPC, Agent SDK `--agent-check`, GitHub login: gh or a pasted token in safeStorage, never sent to the renderer; `GitHubApiSource` = ReviewDataSource over the GitHub REST API, `--pr-check`; agent runner = Agent SDK `query()` with only in-process `get_pr_diff` / `read_file` / `submit_review` tools and the desktop prompt, one run at a time), preload (window.reviewBuddy = { review, github }), renderer (top-bar PR box + run progress + <ReviewViewer api={ipcReviewApi} />); `package` = electron-builder --dir
 ├── packages/core/             # @review-buddy/core — runtime-neutral (no Bun/Node/DOM APIs; its typecheck enforces it)
 │   ├── src/types.ts           # shared agent + UI/server contracts
 │   ├── src/diff.ts            # git diff parser

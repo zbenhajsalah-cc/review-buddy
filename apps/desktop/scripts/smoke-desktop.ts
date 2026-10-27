@@ -2,7 +2,9 @@
  * Smoke test of the built desktop app (out/): launches the real Electron app
  * with Playwright and checks the fixture review end to end — the viewer
  * renders, "Expand full file" gets file bytes over IPC, the security settings
- * hold, links go to the system browser, and "Done" reaches main.
+ * hold, links go to the system browser, and "Done" reaches main. The agent
+ * review of a PR is checked up to the point where Claude would start
+ * (scripts/review-e2e.ts runs the real agent).
  *
  *   pnpm --filter desktop smoke     (builds first; on Linux without a display,
  *                                    run it under `xvfb-run -a`)
@@ -208,6 +210,26 @@ try {
     .waitFor();
   check(true, "back to the review");
 
+  // A PR review (US-12) without Claude: a bad reference is refused in the bar,
+  // and a review while signed out fails before the agent starts.
+  const prField = page.getByLabel("Pull request");
+  await prField.fill("not-a-pr");
+  await page.getByRole("button", { name: "Review", exact: true }).click();
+  await page.getByText(/^Expected owner\/repo#123/).waitFor();
+  check(true, "a malformed PR reference is refused");
+  await prField.fill("https://github.com/octocat/hello-world/pull/42");
+  await page.getByRole("button", { name: "Review", exact: true }).click();
+  await page.getByText("The review of octocat/hello-world#42 failed").waitFor();
+  await page.getByText(/^Not signed in to GitHub/).waitFor();
+  check(true, "a review while signed out fails with the reason");
+  await page.getByRole("button", { name: "Show the sample review" }).click();
+  await page
+    .getByText("Review submitted")
+    .or(page.getByText("Friendlier greetings"))
+    .first()
+    .waitFor();
+  check(true, "back to the sample review");
+
   // The viewer flow ran without errors. (The probes below cause CSP errors on purpose.)
   check(errors.length === 0, `no page errors${errors.length ? `: ${errors.join(" | ")}` : ""}`);
 
@@ -234,7 +256,7 @@ try {
   check(inPage.noNode, "no Node globals in the renderer");
   check(
     inPage.bridge.join() ===
-      "github.signInWithToken,github.signOut,github.status,github.useGh,review.done,review.getConfig,review.getFileContent,review.getReview",
+      "github.signInWithToken,github.signOut,github.status,github.useGh,review.done,review.getConfig,review.getFileContent,review.getReview,review.runStatus,review.start,review.stop",
     `preload exposes only the review and GitHub calls (${inPage.bridge.join()})`,
   );
   check(inPage.inlineBlocked, "CSP blocks inline scripts");

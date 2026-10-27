@@ -12,6 +12,9 @@ export const IPC = {
   getFileContent: "review:file-content",
   getConfig: "review:config",
   done: "review:done",
+  startReview: "review:start",
+  stopReview: "review:stop",
+  reviewRunStatus: "review:run-status",
   githubStatus: "github:status",
   githubSignInWithToken: "github:sign-in-with-token",
   githubUseGh: "github:use-gh",
@@ -36,12 +39,35 @@ export interface IpcDoneResult {
   summary?: string;
 }
 
+/**
+ * The agent review of one PR (US-12), as the renderer sees it. One run at a
+ * time; the renderer polls it while it runs.
+ */
+export interface ReviewRunStatus {
+  /** Counts runs (0 = none yet), so the renderer can remount the viewer per run. */
+  run: number;
+  state: "idle" | "running" | "done" | "failed";
+  /** `owner/repo#123`. */
+  pr?: string;
+  /** Set when done: the review to load with getReview. */
+  reviewKey?: string;
+  /** What the agent did so far, oldest first (the last few). */
+  steps: string[];
+  /** Resolution notes of the review shown: places its anchors did not match. */
+  notes?: string[];
+  error?: string;
+}
+
 /** What the preload script exposes. Every call names the review it is about. */
 export interface ReviewBridge {
   getReview(reviewKey: string): Promise<ResolvedReview>;
   getFileContent(reviewKey: string, path: string, side: FileSide): Promise<IpcFileContent>;
   getConfig(): Promise<{ roundtrip: boolean }>;
   done(reviewKey: string, result: IpcDoneResult): Promise<void>;
+  /** Starts the agent on a PR ("owner/repo#123" or its URL). Rejects while one runs. */
+  start(pr: string): Promise<ReviewRunStatus>;
+  stop(): Promise<ReviewRunStatus>;
+  runStatus(): Promise<ReviewRunStatus>;
 }
 
 /**

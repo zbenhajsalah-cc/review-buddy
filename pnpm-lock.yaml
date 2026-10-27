@@ -227,6 +227,9 @@ importers:
       vite:
         specifier: ^6.0.0
         version: 6.4.3(@types/node@22.19.21)(jiti@2.7.0)(lightningcss@1.32.0)
+      zod:
+        specifier: ^4.4.3
+        version: 4.4.3
 
   apps/plugin:
     devDependencies:

@@ -1,5 +1,6 @@
 import { type IpcMainInvokeEvent, ipcMain } from "electron";
 import { IPC } from "../shared/ipc.ts";
+import type { ReviewJob } from "./agent/review-job.ts";
 import type { GitHubAuth } from "./github/auth.ts";
 import { parseDoneResult, type ReviewStore } from "./reviews.ts";
 
@@ -18,7 +19,11 @@ function handle(channel: string, isTrusted: (url: string) => boolean, handler: H
 }
 
 /** Answers the preload's review calls. */
-export function registerReviewIpc(store: ReviewStore, isTrusted: (url: string) => boolean): void {
+export function registerReviewIpc(
+  store: ReviewStore,
+  job: ReviewJob,
+  isTrusted: (url: string) => boolean,
+): void {
   handle(IPC.getReview, isTrusted, (reviewKey) => store.getReview(reviewKey));
   handle(IPC.getFileContent, isTrusted, (reviewKey, path, side) =>
     store.getFileContent(reviewKey, path, side),
@@ -30,6 +35,9 @@ export function registerReviewIpc(store: ReviewStore, isTrusted: (url: string) =
     // What "Done" does in desktop (mark finished, post to GitHub) is US-17/US-20.
     console.log(`[review-buddy] review ${String(reviewKey)} done${verdict ? `: ${verdict}` : ""}`);
   });
+  handle(IPC.startReview, isTrusted, (pr) => job.start(pr));
+  handle(IPC.stopReview, isTrusted, () => job.stop());
+  handle(IPC.reviewRunStatus, isTrusted, () => job.status());
 }
 
 /** Answers the settings view. Every answer is a GitHubStatus: never the token. */

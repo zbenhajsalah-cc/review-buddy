@@ -9,10 +9,12 @@
  */
 import { readFile } from "node:fs/promises";
 import { extname, join } from "node:path";
+import desktopPrompt from "@review-buddy/core/prompts/review-desktop.md?raw";
 import { app, BrowserWindow, net, protocol, safeStorage, session, shell } from "electron";
 import { FIXTURE_REVIEW_KEY } from "../shared/ipc.ts";
 import { type AgentCheckResult, runAgentCheck } from "./agent/check.ts";
 import { claudeExecutablePath } from "./agent/executable.ts";
+import { ReviewJob } from "./agent/review-job.ts";
 import { loadFixtureReview } from "./fixture/index.ts";
 import { openGitHubPr } from "./github/api-source.ts";
 import { GitHubAuth } from "./github/auth.ts";
@@ -166,6 +168,38 @@ function createGitHubAuth(): GitHubAuth {
 }
 
 /**
+ * The agent review of one PR at a time (US-12): GitHubApiSource with the app's
+ * GitHub login, then the Agent SDK with the desktop prompt and the review
+ * tools. The SDK is loaded on the first run only.
+ */
+function createReviewJob(store: ReviewStore, github: GitHubAuth): ReviewJob {
+  return new ReviewJob({
+    store,
+    open: (ref) =>
+      openGitHubPr(ref, {
+        fetch: (url, init) => net.fetch(url, init),
+        token: () => github.token(),
+      }),
+    run: async (source, label, onProgress, signal) => {
+      const [{ query }, { runReview }] = await Promise.all([
+        import("@anthropic-ai/claude-agent-sdk"),
+        import("./agent/runner.ts"),
+      ]);
+      return runReview(query, {
+        label,
+        source,
+        systemPrompt: desktopPrompt,
+        pathToClaudeCodeExecutable: claudeExecutablePath(),
+        clientApp: `review-buddy-desktop/${app.getVersion()}`,
+        onProgress,
+        signal,
+      });
+    },
+    log: (line) => console.log(`[review-buddy] review-run ${line}`),
+  });
+}
+
+/**
  * `--pr-check=<owner/repo#123 | PR URL>`: read a real PR through the GitHub API
  * with the app's GitHub login (US-11), print a summary as one JSON line, exit
  * 0/1. No window.
@@ -193,12 +227,24 @@ app.whenReady().then(async () => {
   for (const warning of fixture.warnings) console.warn(`[review-buddy] fixture: ${warning}`);
   store.add(FIXTURE_REVIEW_KEY, fixture.review, fixture.source);
   const github = createGitHubAuth();
+  const job = createReviewJob(store, github);
+  // Quitting stops a running review (and its Claude Code process).
+  app.on("before-quit", () => job.stop());
 
   hardenSessions();
   serveRenderer();
-  registerReviewIpc(store, isTrustedPage);
+  registerReviewIpc(store, job, isTrustedPage);
   registerGitHubIpc(github, isTrustedPage);
   createWindow();
+
+  // `--review-pr=<owner/repo#123 | PR URL>`: start reviewing that PR at once.
+  if (app.commandLine.hasSwitch("review-pr")) {
+    try {
+      job.start(app.commandLine.getSwitchValue("review-pr"));
+    } catch (e) {
+      console.error(`[review-buddy] --review-pr: ${e instanceof Error ? e.message : e}`);
+    }
+  }
 
   app.on("activate", () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
