@@ -155,7 +155,8 @@ The template moves to `packages/core/prompts/`.
   comes from PRs and the agent, so treat it as untrusted.
 - **GitHub token:** for personal use, the simplest path is `gh auth token` if
   `gh` is logged in. Otherwise use GitHub OAuth device flow, or let the user
-  paste a token. Store it with Electron `safeStorage`.
+  paste a token. Store it with Electron `safeStorage`. Done in US-10 (gh, or a
+  pasted token; device flow later): `apps/desktop/README.md` "GitHub login".
 - **Claude:** the Agent SDK runs Claude Code under the hood. For personal use it
   can use the login already on the machine. Checked in US-09: from Electron
   main, in dev and in a packaged Linux build. The Claude Code binary (an

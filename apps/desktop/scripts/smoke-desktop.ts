@@ -13,7 +13,9 @@
 /// <reference lib="dom.iterable" />
 /// <reference path="../src/renderer/src/env.d.ts" />
 // (page.evaluate callbacks run in the renderer: DOM types and window.reviewBuddy.)
+import { mkdtempSync, rmSync } from "node:fs";
 import { createRequire } from "node:module";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { _electron, type ElectronApplication, type Page } from "playwright-core";
 
@@ -53,10 +55,16 @@ async function waitForText(page: Page, text: string, present = true): Promise<vo
   throw new Error(`FAIL: timed out waiting for "${text}" to ${present ? "appear" : "disappear"}`);
 }
 
+const userDataDir = mkdtempSync(join(tmpdir(), "rb-desktop-smoke-"));
 const app: ElectronApplication = await _electron.launch({
   executablePath: packaged ?? electronPath,
   // Chromium refuses to run as root with its sandbox on (CI containers).
-  args: [...(packaged ? [] : [appDir]), ...(process.getuid?.() === 0 ? ["--no-sandbox"] : [])],
+  args: [
+    ...(packaged ? [] : [appDir]),
+    // A fresh profile: no saved GitHub token or settings from a real run.
+    `--user-data-dir=${userDataDir}`,
+    ...(process.getuid?.() === 0 ? ["--no-sandbox"] : []),
+  ],
   cwd: appDir,
 });
 const mainLog: string[] = [];
@@ -111,6 +119,95 @@ try {
   await page.waitForTimeout(300);
   check(mainLog.join("").includes("review fixture done"), "Done reaches main over IPC");
 
+  // GitHub settings (US-10). The result depends on the machine: signed in
+  // through a logged-in gh, or not connected.
+  const userData = await app.evaluate(({ app }) => app.getPath("userData"));
+  check(userData === userDataDir, "the app uses the smoke test's own profile");
+  await page.getByRole("button", { name: /^(GitHub: @|Connect GitHub)/ }).click();
+  await page.getByText("Settings").first().waitFor();
+  await page.getByText(/^(Signed in as|Not connected)/).waitFor();
+  const statusKeys = await page.evaluate(async () =>
+    Object.keys(await window.reviewBuddy.github.status()),
+  );
+  check(
+    statusKeys.every((k) =>
+      ["signedIn", "login", "name", "source", "tokenStorage", "ghInstalled", "error"].includes(k),
+    ),
+    `the GitHub status has no token (${statusKeys.join()})`,
+  );
+  if (await page.getByText(/^Signed in as/).isVisible()) {
+    check(
+      true,
+      `signed in through ${(await page.getByText(/^From the GitHub CLI/).isVisible()) ? "gh" : "a token"}`,
+    );
+    await page.getByRole("button", { name: "Sign out" }).click();
+    await page.getByText("Not connected.").waitFor();
+    check(true, "sign out");
+  }
+  const tokenField = page.getByLabel("Personal access token");
+  const signInWith = async (token: string) => {
+    await tokenField.fill(token);
+    await page.getByRole("button", { name: "Sign in" }).click();
+  };
+  await signInWith("not a token");
+  await page.getByText("That does not look like a GitHub token.").waitFor();
+  check(
+    (await tokenField.inputValue()) === "",
+    "a malformed token is refused and cleared from the form",
+  );
+
+  // Sign in with a pasted token against a fake GitHub: main's net.fetch is
+  // replaced, so this runs the same everywhere (no network, no real token).
+  await app.evaluate(({ net }) => {
+    net.fetch = async (input, init) => {
+      const auth = new Headers(init?.headers).get("authorization");
+      const ok = String(input) === "https://api.github.com/user" && auth === "Bearer ghp_smoke";
+      return ok
+        ? Response.json({ login: "octocat", name: "Mona" })
+        : Response.json({ message: "Bad credentials" }, { status: 401 });
+    };
+  });
+  await signInWith("ghp_wrong");
+  await page.getByText("GitHub rejected this token.", { exact: false }).waitFor();
+  check(true, "a token GitHub rejects is refused");
+  await signInWith("ghp_smoke");
+  await page.getByText(/^Signed in as @octocat/).waitFor();
+  await page.getByRole("button", { name: "GitHub: @octocat" }).waitFor();
+  const encrypted = await page.getByText(/saved encrypted/).isVisible();
+  const saved = await app.evaluate(async ({ app }) => {
+    // (no import() inside evaluate)
+    const fs = process.getBuiltinModule("node:fs/promises");
+    return fs.readFile(`${app.getPath("userData")}/github-token`).then(
+      (b) => b.toString("latin1"),
+      () => null,
+    );
+  });
+  check(
+    encrypted ? saved !== null && !saved.includes("ghp_smoke") : saved === null,
+    encrypted
+      ? "a pasted token is saved encrypted (the file does not contain it)"
+      : "no OS keychain here: the token is kept in memory, nothing is written",
+  );
+  check(!(await pageText(page)).includes("ghp_smoke"), "the token is not in the page");
+  await page.getByRole("button", { name: "Sign out" }).click();
+  await page.getByText("Not connected.").waitFor();
+  const afterSignOut = await app.evaluate(async ({ app }) => {
+    // (no import() inside evaluate)
+    const fs = process.getBuiltinModule("node:fs/promises");
+    return fs.access(`${app.getPath("userData")}/github-token`).then(
+      () => "exists",
+      () => "gone",
+    );
+  });
+  check(afterSignOut === "gone", "sign out forgets the token");
+  await page.getByRole("button", { name: "Back to review" }).click();
+  await page
+    .getByText("Review submitted")
+    .or(page.getByText("Friendlier greetings"))
+    .first()
+    .waitFor();
+  check(true, "back to the review");
+
   // The viewer flow ran without errors. (The probes below cause CSP errors on purpose.)
   check(errors.length === 0, `no page errors${errors.length ? `: ${errors.join(" | ")}` : ""}`);
 
@@ -127,15 +224,18 @@ try {
     );
     return {
       noNode: w.require === undefined && w.process === undefined,
-      bridge: Object.keys(w.reviewBuddy as object).sort(),
+      bridge: Object.entries(w.reviewBuddy as Record<string, object>)
+        .flatMap(([group, calls]) => Object.keys(calls).map((call) => `${group}.${call}`))
+        .sort(),
       inlineBlocked: w.__inlineRan === undefined,
       remoteFetch,
     };
   });
   check(inPage.noNode, "no Node globals in the renderer");
   check(
-    inPage.bridge.join() === "done,getConfig,getFileContent,getReview",
-    `preload exposes only the review calls (${inPage.bridge.join()})`,
+    inPage.bridge.join() ===
+      "github.signInWithToken,github.signOut,github.status,github.useGh,review.done,review.getConfig,review.getFileContent,review.getReview",
+    `preload exposes only the review and GitHub calls (${inPage.bridge.join()})`,
   );
   check(inPage.inlineBlocked, "CSP blocks inline scripts");
   check(inPage.remoteFetch === "blocked", "CSP blocks fetching remote hosts");
@@ -149,9 +249,9 @@ try {
       );
     return {
       traversal: await outcome(
-        window.reviewBuddy.getFileContent("fixture", "../package.json", "head"),
+        window.reviewBuddy.review.getFileContent("fixture", "../package.json", "head"),
       ),
-      unknownReview: await outcome(window.reviewBuddy.getReview("nope")),
+      unknownReview: await outcome(window.reviewBuddy.review.getReview("nope")),
     };
   });
   check(/unknown path/.test(ipc.traversal), "IPC refuses a file outside the review");
@@ -187,4 +287,5 @@ try {
   console.log("desktop smoke: all checks passed");
 } finally {
   await app.close();
+  rmSync(userDataDir, { recursive: true, force: true });
 }

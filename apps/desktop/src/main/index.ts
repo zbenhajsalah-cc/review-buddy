@@ -9,12 +9,15 @@
  */
 import { readFile } from "node:fs/promises";
 import { extname, join } from "node:path";
-import { app, BrowserWindow, protocol, session, shell } from "electron";
+import { app, BrowserWindow, net, protocol, safeStorage, session, shell } from "electron";
 import { FIXTURE_REVIEW_KEY } from "../shared/ipc.ts";
 import { type AgentCheckResult, runAgentCheck } from "./agent/check.ts";
 import { claudeExecutablePath } from "./agent/executable.ts";
 import { loadFixtureReview } from "./fixture/index.ts";
-import { registerReviewIpc } from "./ipc.ts";
+import { GitHubAuth } from "./github/auth.ts";
+import { findGh, ghAuthToken } from "./github/gh-cli.ts";
+import { TokenStore } from "./github/token-store.ts";
+import { registerGitHubIpc, registerReviewIpc } from "./ipc.ts";
 import { ReviewStore } from "./reviews.ts";
 import {
   APP_HOST,
@@ -25,6 +28,7 @@ import {
   isRendererUrl,
   rendererCsp,
 } from "./security.ts";
+import { SettingsFile } from "./settings-file.ts";
 
 // electron-vite sets this for `dev`. Ignored in a packaged app, so an env var
 // can never point the window at another page.
@@ -150,9 +154,25 @@ app.whenReady().then(async () => {
   for (const warning of fixture.warnings) console.warn(`[review-buddy] fixture: ${warning}`);
   store.add(FIXTURE_REVIEW_KEY, fixture.review, fixture.source);
 
+  // The GitHub token lives here, in main, only (US-10).
+  const userData = app.getPath("userData");
+  const settings = new SettingsFile(join(userData, "settings.json"));
+  const github = new GitHubAuth({
+    // Chromium's network stack: honors the system proxy settings.
+    fetch: (url, init) => net.fetch(url, init),
+    store: new TokenStore(join(userData, "github-token"), safeStorage),
+    ghDisabled: {
+      get: async () => (await settings.read()).ghDisabled === true,
+      set: (ghDisabled) => settings.update({ ghDisabled }),
+    },
+    ghToken: () => ghAuthToken(),
+    ghInstalled: () => findGh() !== null,
+  });
+
   hardenSessions();
   serveRenderer();
   registerReviewIpc(store, isTrustedPage);
+  registerGitHubIpc(github, isTrustedPage);
   createWindow();
 
   app.on("activate", () => {

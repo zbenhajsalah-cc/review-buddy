@@ -5,11 +5,12 @@ The desktop app shows a review in the same viewer as the plugin
 instead of HTTP. Plan and stories: `docs/DESIGN-desktop-app-shared-code.md`,
 `docs/backlog-desktop-app.md`.
 
-**Status (US-08, US-09):** a skeleton. Main loads one fixed review
+**Status (US-08 to US-10):** a skeleton. Main loads one fixed review
 (`src/main/fixture/review.json`) through core (`validateAgentReview` →
 `resolveReview`) and shows it. A command-line check proves the Agent SDK runs
-from main with your Claude login (see "Claude (Agent SDK)"). GitHub, the
-review agent and the PR screens come in later stories.
+from main with your Claude login (see "Claude (Agent SDK)"). The settings view
+connects GitHub (see "GitHub login"). Reading PRs, the review agent and the PR
+screens come in later stories.
 
 ## Run it
 
@@ -45,8 +46,9 @@ that needs the Electron binary and a display.
 ```
 src/main/       # Electron main (Node): window, app:// protocol, IPC handlers, review store
 src/main/agent/ # Agent SDK: the Claude Code binary path, the --agent-check run
-src/preload/    # exposes window.reviewBuddy (the ReviewBridge); built as CommonJS
-src/renderer/   # <ReviewViewer api={ipcReviewApi(window.reviewBuddy, key)} />
+src/main/github/ # GitHub login: gh CLI token, pasted token in safeStorage, GET /user
+src/preload/    # exposes window.reviewBuddy = { review, github }; built as CommonJS
+src/renderer/   # App shell (top bar) + <ReviewViewer api={ipcReviewApi(...)} /> + GitHub settings
 src/shared/     # the IPC contract (channel names + types), used by all three
 scripts/        # smoke-desktop.ts
 electron-builder.yml  # packaging (asarUnpack for the Claude Code binary)
@@ -58,7 +60,8 @@ The renderer shows text from PRs and from the agent, so it is treated as
 untrusted:
 
 - `contextIsolation: true`, `nodeIntegration: false`, `sandbox: true`. The
-  preload exposes four review calls, never `ipcRenderer` itself.
+  preload exposes four review calls and four GitHub calls, never
+  `ipcRenderer` itself.
 - Main answers IPC only from our renderer page (it checks the sender frame's
   URL) and checks every argument. File reads are limited to the review's own
   files, as in the plugin (`allowedPaths`).
@@ -70,6 +73,57 @@ untrusted:
   browser, and only `http:`/`https:` links are opened. The window never
   navigates away from the app, and `<webview>` is blocked.
 - The only permission granted is clipboard write, for the copy buttons.
+- The GitHub token never reaches the renderer (see "GitHub login").
+
+## GitHub login
+
+Open it with the button at the top right ("Connect GitHub", or
+"GitHub: @you" once connected).
+
+**Where the token comes from**, in this order:
+
+1. **A token you pasted** in the settings. Create a
+   [fine-grained token](https://github.com/settings/personal-access-tokens/new)
+   with read access to Contents, Pull requests and Metadata.
+2. **The GitHub CLI**, if `gh` is installed and logged in (`gh auth token`).
+   Nothing to set up. A packaged app does not get your shell's PATH, so the app
+   also looks in `/opt/homebrew/bin`, `/usr/local/bin` and the other usual
+   folders.
+
+Every token is checked with `GET /user` before use; the settings show the
+login. The OAuth device flow is for later.
+
+**Where it is kept**
+
+- The token lives in main only. The renderer gets a status (login, source,
+  errors) and never the token: no IPC call returns it. A pasted token goes
+  from the form to main once, and the form is cleared.
+- A pasted token is saved in `<userData>/github-token`, encrypted with Electron
+  `safeStorage` (Keychain on macOS, DPAPI on Windows, the Secret Service or
+  KWallet on Linux). If Linux has no keyring, safeStorage would use a fixed
+  key ("basic_text"); then nothing is written and the token is kept for this
+  run only. The settings say which one applies.
+- A gh token is not saved by the app: gh keeps it in the OS keychain, and the
+  app asks gh again at the next start.
+
+**Sign out** deletes a pasted token. For a gh login, it makes the app stop
+using gh (`ghDisabled` in `<userData>/settings.json`) but does not log gh out.
+"Use the GitHub CLI login" turns gh back on.
+
+**At start:** if GitHub rejects a saved token (401), the app deletes it, says
+so once in the settings, and tries gh. If GitHub cannot be reached, the
+token is kept and the next status check tries again.
+
+Main uses Electron's `net.fetch`, so system proxy settings apply.
+
+**Tests:** unit tests use a fake GitHub and a fake safeStorage. The smoke
+test replaces `net.fetch` in main with a fake GitHub, so sign-in, a rejected
+token and sign-out run the same on every machine, with no network and no real
+token. It uses its own `--user-data-dir`. On a machine with a keyring it also
+checks that the saved file does not contain the token. In the Linux
+container, a GNOME keyring was started for that check (`dbus-run-session` +
+`gnome-keyring-daemon --unlock`); without one, it checks that nothing is
+written.
 
 ## Claude (Agent SDK)
 

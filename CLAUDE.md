@@ -65,7 +65,7 @@ review-buddy/
 │   ├── integrations/          # Cursor / VS Code Copilot / Codex MCP configs + GENERATED review prompts
 │   ├── examples/hooks.json    # example plugin hook config (installed-binary form)
 │   └── scripts/               # build-plugin.ts (bundles → dist/), smoke-plugin.ts (runs apps/plugin alone)
-├── apps/desktop/              # Electron desktop app (in progress, see apps/desktop/README.md): main (window, app:// + CSP, IPC, Agent SDK `--agent-check`), preload (window.reviewBuddy), renderer (<ReviewViewer api={ipcReviewApi} />); `package` = electron-builder --dir
+├── apps/desktop/              # Electron desktop app (in progress, see apps/desktop/README.md): main (window, app:// + CSP, IPC, Agent SDK `--agent-check`, GitHub login: gh or a pasted token in safeStorage, never sent to the renderer), preload (window.reviewBuddy = { review, github }), renderer (<ReviewViewer api={ipcReviewApi} />); `package` = electron-builder --dir
 ├── packages/core/             # @review-buddy/core — runtime-neutral (no Bun/Node/DOM APIs; its typecheck enforces it)
 │   ├── src/types.ts           # shared agent + UI/server contracts
 │   ├── src/diff.ts            # git diff parser
@@ -82,6 +82,7 @@ review-buddy/
 ├── packages/viewer/           # @review-buddy/viewer — the review UI (React 19 + Tailwind v4 + @pierre/diffs), no app shell
 │   ├── src/ReviewViewer.tsx   # <ReviewViewer api /> — validates the review, overview ↔ chapters
 │   ├── src/review-api.tsx     # ReviewApi (reviewKey, getReview, getFileContent, getConfig, done) + context; HTTP in the plugin, IPC in desktop
+│   ├── src/ui.ts              # `@review-buddy/viewer/ui`: the shadcn primitives (Button, Card, …) for the apps' own screens
 │   ├── src/theme.css          # tokens + base styles; each app's CSS imports it AND adds `@source` for packages/viewer/src
 │   └── src/stories/fixtures.ts # fixtures + fakeReviewApi() for stories and tests
 ├── docs/
