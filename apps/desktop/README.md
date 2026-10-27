@@ -5,7 +5,7 @@ The desktop app shows a review in the same viewer as the plugin
 instead of HTTP. Plan and stories: `docs/DESIGN-desktop-app-shared-code.md`,
 `docs/backlog-desktop-app.md`.
 
-**Status (US-08 to US-15):** the app opens on your GitHub repositories (see
+**Status (US-08 to US-16):** the app opens on your GitHub repositories (see
 "Repositories"). Pick one to see its open PRs (see "Pull requests") and
 review one or several of them (or type any `owner/repo#123` or PR URL in the
 top bar): main reads each PR from the GitHub API (see "Reading a PR"), Claude
@@ -13,8 +13,8 @@ reviews it with your Claude login (see "Reviewing a PR"), and the viewer
 shows the result. You see each review's progress as it runs, can stop it,
 and can try again after a failure. The "Sample review" tab shows a fixed review
 (`src/main/fixture/review.json`) until you follow a review. The settings view
-connects GitHub (see "GitHub login"). Reviews are kept in memory only, until
-the app quits (the review cache is US-16).
+connects GitHub (see "GitHub login"). Finished reviews are saved, so a PR
+reviewed before opens at once, also after a restart (see "Saved reviews").
 
 ## Run it
 
@@ -49,11 +49,11 @@ that needs the Electron binary and a display.
 ## Layout
 
 ```
-src/main/       # Electron main (Node): window, app:// protocol, IPC handlers, review store
+src/main/       # Electron main (Node): window, app:// protocol, IPC handlers, review store + saved reviews
 src/main/agent/ # Agent SDK: the Claude Code binary path, --agent-check, the review tools, runner and job
 src/main/github/ # GitHub login (gh CLI token, pasted token in safeStorage), repo and PR lists, GitHubApiSource
 src/preload/    # exposes window.reviewBuddy = { review, github }; built as CommonJS
-src/renderer/   # App shell (top bar, tabs) + repo and PR lists + <ReviewViewer api={ipcReviewApi(...)} /> + GitHub settings
+src/renderer/   # App shell (top bar, tabs) + repo and PR lists + <ReviewViewer api={ipcReviewApi(...)} /> + settings (GitHub, saved reviews)
 src/shared/     # the IPC contract (channel names + types), used by all three
 scripts/        # smoke-desktop.ts (no Claude), review-e2e.ts (the real agent)
 electron-builder.yml  # packaging (asarUnpack for the Claude Code binary)
@@ -182,12 +182,12 @@ A repo's open PRs (`src/renderer/src/PullList.tsx`, data from
   (`GET /pulls/{n}`), 8 at a time, and keeps the size per PR head, so a
   refresh reads only PRs with new commits. A size that cannot be read, or
   takes over 10 s, is left out.
-- **What the app has for each PR:** **Reviewed** (a review of the PR's
-  current head, with **Open review**), **Outdated review** (the PR has new
-  commits since; **Open review** or **Review again**), **Queued** (with
-  **Remove**), **Reviewing…** (with **Show progress**), or "Last review
-  failed: …" with the reason. While a review runs, the row shows its phase
-  and time. Reviews are in memory until the app quits (US-16 saves them).
+- **What the app has for each PR:** **Reviewed** (a saved review of the
+  PR's current head, with **Open review**, and **Run again** for a new
+  run), **Outdated review** (the PR has new commits since; **Open review**
+  or **Review again**), **Queued** (with **Remove**), **Reviewing…** (with
+  **Show progress**), or "Last review failed: …" with the reason. While a
+  review runs, the row shows its phase and time. See "Saved reviews".
 - **Starting reviews:** **Review** on a row starts one and shows its
   progress. Tick several rows and press **Review selected** to queue them;
   you stay on the list and the rows show their progress. Two reviews run at
@@ -204,6 +204,45 @@ fake GitHub: rows, Draft, a missing size, Load more, and **Review selected**
 on two PRs that then fail (no Claude needed), in order. The real-agent check
 (`review-e2e`) starts its review from the PR list and then checks that the PR
 shows **Reviewed** and that **Open review** opens it.
+
+## Saved reviews
+
+Every finished review is saved (`src/main/review-cache.ts`), so opening a PR
+again costs no agent run, also after a restart:
+
+```
+<userData>/reviews/index.json                          what is saved
+<userData>/reviews/<owner>/<repo>/<number>@<headSha>.json   one review
+```
+
+A review file holds the resolved review, the PR head and merge base SHAs,
+and the diff's file list (names, renames, binary). That is all "expand full
+file" needs after a restart: it reads the files from GitHub at those SHAs,
+for that file list only. File names are built only from checked parts
+(owner, repo, number, SHA); the renderer names a review by its key, which is
+looked up in the index. A missing or damaged file is dropped.
+
+- **One review per PR head.** Reviewing the same head again replaces it.
+- **Opening a PR:** **Open review** on a **Reviewed** row shows the saved
+  review at once. Starting a review of a PR (from the list or the top bar)
+  whose current head has a saved review opens that review instead of running
+  Claude ("Opened the saved review of this commit"); **Run again** on the
+  row forces a new run.
+- **Out of date:** when the PR's head moved since its newest saved review,
+  the row says **Outdated review**. Opening it shows a bar: "This review is
+  for an older commit … has new commits since", with **Review again**.
+- **Deleting:** Settings → **Saved reviews** lists them (PR, title, commit,
+  when, size) with **Delete** each and **Delete all** (asked twice). A
+  deleted review disappears from the PR list and from the jobs list.
+
+**Tests:** `review-cache.test.ts` (save, reload, newest, replace, delete,
+damaged or missing files, an index entry that points outside the folder,
+unsafe names); `reviews.test.ts` (a store reloads a saved review, with its
+file reads, after a "restart"). The smoke test writes two saved reviews into
+its profile before launch, in the saved format, and checks Reviewed /
+Outdated, Open review, the banner, the no-run reopen, Delete and Delete all.
+`review-e2e` restarts the app after the real review and checks the PR is
+still Reviewed, the review opens, "expand full file" works, and no agent ran.
 
 ## Reading a PR (`GitHubApiSource`)
 

@@ -188,7 +188,9 @@ The template moves to `packages/core/prompts/`.
   retry.
 - **Cache:** keep `ResolvedReview` per `owner/repo#n@headSha` in the app data
   folder, so reopening a PR does not re-run the agent. Re-run when the head SHA
-  changes.
+  changes. US-16: one file per PR head (`<userData>/reviews`), with
+  the SHAs and the diff's file list, so "expand full file" works after a
+  restart; an outdated review is shown with a "Review again" bar.
 
 ## 5. pnpm monorepo
 

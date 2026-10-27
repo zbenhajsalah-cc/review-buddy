@@ -13,6 +13,7 @@ import { ipcReviewApi } from "./ipc-review-api.ts";
 import { PullList } from "./PullList.tsx";
 import { RepoList } from "./RepoList.tsx";
 import { ipcErrorMessage, PrForm, RunPanel } from "./ReviewRun.tsx";
+import { SavedReviews } from "./SavedReviews.tsx";
 
 type Screen = "repos" | "pulls" | "review" | "settings";
 
@@ -21,8 +22,8 @@ type View =
   | { kind: "sample" }
   /** A job: its progress, its failure, or its review once done. */
   | { kind: "job"; id: number }
-  /** A review opened from the PR list. */
-  | { kind: "review"; reviewKey: string; pr: string };
+  /** A review opened from the PR list; `outdated` if the PR moved on since. */
+  | { kind: "review"; reviewKey: string; pr: string; outdated?: boolean };
 
 /**
  * The app shell: a thin bar with tabs above the current screen. The app
@@ -38,6 +39,8 @@ export function App({ bridge }: { bridge: DesktopBridge }) {
   const [back, setBack] = useState<Exclude<Screen, "settings">>("repos");
   const [github, setGitHub] = useState<GitHubStatus | null>(null);
   const [repo, setRepo] = useState<RepoSummary | null>(null);
+  // Counts deletions of saved reviews: the PR list reloads after one.
+  const [deletions, setDeletions] = useState(0);
   const [jobs, setJobs] = useState<ReviewJobStatus[]>([]);
   const [view, setView] = useState<View>({ kind: "sample" });
   const [startError, setStartError] = useState<string | undefined>();
@@ -75,13 +78,16 @@ export function App({ bridge }: { bridge: DesktopBridge }) {
   const api = useMemo(() => ipcReviewApi(bridge.review, reviewKey), [bridge, reviewKey]);
   const reviewTab = view.kind === "review" ? view.pr : (job?.pr ?? "Sample review");
 
-  /** Queues reviews; `follow` shows the first one. Resolves with the errors, if any. */
-  const startReviews = async (prs: string[], follow: boolean) => {
+  /**
+   * Queues reviews; `follow` shows the first one; `fresh` runs Claude even if
+   * a review of the PR's head is saved. Resolves with the errors, if any.
+   */
+  const startReviews = async (prs: string[], follow: boolean, fresh = false) => {
     const errors: string[] = [];
     let first: ReviewJobStatus | undefined;
     for (const pr of prs) {
       try {
-        const started = await bridge.review.start(pr);
+        const started = await bridge.review.start(pr, fresh ? { fresh } : undefined);
         first ??= started;
       } catch (e) {
         errors.push(ipcErrorMessage(e));
@@ -103,6 +109,14 @@ export function App({ bridge }: { bridge: DesktopBridge }) {
 
   const stopJob = (id: number) => {
     bridge.review.stop(id).then(setJobs, () => {});
+  };
+
+  /** Saved reviews were deleted: nothing may show them any more. */
+  const savedDeleted = (deleted: string[] | "all") => {
+    if (view.kind === "review" && (deleted === "all" || deleted.includes(view.reviewKey))) {
+      setView({ kind: "sample" });
+    }
+    setDeletions((n) => n + 1);
   };
 
   const openRepo = (chosen: RepoSummary) => {
@@ -173,14 +187,15 @@ export function App({ bridge }: { bridge: DesktopBridge }) {
         <div hidden={screen !== "pulls"}>
           {repo ? (
             <PullList
-              key={repo.fullName}
+              key={`${repo.fullName}:${deletions}`}
               bridge={bridge.github}
               repo={repo}
               jobs={jobs}
-              onReview={(numbers, follow) =>
+              onReview={(numbers, follow, fresh) =>
                 startReviews(
                   numbers.map((n) => `${repo.fullName}#${n}`),
                   follow,
+                  fresh,
                 )
               }
               onOpenReview={(review) => {
@@ -204,7 +219,9 @@ export function App({ bridge }: { bridge: DesktopBridge }) {
             status={github}
             onStatus={setGitHub}
             onClose={() => setScreen(back)}
-          />
+          >
+            <SavedReviews bridge={bridge.review} onDeleted={savedDeleted} />
+          </GitHubSettings>
         ) : screen !== "review" ? null : job && job.state !== "done" ? (
           <RunPanel
             status={job}
@@ -214,8 +231,25 @@ export function App({ bridge }: { bridge: DesktopBridge }) {
             onDismiss={() => setView({ kind: "sample" })}
           />
         ) : (
-          // A new job remounts the viewer, even for the same PR head.
-          <ReviewViewer key={`${reviewKey}:${view.kind === "job" ? view.id : 0}`} api={api} />
+          <div className="flex h-full flex-col">
+            {view.kind === "review" && view.outdated ? (
+              <div
+                role="status"
+                className="flex shrink-0 items-center gap-3 border-b bg-muted px-4 py-2 text-sm"
+              >
+                <span className="min-w-0 flex-1">
+                  This review is for an older commit: {view.pr} has new commits since.
+                </span>
+                <Button size="sm" onClick={() => void startReviews([view.pr], true)}>
+                  Review again
+                </Button>
+              </div>
+            ) : null}
+            <div className="min-h-0 flex-1">
+              {/* A new job remounts the viewer, even for the same PR head. */}
+              <ReviewViewer key={`${reviewKey}:${view.kind === "job" ? view.id : 0}`} api={api} />
+            </div>
+          </div>
         )}
       </main>
     </div>

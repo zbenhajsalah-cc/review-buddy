@@ -16,11 +16,12 @@
 /// <reference lib="dom.iterable" />
 /// <reference path="../src/renderer/src/env.d.ts" />
 // (page.evaluate callbacks run in the renderer: DOM types and window.reviewBuddy.)
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { _electron, type ElectronApplication, type Page } from "playwright-core";
+import { loadFixtureReview } from "../src/main/fixture/index.ts";
 
 const appDir = join(import.meta.dirname, "..");
 const flag = process.argv.indexOf("--executable");
@@ -59,6 +60,40 @@ async function waitForText(page: Page, text: string, present = true): Promise<vo
 }
 
 const userDataDir = mkdtempSync(join(tmpdir(), "rb-desktop-smoke-"));
+
+// Two saved reviews (US-16), as earlier runs would have left them: one of the
+// current head of octo-org/widgets#12, one of an older head of #5. Written
+// here in the saved format (src/main/review-cache.ts), so a format change
+// that would lose users' saved reviews fails this test.
+const HEAD_12 = "12".padStart(40, "c");
+const OLD_5 = "e".repeat(40);
+{
+  const dir = join(userDataDir, "reviews");
+  const { review } = await loadFixtureReview();
+  const index = [];
+  for (const [n, headSha] of [
+    [12, HEAD_12],
+    [5, OLD_5],
+  ] as const) {
+    const pr = `octo-org/widgets#${n}`;
+    const reviewKey = `${pr}@${headSha.slice(0, 12)}`;
+    const savedAt = new Date().toISOString();
+    const text = JSON.stringify({
+      version: 1,
+      reviewKey,
+      pr,
+      headSha,
+      baseSha: "d".repeat(40),
+      savedAt,
+      files: [],
+      review,
+    });
+    mkdirSync(join(dir, "octo-org", "widgets"), { recursive: true });
+    writeFileSync(join(dir, "octo-org", "widgets", `${n}@${headSha}.json`), text);
+    index.push({ reviewKey, pr, title: review.pr.title, headSha, savedAt, bytes: text.length });
+  }
+  writeFileSync(join(dir, "index.json"), JSON.stringify(index));
+}
 const app: ElectronApplication = await _electron.launch({
   executablePath: packaged ?? electronPath,
   // Chromium refuses to run as root with its sandbox on (CI containers).
@@ -226,6 +261,12 @@ try {
           deletions: 2,
           changed_files: 3,
         }),
+      // The merge base is d…d. The diff is not faked (the PR JSON comes
+      // back instead), so a review that gets that far fails before Claude.
+      [`${widgets}/compare/${"d".repeat(40)}...${"12".padStart(40, "c")}?per_page=1&page=2`]: () =>
+        Response.json({ merge_base_commit: { sha: "d".repeat(40) } }),
+      [`${widgets}/compare/${"d".repeat(40)}...${"5".padStart(40, "c")}?per_page=1&page=2`]: () =>
+        Response.json({ merge_base_commit: { sha: "d".repeat(40) } }),
       [`${widgets}/pulls/5`]: () =>
         Response.json({
           ...pull(5, "Fix the README"),
@@ -322,24 +363,97 @@ try {
   await page.getByRole("button", { name: "Load more" }).click();
   await pullRow(5).waitFor();
   check(true, "Load more brings the next page of PRs");
-  await page.getByLabel("Select #12").check();
+
+  // Saved reviews (US-16): #12's is for its current head, #5's for an older one.
+  const row12Text = await pullRow(12).innerText();
+  check(
+    row12Text.includes("Reviewed") &&
+      (await page.getByRole("button", { name: "Run the review of #12 again" }).isVisible()),
+    "a PR whose head has a saved review shows Reviewed, with Open review and Run again",
+  );
+  check(
+    (await pullRow(5).innerText()).includes("Outdated review") &&
+      (await page.getByRole("button", { name: "Review #5" }).innerText()) === "Review again",
+    "a saved review of an older head is Outdated, with Review again",
+  );
+  await page.getByRole("button", { name: "Open the review of #12" }).click();
+  await page.getByText("Friendlier greetings and calmer retries").first().waitFor();
+  check(
+    !(await page.getByText("This review is for an older commit").isVisible()),
+    "Open review shows the saved review at once, with no out-of-date banner",
+  );
+  await page.getByRole("button", { name: "octo-org/widgets", exact: true }).click();
+  await page.getByRole("button", { name: "Open the review of #5" }).click();
+  await page.getByText(/^This review is for an older commit/).waitFor();
+  check(true, "an outdated saved review says so, with Review again");
+  await page.getByRole("button", { name: "octo-org/widgets", exact: true }).click();
+
+  // Starting #12 again uses its saved review: no Claude, no run.
+  await page.getByLabel("Pull request").fill("octo-org/widgets#12");
+  await page.getByRole("button", { name: "Review", exact: true }).click();
+  await page.getByText("Friendlier greetings and calmer retries").first().waitFor();
+  const reopened = (await page.evaluate(() => window.reviewBuddy.review.jobs())).at(-1)!;
+  check(
+    reopened.state === "done" && reopened.steps.join() === "Opened the saved review of this commit",
+    "reviewing a PR head that has a saved review opens it without a run",
+  );
+  await page.getByRole("button", { name: "octo-org/widgets", exact: true }).click();
+
   await page.getByLabel("Select #11").check();
+  await page.getByLabel("Select #5").check();
   await page.getByRole("button", { name: "Review selected (2)" }).click();
   // (No polling in the renderer: the rows change on main's job events.)
   await pullRow(11).getByText("Last review failed").waitFor({ timeout: 15_000 });
-  await pullRow(12).getByText("Last review failed").waitFor();
-  const queued = await page.evaluate(() => window.reviewBuddy.review.jobs());
+  await pullRow(5).getByText("Last review failed").waitFor();
+  const queued = (await page.evaluate(() => window.reviewBuddy.review.jobs())).slice(-2);
   check(
     queued.map((j) => `${j.pr} ${j.state}`).join() ===
-      "octo-org/widgets#12 failed,octo-org/widgets#11 failed" &&
-      queued[0]!.error!.startsWith("Merge base of octo-org/widgets#12") &&
-      queued[1]!.error!.startsWith("PR octo-org/widgets#11: not found"),
+      "octo-org/widgets#11 failed,octo-org/widgets#5 failed" &&
+      queued[0]!.error!.startsWith("PR octo-org/widgets#11: not found") &&
+      // (The fake answers the diff request with JSON: not a diff that matches.)
+      queued[1]!.error!.startsWith("The diff GitHub sent for octo-org/widgets#5"),
     "Review selected queues both PRs in order; each row shows why its review failed",
   );
   check(
-    (await page.getByRole("button", { name: "Review #12" }).innerText()) === "Try again",
+    (await page.getByRole("button", { name: "Review #11" }).innerText()) === "Try again",
     "a failed PR offers Try again",
   );
+
+  // Settings: the saved reviews, Delete, Delete all.
+  await page.getByRole("button", { name: "GitHub: @octocat" }).click();
+  const savedList = page.getByRole("list", { name: "Saved reviews" });
+  await savedList.waitFor();
+  check(
+    (await savedList.getByRole("listitem").count()) === 2,
+    "the settings list both saved reviews",
+  );
+  await page
+    .getByRole("button", {
+      name: `Delete the saved review of octo-org/widgets#12 at ${HEAD_12.slice(0, 7)}`,
+    })
+    .click();
+  await page.waitForFunction(() =>
+    window.reviewBuddy.review.saved().then((list) => list.length === 1),
+  );
+  await page.getByRole("button", { name: "Back", exact: true }).click();
+  await pullRow(12).waitFor();
+  check(
+    (await page.getByRole("button", { name: "Review #12" }).innerText()) === "Review",
+    "a deleted review is gone from the PR list",
+  );
+  await page.getByRole("button", { name: "GitHub: @octocat" }).click();
+  await page.getByRole("button", { name: "Delete all" }).click();
+  await page.getByRole("button", { name: "Yes, delete all" }).click();
+  await page.getByText("No saved reviews.").waitFor();
+  const savedOnDisk = await app.evaluate(async ({ app }) => {
+    const fs = process.getBuiltinModule("node:fs/promises");
+    return fs.readdir(`${app.getPath("userData")}/reviews`).then(
+      (names) => names.join(),
+      () => "gone",
+    );
+  });
+  check(savedOnDisk === "gone", "Delete all removes the saved files");
+  await page.getByRole("button", { name: "Back", exact: true }).click();
   await page.getByRole("button", { name: "← Repositories" }).click();
   await search.fill("");
   await page.getByRole("button", { name: "Refresh" }).click();
@@ -443,7 +557,7 @@ try {
   check(inPage.noNode, "no Node globals in the renderer");
   check(
     inPage.bridge.join() ===
-      "github.markRepoUsed,github.pulls,github.repos,github.signInWithToken,github.signOut,github.status,github.useGh,review.done,review.getConfig,review.getFileContent,review.getReview,review.jobs,review.onJobs,review.start,review.stop",
+      "github.markRepoUsed,github.pulls,github.repos,github.signInWithToken,github.signOut,github.status,github.useGh,review.deleteAllSaved,review.deleteSaved,review.done,review.getConfig,review.getFileContent,review.getReview,review.jobs,review.onJobs,review.saved,review.start,review.stop",
     `preload exposes only the review and GitHub calls (${inPage.bridge.join()})`,
   );
   check(inPage.inlineBlocked, "CSP blocks inline scripts");

@@ -2,7 +2,9 @@
  * The app's agent reviews (US-12, US-14, US-15): a queue of jobs, at most
  * `maxRunning` at once (2 by default), started in start order. Each job
  * parses the PR, opens it, runs the agent, and adds the result to the
- * ReviewStore so the viewer can load it. Every change (a new job, a step, an
+ * ReviewStore (which saves it) so the viewer can load it. A PR whose current
+ * head already has a saved review opens that one, without Claude, unless the
+ * job asks for a fresh run (US-16). Every change (a new job, a step, an
  * end) calls `onChange`; main sends the list to the renderer.
  *
  * No Electron imports: tested with bun.
@@ -42,6 +44,8 @@ interface Job {
   status: ReviewJobStatus;
   ref: PrRef;
   abort: AbortController;
+  /** Run the agent even if a review of this head is saved. */
+  fresh: boolean;
 }
 
 export class ReviewJobs {
@@ -60,8 +64,9 @@ export class ReviewJobs {
    * Queues a review of `value` ("owner/repo#123" or a PR URL). It runs as
    * soon as fewer than `maxRunning` jobs run.
    */
-  start(value: unknown): ReviewJobStatus {
+  start(value: unknown, options?: unknown): ReviewJobStatus {
     if (typeof value !== "string") throw new Error("Expected a PR reference.");
+    const fresh = (options as { fresh?: unknown } | undefined)?.fresh === true;
     const ref = parsePrArg(value); // throws a message for the user
     const pr = `${ref.owner}/${ref.repo}#${ref.number}`;
     const same = this.#jobs.find(
@@ -76,6 +81,7 @@ export class ReviewJobs {
       status: { id: this.#nextId++, pr, state: "queued", steps: [] },
       ref,
       abort: new AbortController(),
+      fresh,
     };
     this.#jobs.push(job);
     this.#prune();
@@ -104,6 +110,19 @@ export class ReviewJobs {
     for (const job of this.#jobs) if (job.status.state === "queued") this.#unqueue(job);
     for (const job of this.#jobs) if (job.status.state === "running") job.abort.abort();
     this.#changed();
+  }
+
+  /**
+   * A saved review was deleted (all of them without a key): finished jobs
+   * that show it are dropped, so nothing offers to open it.
+   */
+  forgetReview(reviewKey?: unknown): void {
+    const before = this.#jobs.length;
+    this.#jobs = this.#jobs.filter(
+      (j) =>
+        j.status.state !== "done" || (reviewKey !== undefined && j.status.reviewKey !== reviewKey),
+    );
+    if (this.#jobs.length !== before) this.#changed();
   }
 
   /** Resolves when no job is queued or running. */
@@ -167,12 +186,23 @@ export class ReviewJobs {
       }
       if (signal.aborted) throw new Error("stopped");
       job.status.headSha = source.headSha;
-      result = await this.deps.run(source, label, onProgress, signal);
-      // Stopped means stopped, even after a submission: the user asked for no review.
-      if (result.review && !signal.aborted) {
-        // Viewed-file flags are kept per PR head: a new push is a new review.
-        reviewKey = `${label}@${source.headSha.slice(0, 12)}`;
-        this.deps.store.add(reviewKey, result.review, source, { label, headSha: source.headSha });
+      const saved = job.fresh ? undefined : this.deps.store.find(label, source.headSha);
+      if (saved) {
+        onProgress({ phase: "checking", step: "Opened the saved review of this commit" });
+        reviewKey = saved;
+        result = { ok: true, warnings: [], submissions: 0, durationMs: 0, cached: true };
+      } else {
+        result = await this.deps.run(source, label, onProgress, signal);
+        // Stopped means stopped, even after a submission: the user asked for no review.
+        if (result.review && !signal.aborted) {
+          // Viewed-file flags are kept per PR head: a new push is a new review.
+          reviewKey = await this.deps.store.addPrReview(result.review, source, {
+            label,
+            headSha: source.headSha,
+            baseSha: source.baseSha,
+            files: await source.files(),
+          });
+        }
       }
     } catch (e) {
       result = {

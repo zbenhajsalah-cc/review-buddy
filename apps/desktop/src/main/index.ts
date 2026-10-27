@@ -16,7 +16,7 @@ import { type AgentCheckResult, runAgentCheck } from "./agent/check.ts";
 import { claudeExecutablePath } from "./agent/executable.ts";
 import { ReviewJobs } from "./agent/review-job.ts";
 import { loadFixtureReview } from "./fixture/index.ts";
-import { openGitHubPr } from "./github/api-source.ts";
+import { openGitHubPr, prFileReader } from "./github/api-source.ts";
 import { GitHubAuth } from "./github/auth.ts";
 import { findGh, ghAuthToken } from "./github/gh-cli.ts";
 import { parsePrArg, runPrCheck } from "./github/pr-check.ts";
@@ -24,6 +24,7 @@ import { GitHubPulls } from "./github/pulls.ts";
 import { GitHubRepos } from "./github/repos.ts";
 import { TokenStore } from "./github/token-store.ts";
 import { registerGitHubIpc, registerReviewIpc } from "./ipc.ts";
+import { ReviewCache } from "./review-cache.ts";
 import { ReviewStore } from "./reviews.ts";
 import {
   APP_HOST,
@@ -152,6 +153,30 @@ async function agentCheck(): Promise<void> {
   app.exit(result.ok ? 0 : 1);
 }
 
+/**
+ * The reviews main serves (US-16): this run's, and the saved ones in
+ * `<userData>/reviews`, whose file reads go to GitHub at the saved SHAs.
+ */
+async function createReviewStore(github: GitHubAuth): Promise<ReviewStore> {
+  const cache = new ReviewCache(join(app.getPath("userData"), "reviews"));
+  await cache.load();
+  return new ReviewStore({
+    cache,
+    reopen: (saved) => {
+      const files = new Map(saved.files.map((f) => [f.path, f]));
+      return {
+        fileContent: prFileReader(
+          parsePrArg(saved.pr),
+          { headSha: saved.headSha, baseSha: saved.baseSha },
+          async () => files,
+          { fetch: (url, init) => net.fetch(url, init), token: () => github.token() },
+        ),
+      };
+    },
+    log: (line) => console.warn(`[review-buddy] reviews: ${line}`),
+  });
+}
+
 /** Calls `fn` once, `ms` after the first of a burst of calls. */
 function atMostEvery(ms: number, fn: () => void): () => void {
   let timer: ReturnType<typeof setTimeout> | undefined;
@@ -273,12 +298,12 @@ app.whenReady().then(async () => {
     return prCheck(app.commandLine.getSwitchValue("pr-check"));
   }
 
-  const store = new ReviewStore();
+  const settings = appSettings();
+  const github = createGitHubAuth(settings);
+  const store = await createReviewStore(github);
   const fixture = await loadFixtureReview();
   for (const warning of fixture.warnings) console.warn(`[review-buddy] fixture: ${warning}`);
   store.add(FIXTURE_REVIEW_KEY, fixture.review, fixture.source);
-  const settings = appSettings();
-  const github = createGitHubAuth(settings);
   const repos = createGitHubRepos(settings, github);
   const jobs = createReviewJobs(store, github, repos);
   const pulls = new GitHubPulls({

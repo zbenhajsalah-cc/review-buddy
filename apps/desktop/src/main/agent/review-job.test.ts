@@ -24,7 +24,13 @@ async function setup(run?: ReviewJobDeps["run"], more: Partial<ReviewJobDeps> = 
     open: async (ref, signal) => {
       opened.push(ref);
       signals.push(signal);
-      return { ...source, ref, headSha: HEAD, baseSha: HEAD } satisfies GitHubApiSource;
+      return {
+        ...source,
+        ref,
+        headSha: HEAD,
+        baseSha: HEAD,
+        files: async () => [{ path: "src/retry.ts", changeType: "modified", binary: false }],
+      } satisfies GitHubApiSource;
     },
     run:
       run ??
@@ -93,7 +99,7 @@ describe("ReviewJobs", () => {
         notes: ["a note"],
       },
     ]);
-    expect(store.getReview(key)).toBe(review);
+    expect(await store.getReview(key)).toBe(review);
     expect(store.newestFor("OctoCat/Hello-World#42")).toEqual({ reviewKey: key, headSha: HEAD });
     expect(JSON.parse(logs[0]!)).toEqual({
       pr: "octocat/hello-world#42",
@@ -266,7 +272,9 @@ describe("ReviewJobs", () => {
     await jobs.whenIdle();
     expect(jobs.jobs()[0]).toMatchObject({ state: "failed", error: "Stopped." });
     expect(jobs.jobs()[0]!.reviewKey).toBeUndefined();
-    expect(() => store.getReview("octocat/hello-world#42@7e8e70534d5f")).toThrow("unknown review");
+    await expect(store.getReview("octocat/hello-world#42@7e8e70534d5f")).rejects.toThrow(
+      "unknown review",
+    );
     expect(store.newestFor("octocat/hello-world#42")).toBeUndefined();
   });
 
@@ -308,6 +316,50 @@ describe("ReviewJobs", () => {
     expect(kept).toHaveLength(MAX_FINISHED);
     expect(kept[0]!.id).toBe(4);
     expect(kept.at(-1)!.id).toBe(MAX_FINISHED + 3);
+  });
+
+  test("a PR head with a review opens it without a run, unless fresh", async () => {
+    let runs = 0;
+    const { jobs, review, logs } = await setup(async () => {
+      runs++;
+      return { ok: true, review, warnings: [], submissions: 1, durationMs: 5 };
+    });
+    jobs.start("octocat/hello-world#42");
+    await jobs.whenIdle();
+    expect(runs).toBe(1);
+
+    jobs.start("octocat/hello-world#42");
+    await jobs.whenIdle();
+    expect(runs).toBe(1);
+    expect(jobs.jobs()[1]).toMatchObject({
+      state: "done",
+      reviewKey: "octocat/hello-world#42@7e8e70534d5f",
+      steps: ["Opened the saved review of this commit"],
+    });
+    expect(JSON.parse(logs[1]!)).toMatchObject({ pr: "octocat/hello-world#42", cached: true });
+
+    jobs.start("octocat/hello-world#42", { fresh: true });
+    await jobs.whenIdle();
+    expect(runs).toBe(2);
+    // Only a real `true` asks for a fresh run.
+    jobs.start("octocat/hello-world#42", { fresh: "yes" });
+    await jobs.whenIdle();
+    expect(runs).toBe(2);
+  });
+
+  test("forgetReview drops the finished jobs that show a deleted review", async () => {
+    const { jobs, changes } = await setup();
+    jobs.start("octocat/hello-world#42");
+    jobs.start("octocat/hello-world#43");
+    await jobs.whenIdle();
+    const count = changes.length;
+    jobs.forgetReview("octocat/hello-world#42@7e8e70534d5f");
+    expect(jobs.jobs().map((j) => j.pr)).toEqual(["octocat/hello-world#43"]);
+    expect(changes.length).toBe(count + 1);
+    jobs.forgetReview("nothing");
+    expect(changes.length).toBe(count + 1);
+    jobs.forgetReview();
+    expect(jobs.jobs()).toEqual([]);
   });
 
   test("jobs() is a copy", async () => {

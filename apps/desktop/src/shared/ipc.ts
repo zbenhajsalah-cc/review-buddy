@@ -15,6 +15,9 @@ export const IPC = {
   startReview: "review:start",
   stopReview: "review:stop",
   reviewJobs: "review:jobs",
+  savedReviews: "review:saved",
+  deleteSavedReview: "review:delete-saved",
+  deleteAllSavedReviews: "review:delete-all-saved",
   /** Main → renderer: the job list changed (an event, not a call). */
   reviewJobsChanged: "review:jobs-changed",
   githubStatus: "github:status",
@@ -87,6 +90,20 @@ export interface ReviewJobStatus {
   errorKind?: ReviewErrorKind;
 }
 
+/** A review saved on disk (US-16), as the settings list it. */
+export interface SavedReviewInfo {
+  reviewKey: string;
+  /** `owner/repo#123`. */
+  pr: string;
+  title: string;
+  /** The PR head the review is for. */
+  headSha: string;
+  /** ISO time. */
+  savedAt: string;
+  /** Size of the saved file. */
+  bytes: number;
+}
+
 /** What the preload script exposes. Every call names the review it is about. */
 export interface ReviewBridge {
   getReview(reviewKey: string): Promise<ResolvedReview>;
@@ -96,15 +113,21 @@ export interface ReviewBridge {
   /**
    * Queues a review of a PR ("owner/repo#123" or its URL); it starts when a
    * slot is free. Rejects a PR that is already queued or running. Also the
-   * "Try again" of a failed review.
+   * "Try again" of a failed review. A saved review of the PR's current head
+   * is used at once, without Claude, unless `fresh` (US-16).
    */
-  start(pr: string): Promise<ReviewJobStatus>;
+  start(pr: string, options?: { fresh?: boolean }): Promise<ReviewJobStatus>;
   /** Stops a running job, or takes a queued one out of the queue. */
   stop(id: number): Promise<ReviewJobStatus[]>;
   /** Queued and running jobs, and the last finished ones, oldest first. */
   jobs(): Promise<ReviewJobStatus[]>;
   /** Calls `listener` with the job list on every change; returns "unsubscribe". */
   onJobs(listener: (jobs: ReviewJobStatus[]) => void): () => void;
+  /** The saved reviews, newest first. */
+  saved(): Promise<SavedReviewInfo[]>;
+  /** Deletes one saved review (and forgets it); answers with the ones left. */
+  deleteSaved(reviewKey: string): Promise<SavedReviewInfo[]>;
+  deleteAllSaved(): Promise<SavedReviewInfo[]>;
 }
 
 /**

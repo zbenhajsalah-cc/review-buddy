@@ -7,7 +7,7 @@ import {
   CardTitle,
   Label,
 } from "@review-buddy/viewer/ui";
-import { type FormEvent, useState } from "react";
+import { type FormEvent, type ReactNode, useState } from "react";
 import type { GitHubBridge, GitHubStatus } from "../../shared/ipc.ts";
 
 const NEW_TOKEN_URL = "https://github.com/settings/personal-access-tokens/new";
@@ -21,11 +21,14 @@ export function GitHubSettings({
   status,
   onStatus,
   onClose,
+  children,
 }: {
   bridge: GitHubBridge;
   status: GitHubStatus | null;
   onStatus: (status: GitHubStatus) => void;
   onClose: () => void;
+  /** More settings, below the GitHub card. */
+  children?: ReactNode;
 }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | undefined>(status?.error);
@@ -135,6 +138,7 @@ export function GitHubSettings({
           ) : null}
         </CardContent>
       </Card>
+      {children}
     </div>
   );
 }

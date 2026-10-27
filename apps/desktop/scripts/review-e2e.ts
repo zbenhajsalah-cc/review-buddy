@@ -42,6 +42,8 @@ const API = "https://api.github.com/repos/zbenhajsalah-cc/review-buddy";
 const BASE = "dd0aba03f871da744fe6bc349f93ad9a3ab5b1ba";
 const HEAD = "7e8e70534d5fdb0a8ef1a5a0bf8407774b007b00";
 const TIMEOUT_MS = 15 * 60_000;
+/** The file whose "expand full file" is checked. */
+const target = "packages/viewer/src/ReviewViewer.tsx";
 
 function check(ok: boolean, what: string): void {
   if (!ok) throw new Error(`FAIL: ${what}`);
@@ -92,20 +94,20 @@ for (const file of parseDiff(diff)) {
 }
 
 const userDataDir = mkdtempSync(join(tmpdir(), "rb-desktop-e2e-"));
-const app: ElectronApplication = await _electron.launch({
-  executablePath: packaged ?? electronPath,
-  args: [
-    ...(packaged ? [] : [appDir]),
-    `--user-data-dir=${userDataDir}`,
-    ...(process.getuid?.() === 0 ? ["--no-sandbox"] : []),
-  ],
-  cwd: appDir,
-});
-const mainLog: string[] = [];
-app.process().stdout?.on("data", (d) => mainLog.push(String(d)));
-app.process().stderr?.on("data", (d) => mainLog.push(String(d)));
-
-try {
+/** Launches the app on `userDataDir`, with the fake GitHub and its login. */
+async function launch() {
+  const app: ElectronApplication = await _electron.launch({
+    executablePath: packaged ?? electronPath,
+    args: [
+      ...(packaged ? [] : [appDir]),
+      `--user-data-dir=${userDataDir}`,
+      ...(process.getuid?.() === 0 ? ["--no-sandbox"] : []),
+    ],
+    cwd: appDir,
+  });
+  const mainLog: string[] = [];
+  app.process().stdout?.on("data", (d) => mainLog.push(String(d)));
+  app.process().stderr?.on("data", (d) => mainLog.push(String(d)));
   const page = await app.firstWindow();
   const errors: string[] = [];
   page.on("pageerror", (e) => errors.push(String(e)));
@@ -128,9 +130,13 @@ try {
   }, routes);
   const signedIn = await page.evaluate(() => window.reviewBuddy.github.signInWithToken("ghp_e2e"));
   check(signedIn.signedIn, "signed in to the fake GitHub");
-
   // The page learns about the login on load.
   await page.reload();
+  return { app, page, mainLog, errors };
+}
+
+let { app, page, mainLog, errors } = await launch();
+try {
   await page.getByRole("button", { name: /^zbenhajsalah-cc\/review-buddy/ }).click();
   await page.getByRole("button", { name: "Review #28", exact: true }).click();
   await page.getByText(`Reviewing ${PR}…`).waitFor();
@@ -190,15 +196,48 @@ try {
   if (shots) await page.screenshot({ path: join(shots, "review-overview.png") });
 
   // "Expand full file" on ReviewViewer.tsx: a head line far from every hunk.
-  const target = "packages/viewer/src/ReviewViewer.tsx";
   const chapter = review.chapters.findIndex((c) => c.files.some((f) => f.path === target));
   check(chapter >= 0, `a chapter holds ${target}`);
   await page
     .getByText(review.chapters[chapter]!.title.replace(/[*_`]/g, ""), { exact: false })
     .first()
     .click();
+  await checkExpand(review.chapters[chapter]!.files.find((f) => f.path === target)!.hunks);
+  if (shots) await page.screenshot({ path: join(shots, "review-chapter.png") });
+
+  // The PR list now shows the PR as reviewed, at its current head.
+  await page.getByRole("button", { name: "zbenhajsalah-cc/review-buddy", exact: true }).click();
+  await page.getByText("Reviewed", { exact: true }).waitFor();
+  await page.getByRole("button", { name: "Open the review of #28" }).click();
+  await page.getByText(firstLine(review.prologue.why), { exact: false }).first().waitFor();
+  check(true, "the PR list shows #28 as reviewed, and opens its review");
+  check(errors.length === 0, `no page errors${errors.length ? `: ${errors.join(" | ")}` : ""}`);
+
+  // After a restart (US-16): the saved review shows at once, with no new run,
+  // and expand full file still reads the files at the reviewed commits.
+  await app.close();
+  ({ app, page, mainLog, errors } = await launch());
+  await page.getByRole("button", { name: /^zbenhajsalah-cc\/review-buddy/ }).click();
+  await page.getByText("Reviewed", { exact: true }).waitFor();
+  await page.getByRole("button", { name: "Open the review of #28" }).click();
+  await page.getByText(firstLine(review.prologue.why), { exact: false }).first().waitFor();
+  check(true, "after a restart, the PR is still Reviewed and its saved review opens");
+  await page
+    .getByText(review.chapters[chapter]!.title.replace(/[*_`]/g, ""), { exact: false })
+    .first()
+    .click();
+  await checkExpand(review.chapters[chapter]!.files.find((f) => f.path === target)!.hunks);
+  check(!mainLog.join("").includes("review-run"), "no agent run after the restart");
+  check(errors.length === 0, `no page errors${errors.length ? `: ${errors.join(" | ")}` : ""}`);
+  console.log("desktop review e2e: all checks passed");
+} finally {
+  await app.close();
+  rmSync(userDataDir, { recursive: true, force: true });
+}
+
+/** "Expand full file" in the open chapter shows a head line far from every hunk. */
+async function checkExpand(hunks: { new_start: number; new_lines: number }[]): Promise<void> {
   const head = show(HEAD, target).split("\n");
-  const hunks = review.chapters[chapter]!.files.find((f) => f.path === target)!.hunks;
   const far = head.findIndex(
     (line, i) =>
       line.trim().length > 25 &&
@@ -226,18 +265,4 @@ try {
   const deadline = Date.now() + 15_000;
   while (!(await text()).includes(farLine) && Date.now() < deadline) await page.waitForTimeout(250);
   check((await text()).includes(farLine), `expand full file shows line ${far + 1} of ${target}`);
-  if (shots) await page.screenshot({ path: join(shots, "review-chapter.png") });
-
-  // The PR list now shows the PR as reviewed, at its current head.
-  await page.getByRole("button", { name: "zbenhajsalah-cc/review-buddy", exact: true }).click();
-  await page.getByText("Reviewed", { exact: true }).waitFor();
-  await page.getByRole("button", { name: "Open the review of #28" }).click();
-  await page.getByText(firstLine(review.prologue.why), { exact: false }).first().waitFor();
-  check(true, "the PR list shows #28 as reviewed, and opens its review");
-
-  check(errors.length === 0, `no page errors${errors.length ? `: ${errors.join(" | ")}` : ""}`);
-  console.log("desktop review e2e: all checks passed");
-} finally {
-  await app.close();
-  rmSync(userDataDir, { recursive: true, force: true });
 }

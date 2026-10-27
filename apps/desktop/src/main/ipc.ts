@@ -31,15 +31,26 @@ export function registerReviewIpc(
     store.getFileContent(reviewKey, path, side),
   );
   handle(IPC.getConfig, isTrusted, () => ({ roundtrip: false }));
-  handle(IPC.done, isTrusted, (reviewKey, result) => {
-    store.getReview(reviewKey); // unknown review → error
+  handle(IPC.done, isTrusted, async (reviewKey, result) => {
+    await store.getReview(reviewKey); // unknown review → error
     const { verdict } = parseDoneResult(result);
     // What "Done" does in desktop (mark finished, post to GitHub) is US-17/US-20.
     console.log(`[review-buddy] review ${String(reviewKey)} done${verdict ? `: ${verdict}` : ""}`);
   });
-  handle(IPC.startReview, isTrusted, (pr) => jobs.start(pr));
+  handle(IPC.startReview, isTrusted, (pr, options) => jobs.start(pr, options));
   handle(IPC.stopReview, isTrusted, (id) => jobs.stop(id));
   handle(IPC.reviewJobs, isTrusted, () => jobs.jobs());
+  handle(IPC.savedReviews, isTrusted, () => store.saved());
+  handle(IPC.deleteSavedReview, isTrusted, async (reviewKey) => {
+    await store.delete(reviewKey);
+    jobs.forgetReview(reviewKey);
+    return store.saved();
+  });
+  handle(IPC.deleteAllSavedReviews, isTrusted, async () => {
+    await store.deleteAll();
+    jobs.forgetReview();
+    return store.saved();
+  });
 }
 
 /**

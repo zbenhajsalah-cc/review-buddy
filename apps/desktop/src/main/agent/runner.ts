@@ -59,6 +59,8 @@ export interface ReviewRunResult {
   error?: string;
   /** Set when there is no review: what failed. */
   errorKind?: ReviewErrorKind;
+  /** No run: a saved review of this PR head was opened (US-16). */
+  cached?: boolean;
 }
 
 /** The submit_review tool as Claude names it in its output. */

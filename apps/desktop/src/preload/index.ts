@@ -14,9 +14,12 @@ const bridge: DesktopBridge = {
       ipcRenderer.invoke(IPC.getFileContent, reviewKey, path, side),
     getConfig: () => ipcRenderer.invoke(IPC.getConfig),
     done: (reviewKey, result) => ipcRenderer.invoke(IPC.done, reviewKey, result),
-    start: (pr) => ipcRenderer.invoke(IPC.startReview, pr),
+    start: (pr, options) => ipcRenderer.invoke(IPC.startReview, pr, options),
     stop: (id) => ipcRenderer.invoke(IPC.stopReview, id),
     jobs: () => ipcRenderer.invoke(IPC.reviewJobs),
+    saved: () => ipcRenderer.invoke(IPC.savedReviews),
+    deleteSaved: (reviewKey) => ipcRenderer.invoke(IPC.deleteSavedReview, reviewKey),
+    deleteAllSaved: () => ipcRenderer.invoke(IPC.deleteAllSavedReviews),
     onJobs: (listener) => {
       // The page gets the job list only, never the IPC event.
       const handler = (_event: unknown, jobs: ReviewJobStatus[]) => listener(jobs);

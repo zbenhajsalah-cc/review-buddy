@@ -84,9 +84,12 @@ export function PullList({
   bridge: GitHubBridge;
   repo: RepoSummary;
   jobs: ReviewJobStatus[];
-  /** Starts reviews of these PRs; resolves with what went wrong, if anything. */
-  onReview: (numbers: number[], follow: boolean) => Promise<string | undefined>;
-  onOpenReview: (review: { reviewKey: string; pr: string }) => void;
+  /**
+   * Starts reviews of these PRs (`fresh`: run Claude even if the head has a
+   * saved review); resolves with what went wrong, if anything.
+   */
+  onReview: (numbers: number[], follow: boolean, fresh?: boolean) => Promise<string | undefined>;
+  onOpenReview: (review: { reviewKey: string; pr: string; outdated: boolean }) => void;
   onFollow: (jobId: number) => void;
   onStop: (jobId: number) => void;
   onSignedOut: () => void;
@@ -151,8 +154,8 @@ export function PullList({
     });
   };
 
-  const review = async (numbers: number[], follow: boolean) => {
-    setStartError(await onReview(numbers, follow));
+  const review = async (numbers: number[], follow: boolean, fresh = false) => {
+    setStartError(await onReview(numbers, follow, fresh));
     setSelected(new Set());
   };
 
@@ -221,7 +224,7 @@ export function PullList({
                 row={pullState(repo.fullName, pull, jobs)}
                 selected={selected.has(pull.number)}
                 onToggle={() => toggle(pull.number)}
-                onReview={() => void review([pull.number], true)}
+                onReview={(fresh) => void review([pull.number], true, fresh)}
                 onOpenReview={onOpenReview}
                 onFollow={onFollow}
                 onStop={onStop}
@@ -264,8 +267,8 @@ function PullRow({
   row: PullRowState;
   selected: boolean;
   onToggle: () => void;
-  onReview: () => void;
-  onOpenReview: (review: { reviewKey: string; pr: string }) => void;
+  onReview: (fresh: boolean) => void;
+  onOpenReview: (review: { reviewKey: string; pr: string; outdated: boolean }) => void;
   onFollow: (jobId: number) => void;
   onStop: (jobId: number) => void;
 }) {
@@ -351,14 +354,31 @@ function PullRow({
                   variant="outline"
                   size="sm"
                   aria-label={`Open the review of #${n}`}
-                  onClick={() => onOpenReview(review)}
+                  onClick={() =>
+                    onOpenReview({
+                      reviewKey: review.reviewKey,
+                      pr: review.pr,
+                      outdated: !review.current,
+                    })
+                  }
                 >
                   Open review
                 </Button>
+                {review.current ? (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    aria-label={`Run the review of #${n} again`}
+                    title="Run Claude again on this commit"
+                    onClick={() => onReview(true)}
+                  >
+                    Run again
+                  </Button>
+                ) : null}
               </>
             ) : null}
             {review?.current ? null : (
-              <Button size="sm" aria-label={`Review #${n}`} onClick={onReview}>
+              <Button size="sm" aria-label={`Review #${n}`} onClick={() => onReview(false)}>
                 {failed ? "Try again" : review ? "Review again" : "Review"}
               </Button>
             )}

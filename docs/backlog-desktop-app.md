@@ -458,6 +458,23 @@ Acceptance criteria:
 - When the head SHA changed, the app says the review is out of date and offers
   to re-run.
 - The user can delete cached reviews.
+- Decisions made while building it:
+  - One JSON file per PR head in `<userData>/reviews/<owner>/<repo>/`, plus
+    an `index.json` for lists and lookups. The key stays
+    `owner/repo#n@<first 12 of the head SHA>` (the viewer's local state is
+    keyed by it); the file name has the full SHA.
+  - A saved review keeps the resolved review, the head and merge-base SHAs,
+    and the diff's file list. After a restart, "expand full file" reads the
+    files from GitHub at those SHAs (`prFileReader`, shared with the open
+    PR), so the review's file reads stay what they were.
+  - Starting a review of a PR head that has a saved review opens it without
+    Claude; **Run again** asks for a fresh run (`start(pr, { fresh: true })`).
+  - Out of date: the PR list compares the newest saved review's head with
+    the PR's head; the review view shows a bar with **Review again**.
+  - Deleting is in Settings (each, or all after a second click). A deleted
+    review also leaves the jobs list, and the PR list reloads.
+  - The smoke test writes its saved reviews itself, in the file format, so a
+    change to the format that would lose saved reviews fails it.
 
 ### US-17: "Done" and viewed state in desktop
 

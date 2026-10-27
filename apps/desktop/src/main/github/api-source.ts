@@ -32,6 +32,77 @@ export interface GitHubApiSource extends ReviewDataSource {
   readonly headSha: string;
   /** Merge base of the PR's base and head: the base side of file reads. */
   readonly baseSha: string;
+  /** The diff's files, as a saved review keeps them for its file reads. */
+  files(): Promise<DiffFileInfo[]>;
+}
+
+/** What a file read needs from the diff: the names, the kind of change, binary. */
+export type DiffFileInfo = Pick<ParsedFile, "path" | "oldPath" | "changeType" | "binary">;
+
+interface GitHubDeps {
+  fetch: FetchFn;
+  token: () => Promise<string>;
+  /** Cancels every request (the user stopped the review). */
+  signal?: AbortSignal;
+}
+
+/** GETs on one repository with the app's token, and errors in words. */
+function repoCalls(ref: PrRef, deps: GitHubDeps) {
+  const repoUrl = `${GITHUB_API}/repos/${ref.owner}/${ref.repo}`;
+  const label = `${ref.owner}/${ref.repo}#${ref.number}`;
+  const get = async (url: string, accept?: string): Promise<Response> => {
+    const headers = githubHeaders(await deps.token());
+    if (accept) headers.accept = accept;
+    try {
+      return await deps.fetch(url, { headers, signal: deps.signal });
+    } catch (e) {
+      throw new Error(`Could not reach GitHub (${e instanceof Error ? e.message : String(e)}).`);
+    }
+  };
+  const fail = async (res: Response, what: string): Promise<never> => {
+    const message = await errorMessage(res);
+    if (res.status === 404)
+      throw new Error(`${what}: not found, or the token cannot see ${label}.`);
+    throw new Error(`${what}: GitHub answered ${res.status}${message ? ` (${message})` : ""}.`);
+  };
+  return { repoUrl, label, get, fail };
+}
+
+/**
+ * Source C over the GitHub API: the bytes of the PR's own files at its head
+ * or merge base. An open PR uses it, and so does a saved review (US-16),
+ * which keeps the file list and the two SHAs.
+ */
+export function prFileReader(
+  prRef: PrRef,
+  shas: { headSha: string; baseSha: string },
+  files: () => Promise<Map<string, DiffFileInfo>>,
+  deps: GitHubDeps,
+): ReviewDataSource["fileContent"] {
+  const ref = parsePrRef(prRef);
+  if (!SHA.test(shas.headSha) || !SHA.test(shas.baseSha)) throw new Error("Not commit SHAs.");
+  const { repoUrl, get, fail } = repoCalls(ref, deps);
+  return async (path, side) => {
+    // Only the PR's own files (the same set as allowedPaths of the resolved
+    // review: resolution keeps every diff file).
+    const file = (await files()).get(path);
+    if (!file) throw new Error(`unknown path: ${path}`);
+    if (file.binary) return "";
+    if (side === "head" && file.changeType === "deleted") return "";
+    if (side === "base" && file.changeType === "added") return "";
+    // A renamed file has its old name on the base side.
+    const repoPath = side === "base" ? (file.oldPath ?? path) : path;
+    const sha = side === "base" ? shas.baseSha : shas.headSha;
+    const res = await get(
+      `${repoUrl}/contents/${encodePath(repoPath)}?ref=${sha}`,
+      "application/vnd.github.raw+json",
+    );
+    if (res.status === 404) return "";
+    if (!res.ok) await fail(res, `${repoPath} at ${sha.slice(0, 7)}`);
+    if (Number(res.headers.get("content-length") ?? 0) > MAX_FILE_BYTES) return "";
+    const text = await res.text();
+    return text.length > MAX_FILE_BYTES ? "" : text;
+  };
 }
 
 /** GitHub will not send this PR's diff: too many files or lines. */
@@ -86,34 +157,9 @@ interface PullJson {
  * Opens a PR: reads its metadata and merge base once. The diff is read on the
  * first `diff()` (and kept), file bytes on demand.
  */
-export async function openGitHubPr(
-  prRef: PrRef,
-  deps: {
-    fetch: FetchFn;
-    token: () => Promise<string>;
-    /** Cancels every request of this PR (the user stopped the review). */
-    signal?: AbortSignal;
-  },
-): Promise<GitHubApiSource> {
+export async function openGitHubPr(prRef: PrRef, deps: GitHubDeps): Promise<GitHubApiSource> {
   const ref = parsePrRef(prRef);
-  const repoUrl = `${GITHUB_API}/repos/${ref.owner}/${ref.repo}`;
-  const label = `${ref.owner}/${ref.repo}#${ref.number}`;
-
-  const get = async (url: string, accept?: string): Promise<Response> => {
-    const headers = githubHeaders(await deps.token());
-    if (accept) headers.accept = accept;
-    try {
-      return await deps.fetch(url, { headers, signal: deps.signal });
-    } catch (e) {
-      throw new Error(`Could not reach GitHub (${e instanceof Error ? e.message : String(e)}).`);
-    }
-  };
-  const fail = async (res: Response, what: string): Promise<never> => {
-    const message = await errorMessage(res);
-    if (res.status === 404)
-      throw new Error(`${what}: not found, or the token cannot see ${label}.`);
-    throw new Error(`${what}: GitHub answered ${res.status}${message ? ` (${message})` : ""}.`);
-  };
+  const { repoUrl, label, get, fail } = repoCalls(ref, deps);
 
   // 1. Metadata.
   const prRes = await get(`${repoUrl}/pulls/${ref.number}`);
@@ -174,27 +220,18 @@ export async function openGitHubPr(
     baseSha,
     diff: async () => (await loadDiff()).raw,
     pr: async () => pr,
-    async fileContent(path, side) {
-      // Only the PR's own files (the same set as allowedPaths of the resolved
-      // review: resolution keeps every diff file).
-      const file = (await loadDiff()).files.get(path);
-      if (!file) throw new Error(`unknown path: ${path}`);
-      if (file.binary) return "";
-      if (side === "head" && file.changeType === "deleted") return "";
-      if (side === "base" && file.changeType === "added") return "";
-      // A renamed file has its old name on the base side.
-      const repoPath = side === "base" ? (file.oldPath ?? path) : path;
-      const sha = side === "base" ? baseSha : headSha;
-      const res = await get(
-        `${repoUrl}/contents/${encodePath(repoPath)}?ref=${sha}`,
-        "application/vnd.github.raw+json",
-      );
-      if (res.status === 404) return "";
-      if (!res.ok) await fail(res, `${repoPath} at ${sha.slice(0, 7)}`);
-      if (Number(res.headers.get("content-length") ?? 0) > MAX_FILE_BYTES) return "";
-      const text = await res.text();
-      return text.length > MAX_FILE_BYTES ? "" : text;
-    },
+    files: async () =>
+      [...(await loadDiff()).files.values()].map(({ path, oldPath, changeType, binary }) =>
+        oldPath === undefined
+          ? { path, changeType, binary }
+          : { path, oldPath, changeType, binary },
+      ),
+    fileContent: prFileReader(
+      ref,
+      { headSha, baseSha },
+      async () => (await loadDiff()).files,
+      deps,
+    ),
   };
 }
 
