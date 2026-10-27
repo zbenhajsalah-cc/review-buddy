@@ -1,7 +1,7 @@
 # Harness integrations
 
 Ready-to-copy MCP configs and review prompts for running Review Buddy outside
-Claude Code. Setup instructions: [`../docs/HARNESSES.md`](../docs/HARNESSES.md).
+Claude Code. Setup instructions: [`docs/HARNESSES.md`](../../../docs/HARNESSES.md).
 
 ```
 cursor/mcp.json                          → merge into .cursor/mcp.json
@@ -13,9 +13,9 @@ codex/prompts/review-buddy.md            → copy into ~/.codex/prompts/
 ```
 
 > **Generated files — don't edit the three prompts by hand.** They are emitted
-> from `prompt-template.md` by `bun run gen:prompts` (varying only frontmatter,
+> from `prompt-template.md` by `pnpm gen:prompts` (varying only frontmatter,
 > the Step 0 target line, and Codex's blocking-verdict section); CI's
 > `verify:prompts-fresh` fails on drift. The template itself is the standalone
-> port of `skills/review/SKILL.md` (the structuring-prompt source of truth) —
+> port of `../skills/review/SKILL.md` (the structuring-prompt source of truth) —
 > when you change the skill's Steps 1–3 or Critical rules, port the change into
 > the template and regenerate.

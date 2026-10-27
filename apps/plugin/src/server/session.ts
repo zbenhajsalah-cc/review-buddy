@@ -25,7 +25,7 @@ import { type RunningServer, startServer } from "./http.ts";
 function uiDir(): string | undefined {
   const root = pluginRoot();
   if (!root) return undefined;
-  const dir = join(root, "src", "ui", "dist");
+  const dir = join(root, "ui", "dist");
   return existsSync(join(dir, "index.html")) ? dir : undefined;
 }
 

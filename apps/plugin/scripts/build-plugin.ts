@@ -7,7 +7,7 @@
  * Everything is inlined — @review-buddy/core, zod, the MCP SDK, the review JSON
  * schema — so an installed plugin needs no `node_modules` and never
  * auto-installs (which would also pick the newest versions in range, not the
- * ones we tested). The bundles are committed, like src/ui/dist: Claude Code
+ * ones we tested). The bundles are committed, like ui/dist: Claude Code
  * plugin installs are git clones with no build step. CI's verify:dist-fresh
  * fails when they drift from source; rebuild with `pnpm build:plugin` using the
  * Bun version in .bun-version (the output is deterministic per Bun version).

@@ -50,11 +50,21 @@ See `docs/review-contract.md` for the exact **agent contract** vs **UI/server co
 review-buddy/
 ├── CLAUDE.md                  # you are here — orientation + decisions
 ├── README.md                  # human overview: install, dev, status
-├── .claude-plugin/            # plugin.json + marketplace.json (Claude Code plugin manifest)
-├── bin/review-buddy.js        # plugin entry shim → dist/hook.js
-├── dist/                      # COMMITTED plugin bundles: server.js (MCP) + hook.js (hook/CLI); `pnpm build:plugin`
-├── hooks/hooks.json           # the real PreToolUse hook wiring
-├── skills/review/SKILL.md     # the /review skill — the structuring prompt (source of truth)
+├── .claude-plugin/marketplace.json # marketplace; plugin "source": "./apps/plugin"
+├── apps/plugin/               # the Claude Code plugin + standalone MCP server — SELF-CONTAINED (installs copy only this folder)
+│   ├── .claude-plugin/plugin.json # plugin manifest
+│   ├── bin/review-buddy.js    # plugin entry shim → dist/hook.js
+│   ├── dist/                  # COMMITTED plugin bundles: server.js (MCP) + hook.js (hook/CLI); `pnpm build:plugin`
+│   ├── hooks/hooks.json       # the real PreToolUse hook wiring
+│   ├── skills/review/SKILL.md # the /review skill — the structuring prompt (source of truth)
+│   ├── src/mcp/server.ts      # MCP server exposing submit_review (+ standalone dispatch)
+│   ├── src/mcp/standalone.ts  # non-Claude harnesses: submit_review does capture+serve itself
+│   ├── src/cli/index.ts       # PreToolUse hook entry (open-review)
+│   ├── src/server/            # session lifecycle, local HTTP server, browser open
+│   ├── ui/                    # Vite + React 19 + Tailwind v4 viewer (@pierre/diffs); COMMITTED build in ui/dist
+│   ├── integrations/          # Cursor / VS Code Copilot / Codex MCP configs + review prompts
+│   ├── examples/hooks.json    # example plugin hook config (installed-binary form)
+│   └── scripts/               # build-plugin.ts (bundles → dist/), smoke-plugin.ts (runs apps/plugin alone)
 ├── packages/core/             # @review-buddy/core — runtime-neutral (no Bun/Node/DOM APIs; its typecheck enforces it)
 │   ├── src/types.ts           # shared agent + UI/server contracts
 │   ├── src/diff.ts            # git diff parser
@@ -66,24 +76,16 @@ review-buddy/
 │   ├── src/source.ts          # ReviewDataSource: where the diff, PR metadata, and file bytes come from
 │   ├── src/node/              # Node-only (no Bun APIs): git/gh capture + LocalGitSource; own tsconfig.node.json
 │   └── schemas/review.schema.json # JSON Schema = submit_review inputSchema
-├── src/
-│   ├── mcp/server.ts          # MCP server exposing submit_review (+ standalone dispatch)
-│   ├── mcp/standalone.ts      # non-Claude harnesses: submit_review does capture+serve itself
-│   ├── cli/index.ts           # PreToolUse hook entry (open-review)
-│   ├── server/                # session lifecycle, local HTTP server, browser open
-│   └── ui/                    # Vite + React 19 + Tailwind v4 viewer (@pierre/diffs)
-├── integrations/              # Cursor / VS Code Copilot / Codex MCP configs + review prompts
 ├── docs/
 │   ├── PRD.md                 # product requirements (source of truth for UX)
 │   ├── ARCHITECTURE.md        # data sources, flow, hook+server, endpoints, phasing
 │   ├── HARNESSES.md           # running Review Buddy in Cursor / Copilot / Codex
 │   ├── review-contract.md     # agent contract vs UI/server contract + examples
 │   └── build-plan.md          # shipped/deferred ledger + phased breakdown
-├── examples/hooks.json        # example plugin hook config (installed-binary form)
-└── scripts/release.sh         # version bump across files + release
+└── scripts/                   # release.sh (version bump across files + release), gen-prompts.ts
 ```
 
-**Workspace:** pnpm installs (`pnpm-workspace.yaml`: `packages/*`, `src/ui`); Bun runs the plugin and the tests. **Installed plugins run the committed bundles in `dist/`** (`server.js`, `hook.js`; core, zod and the MCP SDK inlined) — no `node_modules`, no auto-install. After changing plugin or core source, run `pnpm build:plugin` and commit `dist/` (CI's `verify:dist-fresh` fails otherwise; `pnpm smoke:plugin` runs the bundles with auto-install disabled). The plugin source reaches `@review-buddy/core` through `paths` in the root `tsconfig.json`, not a `workspace:*` dependency, so older standalone configs that run `src/mcp/server.ts` from a `bun install`ed clone keep working. See `docs/DESIGN-desktop-app-shared-code.md` and `docs/backlog-desktop-app.md`.
+**Workspace:** pnpm installs (`pnpm-workspace.yaml`: `packages/*`, `apps/*`, `apps/plugin/ui`); Bun runs the plugin and the tests. **Installed plugins run the committed bundles in `apps/plugin/dist/`** (`server.js`, `hook.js`; core, zod and the MCP SDK inlined) — no `node_modules`, no auto-install, and nothing outside `apps/plugin` (Claude Code copies only the marketplace `source` folder). After changing plugin or core source, run `pnpm build:plugin` and commit `apps/plugin/dist/` (CI's `verify:dist-fresh` fails otherwise; `pnpm smoke:plugin` copies `apps/plugin` alone and runs the bundles with auto-install disabled). The plugin source imports `@review-buddy/core` through a `workspace:*` dev dependency; it is only needed to build and test. See `docs/DESIGN-desktop-app-shared-code.md` and `docs/backlog-desktop-app.md`.
 
 ## Phase 1 (shipped)
 

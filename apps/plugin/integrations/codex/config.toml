@@ -3,12 +3,12 @@
 
 [mcp_servers.review-buddy]
 command = "bun"
-args = ["run", "/ABSOLUTE/PATH/TO/review-buddy/dist/server.js", "--standalone"]
+args = ["run", "/ABSOLUTE/PATH/TO/review-buddy/apps/plugin/dist/server.js", "--standalone"]
 
 # Optional: blocking mode — submit_review holds the turn until the reviewer
 # clicks Done and returns their verdict (approve / request changes) to the
 # agent. Codex is the only harness whose per-tool-call timeout is configurable,
 # which is what makes this possible. Swap the args line above for:
 #
-# args = ["run", "/ABSOLUTE/PATH/TO/review-buddy/dist/server.js", "--standalone=blocking"]
+# args = ["run", "/ABSOLUTE/PATH/TO/review-buddy/apps/plugin/dist/server.js", "--standalone=blocking"]
 # tool_timeout_sec = 86400

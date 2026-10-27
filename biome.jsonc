@@ -11,8 +11,8 @@
       "**",
       "!!docs/**/*.html",
       "!!**/node_modules",
-      "!!src/ui/dist",
-      "!!dist",
+      "!!apps/plugin/ui/dist",
+      "!!apps/plugin/dist",
       "!!storybook-static",
       "!!**/*.tsbuildinfo"
     ]

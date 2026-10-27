@@ -31,7 +31,7 @@ export interface ServerContext {
   cwd: string;
   /** Serves /api/file-content (source C) for allowlisted paths. */
   source: Pick<ReviewDataSource, "fileContent">;
-  /** Directory of the built React UI (src/ui/dist). Falls back to a placeholder. */
+  /** Directory of the built React UI (ui/dist). Falls back to a placeholder. */
   uiDir?: string;
   /** Phase 2 spike: REVIEW_BUDDY_ROUNDTRIP — exposes the verdict UI via /api/config. */
   roundtrip?: boolean;

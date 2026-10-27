@@ -86,7 +86,7 @@ Define the `submit_review` MCP tool's `inputSchema` = `packages/core/schemas/rev
 - **Word-level:** intra-line highlights are computed client-side by `@pierre/diffs`. Never expect this from the agent.
 - **Collapse / expand:** the diff view shows changed hunks + a few context lines by default; "N unmodified lines" expanders and "expand full file" call `/api/file-content`.
 - **Syntax highlighting:** derive language from the file extension (`path`); highlight client-side with Shiki (`shiki-js`, via `@pierre/diffs`).
-- **Distribution:** the viewer is **prebuilt and committed** to `src/ui/dist/` (served by the hook's `uiDir()`), so `/plugin install` needs no build step. Shipped as the multi-file build (not single-file) because Shiki's grammars are ~9.9 MB of lazy chunks and the server already serves `assets/*`; kept reproducible + fresh by `verify:dist-fresh`. See [`DESIGN-prebuilt-distribution.md`](./DESIGN-prebuilt-distribution.md).
+- **Distribution:** the viewer is **prebuilt and committed** to `apps/plugin/ui/dist/` (served by the hook's `uiDir()`), so `/plugin install` needs no build step. Shipped as the multi-file build (not single-file) because Shiki's grammars are ~9.9 MB of lazy chunks and the server already serves `assets/*`; kept reproducible + fresh by `verify:dist-fresh`. See [`DESIGN-prebuilt-distribution.md`](./DESIGN-prebuilt-distribution.md).
 - **Multi-chapter files:** viewed-state is keyed by `(chapterIndex, path)`, so the same file can appear in multiple chapters with independent viewed flags (shipped in the viewer's client-side state).
 
 ## Client-side state (source D)

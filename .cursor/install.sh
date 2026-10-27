@@ -6,7 +6,8 @@
 #   2. pnpm, pinned by package.json "packageManager" (shared with CI).
 #   3. Workspace dependencies (backend + viewer), frozen to pnpm-lock.yaml.
 #
-# The viewer ships prebuilt in src/ui/dist (committed), so there is no build
+# The viewer and plugin ship prebuilt in apps/plugin/{ui/dist,dist}
+# (committed), so there is no build
 # step here. Safe to run repeatedly and against a cached/partial home.
 set -euo pipefail
 
@@ -39,8 +40,9 @@ if ! command -v pnpm >/dev/null 2>&1 || [ "pnpm@$(pnpm --version 2>/dev/null)" !
 fi
 
 # --- 3. Dependencies --------------------------------------------------------
-# One install covers the workspace: the backend (MCP server + PreToolUse hook)
-# and the viewer (src/ui: Vite + React 19 + Tailwind v4).
+# One install covers the workspace: the plugin (apps/plugin: MCP server +
+# PreToolUse hook), its viewer (apps/plugin/ui: Vite + React 19 + Tailwind v4),
+# and the shared review logic (packages/core).
 (cd "$REPO_ROOT" && pnpm install --frozen-lockfile)
 
 echo "[install] Done."

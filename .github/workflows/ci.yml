@@ -22,7 +22,8 @@ jobs:
       - name: Install
         run: pnpm install --frozen-lockfile
       # verify:ci ends with verify:dist-fresh: after build:ui rebuilds the
-      # committed viewer (plan 016), it fails if src/ui/dist drifted from git —
-      # i.e. a PR changed UI source without committing the rebuilt artifact.
+      # committed viewer (plan 016) and build:plugin the plugin bundles (US-04),
+      # it fails if apps/plugin/ui/dist or apps/plugin/dist drifted from git —
+      # i.e. a PR changed source without committing the rebuilt artifact.
       - name: Verify (tests + typechecks + UI build + committed-viewer freshness)
         run: pnpm verify:ci

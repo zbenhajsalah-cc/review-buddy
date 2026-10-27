@@ -5,8 +5,8 @@ import react from "@vitejs/plugin-react";
 import { defineConfig } from "vite";
 
 /**
- * The built app is served by our own Bun server (src/server/http.ts) from
- * src/ui/dist — which is exactly where the hook's uiDir() looks. In dev we run
+ * The built app is served by our own Bun server (../src/server/http.ts) from
+ * ui/dist — which is exactly where the hook's uiDir() looks. In dev we run
  * `vite` on 5173 and proxy /api to a server started separately via
  * `review-buddy dev` (see README-dev note below).
  */

@@ -167,10 +167,27 @@ Acceptance criteria:
   `scripts/release.sh` (`VERSION_FILES`), `scripts/gen-prompts.ts`, CI,
   `.gitignore`, `.gitattributes`, `biome.jsonc`, tsconfigs, `CLAUDE.md`,
   `README.md`.
+- `apps/plugin` is a workspace package (`review-buddy`, with the `bin`). It
+  imports `@review-buddy/core` through a `workspace:*` dev dependency. The
+  tsconfig `paths` from US-02 are removed: the old `src/mcp/server.ts` path
+  is gone after the move anyway, so nothing runs the source from a plain
+  `bun install`ed clone any more. The root package is
+  `review-buddy-monorepo` and only holds shared scripts and Biome.
+- The viewer moves as is to `apps/plugin/ui` (the split into
+  `packages/viewer` is US-06). `build-plugin.ts` and `smoke-plugin.ts` move to
+  `apps/plugin/scripts/`; `gen-prompts.ts` stays at the root (US-07 adds a
+  desktop variant).
+- The smoke test copies `apps/plugin` **alone** (what Claude Code copies into
+  its plugin cache), so any path that reaches outside it fails.
 - Manual check: `/plugin marketplace add` from a local path + `/plugin install`
-  works, and `/review` opens the viewer.
+  works, and `/review` opens the viewer. (Checked with the `claude plugin` CLI:
+  only `apps/plugin` lands in the cache, and the smoke checks pass on that
+  copy with its `node_modules` removed. The live `/review` run in a Claude
+  Code session is still to do by hand.)
 - The release notes say that local-clone installs and Cursor / Copilot / Codex
-  configs need the new path.
+  configs need the new path. (Note added to README "Update / uninstall" and
+  `docs/HARNESSES.md`; GitHub Release notes are auto-generated, so add it
+  there by hand at release time.)
 
 ### US-06: `packages/viewer` with an injectable `ReviewApi`
 

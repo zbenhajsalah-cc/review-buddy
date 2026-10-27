@@ -1,9 +1,9 @@
 /* Scope Tailwind's content scanning to the viewer source (this directory).
    Without `source(...)`, Tailwind v4 auto-detects content across the whole repo
    and leaks incidental utilities from plain English in docs/README into the
-   bundle — which makes the committed `src/ui/dist` (plan 016) non-reproducible
-   w.r.t. UI source. `source(".")` = src/ui/src (all components live here); we do
-   NOT widen to `../` because that would scan the committed src/ui/dist and feed
+   bundle — which makes the committed `ui/dist` (plan 016) non-reproducible
+   w.r.t. UI source. `source(".")` = ui/src (all components live here); we do
+   NOT widen to `../` because that would scan the committed ui/dist and feed
    built output back into the build. index.html is scanned explicitly below in
    case a utility class is ever added to it. */
 @import "tailwindcss" source(".");

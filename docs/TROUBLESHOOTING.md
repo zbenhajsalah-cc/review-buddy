@@ -50,7 +50,7 @@ locked by another process. It is usually **transient**.
 ### MCP server "failed to connect", or the hook doesn't fire (`bun: command not found`)
 
 The MCP server and the `PreToolUse` hook both run on **Bun** (see
-`.claude-plugin/plugin.json` and `hooks/hooks.json`). Node is not a substitute —
+`apps/plugin/.claude-plugin/plugin.json` and `apps/plugin/hooks/hooks.json`). Node is not a substitute —
 the code uses Bun-specific APIs. Claude Code launches the MCP server with
 `command: "bun"`, so if `bun` isn't resolvable on the `PATH` of the process that
 started Claude Code, the server never comes up and shows as failed to connect.
@@ -83,7 +83,7 @@ that stale `PATH`, so it can't find `bun` — even though a *new* terminal can.
 
 ### The browser tab doesn't open
 
-Opening the browser is best-effort (`src/server/browser.ts`). If it fails (headless
+Opening the browser is best-effort (`apps/plugin/src/server/browser.ts`). If it fails (headless
 environment, no default browser, sandbox), the hook **prints the review URL** to
 the terminal instead — open it manually. The URL is loopback-only and carries a
 per-server token:

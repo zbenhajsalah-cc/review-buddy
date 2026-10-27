@@ -1,7 +1,7 @@
 /**
  * Heuristic for generated / binary artifacts that should not dilute the
  * "Unsorted changes" bucket. Basename + extension only — no directory rules
- * (this repo commits `src/ui/dist` on purpose).
+ * (this repo commits `apps/plugin/ui/dist` on purpose).
  */
 
 export const NOISE_FILENAMES: ReadonlySet<string> = new Set([

@@ -1,15 +1,16 @@
 /**
  * Smoke test for the committed plugin bundles (dist/), run the way users run
- * them: from a copy of the repo with NO node_modules (a GitHub plugin install is
- * a git clone), with Bun auto-install DISABLED (`--no-install`) and an empty
- * install cache. If a bundle still needed a package, this fails instead of
- * silently downloading one.
+ * them: from a copy of apps/plugin ALONE, with NO node_modules (Claude Code
+ * copies only the marketplace `source` folder into its plugin cache), with Bun
+ * auto-install DISABLED (`--no-install`) and an empty install cache. If a
+ * bundle still needed a package, or reached outside apps/plugin, this fails
+ * instead of silently downloading or finding one.
  *
  * Checks: the hook answers a bad payload; a full hook review serves the real
  * viewer, the resolved review, and file content, then returns "allow" on Done;
  * the MCP server lists submit_review; standalone mode opens a viewer.
  *
- * Usage: bun run scripts/smoke-plugin.ts   (also the last step of verify:ci)
+ * Usage: pnpm smoke:plugin   (also the last step of verify:ci)
  */
 import { execFileSync, spawnSync } from "node:child_process";
 import {
@@ -24,7 +25,7 @@ import {
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 
-const repo = join(import.meta.dir, "..");
+const pluginDir = join(import.meta.dir, "..");
 const work = mkdtempSync(join(tmpdir(), "rb-smoke-"));
 const plugin = join(work, "plugin");
 const target = join(work, "target");
@@ -52,13 +53,13 @@ function check(ok: boolean, what: string, detail?: unknown): void {
 const git = (cwd: string, ...args: string[]) =>
   execFileSync("git", args, { cwd, encoding: "utf8" });
 
-// --- Setup: the plugin as a clone (tracked + new, non-ignored files) ---------
-const files = git(repo, "ls-files", "-z", "--cached", "--others", "--exclude-standard")
+// --- Setup: apps/plugin alone, as installed (tracked + new, non-ignored files)
+const files = git(pluginDir, "ls-files", "-z", "--cached", "--others", "--exclude-standard", ".")
   .split("\0")
-  .filter((f) => f && existsSync(join(repo, f)));
+  .filter((f) => f && existsSync(join(pluginDir, f)));
 for (const f of files) {
   mkdirSync(dirname(join(plugin, f)), { recursive: true });
-  cpSync(join(repo, f), join(plugin, f));
+  cpSync(join(pluginDir, f), join(plugin, f));
 }
 check(!existsSync(join(plugin, "node_modules")), "plugin copy has no node_modules");
 
@@ -119,7 +120,7 @@ async function checkViewer(label: string, viewerUrl: string): Promise<void> {
     fc,
   );
   const html = await (await fetch(`${origin}/`)).text();
-  check(html.includes('<div id="root">'), `${label}: serves the prebuilt viewer (src/ui/dist)`);
+  check(html.includes('<div id="root">'), `${label}: serves the prebuilt viewer (ui/dist)`);
 }
 
 /** Read a child's stderr until `re` matches (or the child exits / times out). */
@@ -182,7 +183,7 @@ try {
   }
 
   // --- 3 + 4. MCP server: tools/list, then standalone submit_review ----------
-  const version = JSON.parse(readFileSync(join(repo, "package.json"), "utf8")).version;
+  const version = JSON.parse(readFileSync(join(pluginDir, "package.json"), "utf8")).version;
   for (const standalone of [false, true]) {
     const label = standalone ? "server --standalone" : "server";
     const args = standalone ? ["--standalone"] : [];

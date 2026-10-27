@@ -1,20 +1,21 @@
 /**
- * Generates the per-harness review prompts under integrations/ from the single
- * template (integrations/prompt-template.md). The variants differ only in:
+ * Generates the per-harness review prompts under apps/plugin/integrations/ from
+ * the single template (apps/plugin/integrations/prompt-template.md). The
+ * variants differ only in:
  *  - frontmatter (VS Code prompt files require it),
  *  - how the review target reaches the agent (trailing text vs `$ARGUMENTS`),
  *  - the blocking-verdict section (Codex is the only harness that can run
  *    `--standalone=blocking`).
  *
- * Run `bun run gen:prompts` after editing the template (or the /review skill
- * it mirrors — see integrations/README.md); CI's verify:prompts-fresh fails if
- * the generated files drift from the template.
+ * Run `pnpm gen:prompts` after editing the template (or the /review skill it
+ * mirrors — see apps/plugin/integrations/README.md); CI's verify:prompts-fresh
+ * fails if the generated files drift from the template.
  */
 import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
-const root = join(import.meta.dir, "..");
-const template = readFileSync(join(root, "integrations", "prompt-template.md"), "utf8");
+const integrations = join(import.meta.dir, "..", "apps", "plugin", "integrations");
+const template = readFileSync(join(integrations, "prompt-template.md"), "utf8");
 
 const COPILOT_FRONTMATTER = `---
 mode: agent
@@ -46,19 +47,19 @@ directly rather than looping.
 
 const variants = [
   {
-    out: "integrations/cursor/commands/review-buddy.md",
+    out: "cursor/commands/review-buddy.md",
     frontmatter: "",
     target: TRAILING_TEXT_TARGET,
     blocking: "",
   },
   {
-    out: "integrations/vscode-copilot/prompts/review-buddy.prompt.md",
+    out: "vscode-copilot/prompts/review-buddy.prompt.md",
     frontmatter: COPILOT_FRONTMATTER,
     target: TRAILING_TEXT_TARGET,
     blocking: "",
   },
   {
-    out: "integrations/codex/prompts/review-buddy.md",
+    out: "codex/prompts/review-buddy.md",
     frontmatter: "",
     target: ARGUMENTS_TARGET,
     blocking: CODEX_BLOCKING_SECTION,
@@ -71,6 +72,6 @@ for (const v of variants) {
     .replace("{{TARGET_PARAGRAPH}}", v.target)
     .replace("{{BLOCKING_SECTION}}", v.blocking);
   if (content.includes("{{")) throw new Error(`unreplaced placeholder in ${v.out}`);
-  writeFileSync(join(root, v.out), content);
-  console.error(`[gen-prompts] wrote ${v.out}`);
+  writeFileSync(join(integrations, v.out), content);
+  console.error(`[gen-prompts] wrote apps/plugin/integrations/${v.out}`);
 }

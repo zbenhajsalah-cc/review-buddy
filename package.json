@@ -1,39 +1,29 @@
 {
-  "name": "review-buddy",
+  "name": "review-buddy-monorepo",
   "version": "0.4.0",
   "private": true,
   "description": "AI-assisted narrative code review for Claude Code — Prologue + risk-rated Chapters over a real git diff.",
   "type": "module",
   "packageManager": "pnpm@12.12.1",
-  "bin": {
-    "review-buddy": "bin/review-buddy.js"
-  },
   "scripts": {
-    "mcp": "bun run src/mcp/server.ts",
-    "hook": "bun run src/cli/index.ts",
-    "test": "bun test src/server src/cli src/mcp",
+    "test": "pnpm --filter review-buddy test",
     "test:core": "pnpm --filter @review-buddy/core test",
     "test:ui": "pnpm --filter review-buddy-ui test",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "pnpm --filter review-buddy typecheck",
     "typecheck:core": "pnpm --filter @review-buddy/core typecheck",
     "typecheck:ui": "pnpm --filter review-buddy-ui typecheck",
     "build:ui": "pnpm --filter review-buddy-ui build",
-    "build:plugin": "bun run scripts/build-plugin.ts",
+    "build:plugin": "pnpm --filter review-buddy build",
     "gen:prompts": "bun run scripts/gen-prompts.ts",
     "lint": "biome check .",
     "format": "biome format --write .",
-    "smoke:plugin": "bun run scripts/smoke-plugin.ts",
-    "verify:dist-fresh": "git add --intent-to-add -- src/ui/dist dist && git diff --exit-code -- src/ui/dist dist",
-    "verify:prompts-fresh": "pnpm gen:prompts && git add --intent-to-add -- integrations && git diff --exit-code -- integrations",
+    "smoke:plugin": "pnpm --filter review-buddy smoke",
+    "verify:dist-fresh": "git add --intent-to-add -- apps/plugin/ui/dist apps/plugin/dist && git diff --exit-code -- apps/plugin/ui/dist apps/plugin/dist",
+    "verify:prompts-fresh": "pnpm gen:prompts && git add --intent-to-add -- apps/plugin/integrations && git diff --exit-code -- apps/plugin/integrations",
     "verify": "pnpm lint && pnpm test:core && pnpm test && pnpm typecheck:core && pnpm typecheck && pnpm typecheck:ui && pnpm test:ui",
     "verify:ci": "pnpm lint && pnpm test:core && pnpm test && pnpm typecheck:core && pnpm typecheck && pnpm build:ui && pnpm build:plugin && pnpm test:ui && pnpm verify:dist-fresh && pnpm verify:prompts-fresh && pnpm smoke:plugin"
   },
   "devDependencies": {
-    "@biomejs/biome": "^2.5.3",
-    "@modelcontextprotocol/sdk": "^1.12.0",
-    "@types/node": "^22.0.0",
-    "bun-types": "^1.3.5",
-    "typescript": "^5.6.0",
-    "zod": "^4.4.3"
+    "@biomejs/biome": "^2.5.3"
   }
 }

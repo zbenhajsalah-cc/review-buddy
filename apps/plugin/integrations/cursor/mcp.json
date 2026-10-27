@@ -3,7 +3,7 @@
   "mcpServers": {
     "review-buddy": {
       "command": "bun",
-      "args": ["run", "/ABSOLUTE/PATH/TO/review-buddy/dist/server.js", "--standalone"]
+      "args": ["run", "/ABSOLUTE/PATH/TO/review-buddy/apps/plugin/dist/server.js", "--standalone"]
     }
   }
 }

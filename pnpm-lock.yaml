@@ -169,9 +169,15 @@ importers:
       '@biomejs/biome':
         specifier: ^2.5.3
         version: 2.5.3
+
+  apps/plugin:
+    devDependencies:
       '@modelcontextprotocol/sdk':
         specifier: ^1.12.0
         version: 1.29.0(zod@4.4.3)
+      '@review-buddy/core':
+        specifier: workspace:*
+        version: link:../../packages/core
       '@types/node':
         specifier: ^22.0.0
         version: 22.19.21
@@ -185,30 +191,14 @@ importers:
         specifier: ^4.4.3
         version: 4.4.3
 
-  packages/core:
-    dependencies:
-      zod:
-        specifier: ^4.4.3
-        version: 4.4.3
-    devDependencies:
-      '@types/node':
-        specifier: ^22.0.0
-        version: 22.19.21
-      bun-types:
-        specifier: ^1.3.5
-        version: 1.3.14
-      typescript:
-        specifier: ^5.6.0
-        version: 5.9.3
-
-  src/ui:
+  apps/plugin/ui:
     dependencies:
       '@pierre/diffs':
         specifier: 1.2.8
         version: 1.2.8(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
       '@review-buddy/core':
         specifier: workspace:*
-        version: link:../../packages/core
+        version: link:../../../packages/core
       class-variance-authority:
         specifier: ^0.7.1
         version: 0.7.1
@@ -279,6 +269,22 @@ importers:
       vite:
         specifier: ^6.0.0
         version: 6.4.3(@types/node@22.19.21)(jiti@2.7.0)(lightningcss@1.32.0)
+
+  packages/core:
+    dependencies:
+      zod:
+        specifier: ^4.4.3
+        version: 4.4.3
+    devDependencies:
+      '@types/node':
+        specifier: ^22.0.0
+        version: 22.19.21
+      bun-types:
+        specifier: ^1.3.5
+        version: 1.3.14
+      typescript:
+        specifier: ^5.6.0
+        version: 5.9.3
 
 packages:
 
