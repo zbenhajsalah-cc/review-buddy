@@ -1,0 +1,26 @@
+import { expect, mock, test } from "bun:test";
+import type { ReviewBridge } from "../../shared/ipc.ts";
+import { ipcReviewApi } from "./ipc-review-api.ts";
+
+test("every call names its review", async () => {
+  const bridge = {
+    getReview: mock(async () => ({}) as never),
+    getFileContent: mock(async (_key: string, path: string, side: "base" | "head") => ({
+      path,
+      side,
+      language: "typescript",
+      content: "x",
+    })),
+    getConfig: mock(async () => ({ roundtrip: false })),
+    done: mock(async () => {}),
+  } satisfies ReviewBridge;
+
+  const api = ipcReviewApi(bridge, "octo/repo#1@abc");
+  expect(api.reviewKey).toBe("octo/repo#1@abc");
+  await api.getReview();
+  await api.getFileContent("src/a.ts", "base");
+  await api.done({ verdict: "approve" });
+  expect(bridge.getReview).toHaveBeenCalledWith("octo/repo#1@abc");
+  expect(bridge.getFileContent).toHaveBeenCalledWith("octo/repo#1@abc", "src/a.ts", "base");
+  expect(bridge.done).toHaveBeenCalledWith("octo/repo#1@abc", { verdict: "approve" });
+});

@@ -17,6 +17,7 @@ import { languageOf } from "@review-buddy/core/diff";
 import { allowedPaths } from "@review-buddy/core/resolve";
 import type { ReviewDataSource } from "@review-buddy/core/source";
 import type { ResolvedReview } from "@review-buddy/core/types";
+import { VIEWER_CSP } from "@review-buddy/core/viewer-csp";
 
 /** True iff `rel` resolves lexically inside `root` (blocks `..` only; does not dereference symlinks — link escape is guarded at read time in fileContent). */
 function isInside(root: string, rel: string): boolean {
@@ -67,15 +68,6 @@ const ALLOWED_HOSTS = new Set(["127.0.0.1", "localhost"]);
 
 // A verdict summary is short prose; anything larger is malformed/abusive.
 const MAX_DONE_BODY = 256 * 1024;
-
-// Self-only sources: the viewer is fully self-contained (no CDN/remote fetch),
-// so this blocks any exfiltration of rendered agent/diff content to a remote
-// host while keeping the app working. 'unsafe-inline' is limited to styles
-// (Shiki/Tailwind emit inline styles); scripts fall back to default-src 'self'
-// (external hashed modules OK, inline script blocked).
-const VIEWER_CSP =
-  "default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; " +
-  "font-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'";
 
 function withViewerHeaders(res: Response): Response {
   res.headers.set("content-security-policy", VIEWER_CSP);

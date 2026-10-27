@@ -233,7 +233,10 @@ Test before merging: copy `apps/plugin` alone into an empty temp folder with no
   pnpm `node_modules`). Users of the plugin still need Bun, as today.
 - **Electron** packaging with pnpm's symlinked `node_modules` often needs
   `node-linker=hoisted` for that app (set in `apps/desktop/.npmrc` or via the
-  packager's config). Check this in the desktop spike.
+  packager's config). Checked in US-08: not needed for `dev`, `build` and
+  `start`, because main and preload bundle all their imports and the built
+  app needs no `node_modules`. Packaging (US-18) and the Agent SDK (US-09)
+  are still to check: see `apps/desktop/README.md`.
 - CI: install pnpm from `packageManager`, keep `oven-sh/setup-bun` (version
   from `.bun-version`), `pnpm install --frozen-lockfile`.
 

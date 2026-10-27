@@ -65,6 +65,7 @@ review-buddy/
 │   ├── integrations/          # Cursor / VS Code Copilot / Codex MCP configs + GENERATED review prompts
 │   ├── examples/hooks.json    # example plugin hook config (installed-binary form)
 │   └── scripts/               # build-plugin.ts (bundles → dist/), smoke-plugin.ts (runs apps/plugin alone)
+├── apps/desktop/              # Electron desktop app (in progress, see apps/desktop/README.md): main (window, app:// + CSP, IPC), preload (window.reviewBuddy), renderer (<ReviewViewer api={ipcReviewApi} />)
 ├── packages/core/             # @review-buddy/core — runtime-neutral (no Bun/Node/DOM APIs; its typecheck enforces it)
 │   ├── src/types.ts           # shared agent + UI/server contracts
 │   ├── src/diff.ts            # git diff parser
@@ -74,6 +75,7 @@ review-buddy/
 │   ├── src/messages.ts        # agent-facing feedback text (resolution notes, request-changes)
 │   ├── src/meta.ts            # review meta
 │   ├── src/source.ts          # ReviewDataSource: where the diff, PR metadata, and file bytes come from
+│   ├── src/viewer-csp.ts      # VIEWER_CSP: the one CSP for every app that shows the viewer (plugin server, desktop renderer)
 │   ├── src/node/              # Node-only (no Bun APIs): git/gh capture + LocalGitSource; own tsconfig.node.json
 │   ├── schemas/review.schema.json # JSON Schema = submit_review inputSchema
 │   └── prompts/               # review-template.md (ONE template, {{#standalone}}/{{#desktop}} blocks) → `pnpm gen:prompts` → integration prompts + review-desktop.md

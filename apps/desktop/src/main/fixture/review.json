@@ -1,0 +1,81 @@
+{
+  "pr": {
+    "title": "Friendlier greetings and calmer retries",
+    "description": "Adds a configurable suffix to `greet()` and slows down the job queue retries.\n\nThe retry change follows the outage on Monday, when every worker retried at the same moment.",
+    "author": "octocat",
+    "createdAt": "2026-10-20T09:30:00.000Z",
+    "base": "main",
+    "head": "feature/greeting-suffix",
+    "url": "https://github.com/octocat/hello-world/pull/42"
+  },
+  "agent": {
+    "prologue": {
+      "why": "Product wants a warmer greeting, and the job queue overloaded the database after an outage because all workers retried together.",
+      "what": "`greet()` gets an optional suffix (default `!`), and the retry backoff starts later and adds jitter.",
+      "key_changes": [
+        {
+          "headline": "Greeting suffix",
+          "detail": "New `suffix` option on `GreetOptions`, defaulting to `\"!\"`."
+        },
+        {
+          "headline": "Retry backoff",
+          "detail": "Delays go from 100–800 ms to 250–2000 ms, with up to 10% random jitter."
+        }
+      ],
+      "review_focus": {
+        "summary": "Check that the longer backoff still fits inside the job timeout (4 retries now wait up to about 4 seconds).",
+        "file": "src/retry.ts"
+      }
+    },
+    "chapters": [
+      {
+        "index": 1,
+        "title": "Retry backoff with jitter",
+        "risk": "Medium",
+        "risk_reason": "Changes timing for every job retry.",
+        "description": "Raises the backoff delays and adds jitter so workers do not retry at the same moment.",
+        "files": [
+          {
+            "path": "src/retry.ts",
+            "change_type": "modified"
+          }
+        ]
+      },
+      {
+        "index": 2,
+        "title": "Greeting suffix",
+        "risk": "Low",
+        "risk_reason": "Additive option with a default and tests.",
+        "description": "Adds the `suffix` option and tests for the default and a custom value.",
+        "files": [
+          {
+            "path": "src/greet.ts",
+            "change_type": "modified",
+            "hunks": [
+              {
+                "old_start": 5,
+                "new_start": 5
+              },
+              {
+                "old_start": 15,
+                "new_start": 18
+              }
+            ]
+          },
+          {
+            "path": "test/greet.test.ts",
+            "change_type": "added"
+          }
+        ]
+      }
+    ]
+  },
+  "diff": "diff --git a/src/greet.ts b/src/greet.ts\nindex f23a521..bd2fc1f 100644\n--- a/src/greet.ts\n+++ b/src/greet.ts\n@@ -5,9 +5,12 @@\n export interface GreetOptions {\n   /** Shown instead of the name when it is empty. */\n   fallback?: string;\n+  /** Appended after the greeting. Defaults to \"!\". */\n+  suffix?: string;\n }\n \n const DEFAULT_FALLBACK = \"friend\";\n+const DEFAULT_SUFFIX = \"!\";\n \n function clean(name: string): string {\n   return name.trim().replace(/\\s+/g, \" \");\n@@ -15,7 +18,7 @@ function clean(name: string): string {\n \n export function greet(name: string, options: GreetOptions = {}): string {\n   const who = clean(name) || options.fallback || DEFAULT_FALLBACK;\n-  return `Hello, ${who}`;\n+  return `Hello, ${who}${options.suffix ?? DEFAULT_SUFFIX}`;\n }\n \n export function farewell(name: string): string {\ndiff --git a/src/retry.ts b/src/retry.ts\nindex 031c2ac..72fdd3b 100644\n--- a/src/retry.ts\n+++ b/src/retry.ts\n@@ -2,7 +2,8 @@\n  * Retry with exponential backoff for the job queue.\n  */\n \n-export const BACKOFF_MS = [100, 200, 400, 800];\n+// Start at 250 ms: at 100 ms every worker retried at once after an outage.\n+export const BACKOFF_MS = [250, 500, 1000, 2000];\n \n export async function withRetry<T>(run: () => Promise<T>): Promise<T> {\n   let lastError: unknown;\n@@ -11,7 +12,7 @@ export async function withRetry<T>(run: () => Promise<T>): Promise<T> {\n       return await run();\n     } catch (error) {\n       lastError = error;\n-      await sleep(delay);\n+      await sleep(delay + Math.random() * delay * 0.1);\n     }\n   }\n   throw lastError;\ndiff --git a/test/greet.test.ts b/test/greet.test.ts\nnew file mode 100644\nindex 0000000..3c72dcf\n--- /dev/null\n+++ b/test/greet.test.ts\n@@ -0,0 +1,10 @@\n+import { expect, test } from \"bun:test\";\n+import { greet } from \"../src/greet.ts\";\n+\n+test(\"adds the default suffix\", () => {\n+  expect(greet(\"Ada\")).toBe(\"Hello, Ada!\");\n+});\n+\n+test(\"uses a custom suffix\", () => {\n+  expect(greet(\"Ada\", { suffix: \".\" })).toBe(\"Hello, Ada.\");\n+});\n",
+  "files": {
+    "base:src/greet.ts": "/**\n * Greetings shown on the welcome screen.\n */\n\nexport interface GreetOptions {\n  /** Shown instead of the name when it is empty. */\n  fallback?: string;\n}\n\nconst DEFAULT_FALLBACK = \"friend\";\n\nfunction clean(name: string): string {\n  return name.trim().replace(/\\s+/g, \" \");\n}\n\nexport function greet(name: string, options: GreetOptions = {}): string {\n  const who = clean(name) || options.fallback || DEFAULT_FALLBACK;\n  return `Hello, ${who}`;\n}\n\nexport function farewell(name: string): string {\n  return `Goodbye, ${clean(name)}`;\n}\n",
+    "base:src/retry.ts": "/**\n * Retry with exponential backoff for the job queue.\n */\n\nexport const BACKOFF_MS = [100, 200, 400, 800];\n\nexport async function withRetry<T>(run: () => Promise<T>): Promise<T> {\n  let lastError: unknown;\n  for (const delay of BACKOFF_MS) {\n    try {\n      return await run();\n    } catch (error) {\n      lastError = error;\n      await sleep(delay);\n    }\n  }\n  throw lastError;\n}\n\nfunction sleep(ms: number): Promise<void> {\n  return new Promise((resolve) => setTimeout(resolve, ms));\n}\n",
+    "head:src/greet.ts": "/**\n * Greetings shown on the welcome screen.\n */\n\nexport interface GreetOptions {\n  /** Shown instead of the name when it is empty. */\n  fallback?: string;\n  /** Appended after the greeting. Defaults to \"!\". */\n  suffix?: string;\n}\n\nconst DEFAULT_FALLBACK = \"friend\";\nconst DEFAULT_SUFFIX = \"!\";\n\nfunction clean(name: string): string {\n  return name.trim().replace(/\\s+/g, \" \");\n}\n\nexport function greet(name: string, options: GreetOptions = {}): string {\n  const who = clean(name) || options.fallback || DEFAULT_FALLBACK;\n  return `Hello, ${who}${options.suffix ?? DEFAULT_SUFFIX}`;\n}\n\nexport function farewell(name: string): string {\n  return `Goodbye, ${clean(name)}`;\n}\n",
+    "head:src/retry.ts": "/**\n * Retry with exponential backoff for the job queue.\n */\n\n// Start at 250 ms: at 100 ms every worker retried at once after an outage.\nexport const BACKOFF_MS = [250, 500, 1000, 2000];\n\nexport async function withRetry<T>(run: () => Promise<T>): Promise<T> {\n  let lastError: unknown;\n  for (const delay of BACKOFF_MS) {\n    try {\n      return await run();\n    } catch (error) {\n      lastError = error;\n      await sleep(delay + Math.random() * delay * 0.1);\n    }\n  }\n  throw lastError;\n}\n\nfunction sleep(ms: number): Promise<void> {\n  return new Promise((resolve) => setTimeout(resolve, ms));\n}\n",
+    "head:test/greet.test.ts": "import { expect, test } from \"bun:test\";\nimport { greet } from \"../src/greet.ts\";\n\ntest(\"adds the default suffix\", () => {\n  expect(greet(\"Ada\")).toBe(\"Hello, Ada!\");\n});\n\ntest(\"uses a custom suffix\", () => {\n  expect(greet(\"Ada\", { suffix: \".\" })).toBe(\"Hello, Ada.\");\n});\n"
+  }
+}

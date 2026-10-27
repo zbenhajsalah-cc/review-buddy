@@ -10,20 +10,25 @@
     "test:core": "pnpm --filter @review-buddy/core test",
     "test:ui": "pnpm --filter review-buddy-ui test",
     "test:viewer": "pnpm --filter @review-buddy/viewer test",
+    "test:desktop": "pnpm --filter @review-buddy/desktop test",
     "typecheck": "pnpm --filter review-buddy typecheck",
     "typecheck:core": "pnpm --filter @review-buddy/core typecheck",
     "typecheck:ui": "pnpm --filter review-buddy-ui typecheck",
     "typecheck:viewer": "pnpm --filter @review-buddy/viewer typecheck",
+    "typecheck:desktop": "pnpm --filter @review-buddy/desktop typecheck",
     "build:ui": "pnpm --filter review-buddy-ui build",
     "build:plugin": "pnpm --filter review-buddy build",
+    "build:desktop": "pnpm --filter @review-buddy/desktop build",
+    "dev:desktop": "pnpm --filter @review-buddy/desktop dev",
+    "smoke:desktop": "pnpm --filter @review-buddy/desktop smoke",
     "gen:prompts": "bun run scripts/gen-prompts.ts",
     "lint": "biome check .",
     "format": "biome format --write .",
     "smoke:plugin": "pnpm --filter review-buddy smoke",
     "verify:dist-fresh": "git add --intent-to-add -- apps/plugin/ui/dist apps/plugin/dist && git diff --exit-code -- apps/plugin/ui/dist apps/plugin/dist",
     "verify:prompts-fresh": "pnpm gen:prompts && git add --intent-to-add -- apps/plugin/integrations packages/core/prompts && git diff --exit-code -- apps/plugin/integrations packages/core/prompts",
-    "verify": "pnpm lint && pnpm test:core && pnpm test && pnpm typecheck:core && pnpm typecheck && pnpm typecheck:viewer && pnpm typecheck:ui && pnpm test:viewer && pnpm test:ui",
-    "verify:ci": "pnpm lint && pnpm test:core && pnpm test && pnpm typecheck:core && pnpm typecheck && pnpm typecheck:viewer && pnpm build:ui && pnpm build:plugin && pnpm test:viewer && pnpm test:ui && pnpm verify:dist-fresh && pnpm verify:prompts-fresh && pnpm smoke:plugin"
+    "verify": "pnpm lint && pnpm test:core && pnpm test && pnpm typecheck:core && pnpm typecheck && pnpm typecheck:viewer && pnpm typecheck:ui && pnpm typecheck:desktop && pnpm test:viewer && pnpm test:ui && pnpm test:desktop",
+    "verify:ci": "pnpm lint && pnpm test:core && pnpm test && pnpm typecheck:core && pnpm typecheck && pnpm typecheck:viewer && pnpm typecheck:desktop && pnpm build:ui && pnpm build:plugin && pnpm build:desktop && pnpm test:viewer && pnpm test:ui && pnpm test:desktop && pnpm verify:dist-fresh && pnpm verify:prompts-fresh && pnpm smoke:plugin"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.5.3"

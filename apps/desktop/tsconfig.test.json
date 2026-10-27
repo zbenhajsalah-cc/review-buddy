@@ -1,0 +1,7 @@
+{
+  // Renderer tests: the web config plus bun:test.
+  "extends": "./tsconfig.web.json",
+  "compilerOptions": { "types": ["bun-types"] },
+  "include": ["src/renderer/src", "src/shared"],
+  "exclude": []
+}

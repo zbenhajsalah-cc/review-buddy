@@ -24094,6 +24094,11 @@ function openBrowser(url2) {
 import { createHash, timingSafeEqual } from "crypto";
 import { existsSync as existsSync3 } from "fs";
 import { join as join3, resolve, sep as sep2 } from "path";
+
+// ../../packages/core/src/viewer-csp.ts
+var VIEWER_CSP = "default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; " + "font-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'";
+
+// src/server/http.ts
 function isInside(root, rel) {
   const r = resolve(root);
   const t = resolve(root, rel);
@@ -24101,7 +24106,6 @@ function isInside(root, rel) {
 }
 var ALLOWED_HOSTS = new Set(["127.0.0.1", "localhost"]);
 var MAX_DONE_BODY = 256 * 1024;
-var VIEWER_CSP = "default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; " + "font-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'";
 function withViewerHeaders(res) {
   res.headers.set("content-security-policy", VIEWER_CSP);
   res.headers.set("x-content-type-options", "nosniff");

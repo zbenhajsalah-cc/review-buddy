@@ -1,0 +1,6 @@
+/* Same setup as the plugin's viewer entry (apps/plugin/ui/src/index.css):
+   scan only this renderer and the viewer package for Tailwind classes. */
+@import "tailwindcss" source(".");
+@import "@review-buddy/viewer/theme.css";
+@source "../index.html";
+@source "../../../../../packages/viewer/src";

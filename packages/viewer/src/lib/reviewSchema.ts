@@ -1,6 +1,10 @@
 import type { ResolvedReview } from "@review-buddy/core/types";
 import { z } from "zod";
 
+// The viewer's CSP has no 'unsafe-eval'. Without this, zod probes `new Function`
+// on first use, and the browser logs the blocked attempt as a CSP error.
+z.config({ jitless: true });
+
 const RiskSchema = z.enum(["Low", "Medium", "High"]);
 const ChangeTypeSchema = z.enum(["added", "modified", "deleted", "renamed"]);
 

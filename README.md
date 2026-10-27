@@ -116,6 +116,7 @@ apps/plugin/         # the Claude Code plugin + standalone MCP server (self-cont
   dist/              # committed bundles: server.js, hook.js
   integrations/      # Cursor / VS Code Copilot / Codex configs + review prompts
   examples/hooks.json # example Claude Code plugin hook config
+apps/desktop/        # Electron desktop app (in progress): the same viewer over IPC — see apps/desktop/README.md
 packages/core/       # @review-buddy/core: contracts, diff parser, chapter resolution, validation, git capture (src/node)
   schemas/           # review.schema.json = submit_review input schema
 packages/viewer/     # @review-buddy/viewer: <ReviewViewer api /> — React 19 + Tailwind v4 + @pierre/diffs, data via a ReviewApi
@@ -143,6 +144,10 @@ pnpm --filter review-buddy-ui dev     # viewer dev server (proxies /api → 127.
 pnpm build:ui                         # typecheck + production build (writes the committed apps/plugin/ui/dist)
 pnpm build:plugin                     # bundle the MCP server + hook (writes the committed apps/plugin/dist)
 pnpm smoke:plugin                     # run apps/plugin alone, like an installed plugin: no node_modules, no auto-install
+
+pnpm dev:desktop                      # Electron desktop app in dev mode (see apps/desktop/README.md)
+pnpm test:desktop                     # desktop unit tests
+pnpm smoke:desktop                    # build + drive the real Electron app (needs a display, or xvfb-run)
 ```
 
 Component stories live in `packages/viewer` and use a fake in-memory `ReviewApi`. Run `pnpm --filter @review-buddy/viewer storybook` for the dev catalog on port 6006, or `pnpm --filter @review-buddy/viewer build-storybook` for a static build.
