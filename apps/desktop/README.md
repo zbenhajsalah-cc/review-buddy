@@ -501,7 +501,9 @@ The app does not ship Claude Code: it runs the one you installed
   `~/.local/bin`, `~/.claude/local`, `/opt/homebrew/bin`, `/usr/local/bin`
   (Windows: `claude.exe` in the PATH and `%USERPROFILE%\.local\bin`). An app
   started from the Dock or the Start menu does not get the shell's PATH,
-  which is why the folders are searched too. Elsewhere: Settings →
+  which is why the folders are searched too. Relative PATH entries (`.`,
+  `node_modules/.bin`) are skipped: the review runs Claude Code in another
+  folder, where they point elsewhere. Elsewhere: Settings →
   **Claude Code** → **Choose…** (a file dialog in main; the path is kept in
   `settings.json` as `claudePath`, and only that binary is checked).
   **Search for it instead** forgets it. On Windows, choose `claude.exe`: an

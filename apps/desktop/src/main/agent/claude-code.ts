@@ -14,7 +14,12 @@ import { homedir } from "node:os";
 import { posix, win32 } from "node:path";
 import type { ClaudeCodeStatus } from "../../shared/ipc.ts";
 
-/** Where to look, in order: the PATH, then the usual install folders. */
+/**
+ * Where to look, in order: the PATH, then the usual install folders. Only
+ * absolute folders: a relative PATH entry ("." or "node_modules/.bin") means
+ * a different place for the check and for the review (Claude Code runs in a
+ * temp folder), and would run whatever `claude` the current folder has.
+ */
 export function claudeCandidates(
   platform: string,
   env: Record<string, string | undefined>,
@@ -33,7 +38,7 @@ export function claudeCandidates(
       "/usr/local/bin",
     );
   }
-  return [...new Set(dirs.map((d) => path.join(d, name)))];
+  return [...new Set(dirs.filter((d) => path.isAbsolute(d)).map((d) => path.join(d, name)))];
 }
 
 /** "2.1.311 (Claude Code)" → "2.1.311"; null for anything else. */

@@ -27,6 +27,19 @@ describe("claudeCandidates", () => {
     ]);
   });
 
+  test("relative PATH entries are skipped (the review runs Claude Code in another folder)", () => {
+    const list = claudeCandidates(
+      "linux",
+      { PATH: ".:node_modules/.bin:/usr/bin:bin" },
+      "/home/me",
+    );
+    expect(list[0]).toBe("/usr/bin/claude");
+    expect(list.every((p) => p.startsWith("/"))).toBe(true);
+    const win = claudeCandidates("win32", { Path: ".;tools;C:\\Tools" }, "C:\\Users\\me");
+    expect(win[0]).toBe("C:\\Tools\\claude.exe");
+    expect(win).toHaveLength(2);
+  });
+
   test("no doubles", () => {
     const list = claudeCandidates(
       "linux",
