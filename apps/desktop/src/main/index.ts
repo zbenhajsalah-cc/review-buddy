@@ -11,6 +11,8 @@ import { readFile } from "node:fs/promises";
 import { extname, join } from "node:path";
 import { app, BrowserWindow, protocol, session, shell } from "electron";
 import { FIXTURE_REVIEW_KEY } from "../shared/ipc.ts";
+import { type AgentCheckResult, runAgentCheck } from "./agent/check.ts";
+import { claudeExecutablePath } from "./agent/executable.ts";
 import { loadFixtureReview } from "./fixture/index.ts";
 import { registerReviewIpc } from "./ipc.ts";
 import { ReviewStore } from "./reviews.ts";
@@ -117,7 +119,32 @@ function createWindow(): BrowserWindow {
   return win;
 }
 
+/**
+ * `--agent-check`: run the minimal Agent SDK query (US-09), print the result as
+ * one JSON line, exit 0 if Claude answered. No window. Works the same in dev
+ * (`pnpm --filter desktop agent-check`) and in a packaged app
+ * (`<app> --agent-check`).
+ */
+async function agentCheck(): Promise<void> {
+  // Loaded only here: the SDK is large and the normal start does not need it yet.
+  const { query } = await import("@anthropic-ai/claude-agent-sdk");
+  let result: AgentCheckResult;
+  try {
+    result = await runAgentCheck(query, {
+      pathToClaudeCodeExecutable: claudeExecutablePath(),
+      clientApp: `review-buddy-desktop/${app.getVersion()}`,
+    });
+  } catch (e) {
+    // claudeExecutablePath throws when the platform binary is missing.
+    result = { ok: false, durationMs: 0, error: String(e) };
+  }
+  console.log(`[review-buddy] agent-check ${JSON.stringify(result)}`);
+  app.exit(result.ok ? 0 : 1);
+}
+
 app.whenReady().then(async () => {
+  if (app.commandLine.hasSwitch("agent-check")) return agentCheck();
+
   const store = new ReviewStore();
   const fixture = await loadFixtureReview();
   for (const warning of fixture.warnings) console.warn(`[review-buddy] fixture: ${warning}`);

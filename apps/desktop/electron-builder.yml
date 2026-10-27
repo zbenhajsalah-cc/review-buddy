@@ -1,0 +1,24 @@
+# Packaging (US-09 checks the Agent SDK in a packaged app; US-18 finishes it).
+# `pnpm --filter desktop package` builds an unpacked app into release/.
+appId: dev.review-buddy.desktop
+productName: Review Buddy
+executableName: review-buddy
+# No auto-update feed (personal use).
+publish: null
+directories:
+  output: release
+# main, preload and renderer are bundled into out/. electron-builder adds the
+# production `dependencies` (only the Agent SDK) from node_modules.
+files:
+  - out/**/*
+  - package.json
+asarUnpack:
+  # The SDK runs Claude Code as a child process from this binary; a file inside
+  # app.asar cannot be executed (see src/main/agent/executable.ts).
+  - "**/node_modules/@anthropic-ai/claude-agent-sdk-*/**"
+linux:
+  target: dir
+mac:
+  target: dir
+win:
+  target: dir

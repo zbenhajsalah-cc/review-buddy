@@ -5,10 +5,11 @@ The desktop app shows a review in the same viewer as the plugin
 instead of HTTP. Plan and stories: `docs/DESIGN-desktop-app-shared-code.md`,
 `docs/backlog-desktop-app.md`.
 
-**Status (US-08):** a skeleton. Main loads one fixed review
+**Status (US-08, US-09):** a skeleton. Main loads one fixed review
 (`src/main/fixture/review.json`) through core (`validateAgentReview` →
-`resolveReview`) and shows it. GitHub, the agent and the PR screens come in
-later stories.
+`resolveReview`) and shows it. A command-line check proves the Agent SDK runs
+from main with your Claude login (see "Claude (Agent SDK)"). GitHub, the
+review agent and the PR screens come in later stories.
 
 ## Run it
 
@@ -20,6 +21,8 @@ pnpm --filter desktop start    # run the built app (out/)
 pnpm --filter desktop smoke    # build, then drive the real app with Playwright
 pnpm --filter desktop test     # unit tests (bun)
 pnpm --filter desktop typecheck
+pnpm --filter desktop agent-check  # one Agent SDK query from main (dev mode)
+pnpm --filter desktop package  # unpacked app for this OS in release/ (electron-builder --dir)
 ```
 
 The root has the same commands as `pnpm dev:desktop`, `build:desktop`,
@@ -41,10 +44,12 @@ that needs the Electron binary and a display.
 
 ```
 src/main/       # Electron main (Node): window, app:// protocol, IPC handlers, review store
+src/main/agent/ # Agent SDK: the Claude Code binary path, the --agent-check run
 src/preload/    # exposes window.reviewBuddy (the ReviewBridge); built as CommonJS
 src/renderer/   # <ReviewViewer api={ipcReviewApi(window.reviewBuddy, key)} />
 src/shared/     # the IPC contract (channel names + types), used by all three
 scripts/        # smoke-desktop.ts
+electron-builder.yml  # packaging (asarUnpack for the Claude Code binary)
 ```
 
 ## Security
@@ -66,18 +71,82 @@ untrusted:
   navigates away from the app, and `<webview>` is blocked.
 - The only permission granted is clipboard write, for the copy buttons.
 
+## Claude (Agent SDK)
+
+The app uses the Claude Agent SDK (`@anthropic-ai/claude-agent-sdk`, the only
+production `dependency`). The SDK runs Claude Code as a child process, and
+Claude Code uses the login you already have from `claude /login`. It reads
+it from `~/.claude` on Linux and Windows, and from the Keychain on macOS. No API key is
+needed.
+
+**Check it** (prints one JSON line; exit code 0 = Claude answered):
+
+```bash
+pnpm --filter desktop agent-check                           # dev
+release/linux-unpacked/review-buddy --agent-check           # packaged, Linux
+"release/mac-arm64/Review Buddy.app/Contents/MacOS/Review Buddy" --agent-check  # packaged, macOS
+```
+
+The check asks one question with no tools, no settings files and no saved
+session, in a temp folder. In the JSON:
+
+- `answer: "pong"` and `ok: true`: the SDK started Claude Code and got an
+  answer.
+- `apiKeySource: "none"` means no API key was used. With your login, it is
+  `"none"` and `account.subscriptionType` names your Claude plan.
+  `"ANTHROPIC_API_KEY"` means Claude Code used an API key from the
+  environment instead: unset it to use the login.
+- No login: `ok: false` and `error: "Not logged in · Please run /login"`.
+  Run `claude /login` once, outside the app.
+
+**What was checked (US-09).** The check passed in dev mode and in a packaged
+Linux build (`pnpm --filter desktop package`). It ran in a cloud container
+whose credential comes from the host, not from `claude /login`. So the
+`apiKeySource` / `subscriptionType` values for a real login are still to be
+confirmed on your machine. Run the check once there. A failed login was
+simulated with a fake API that answers 401; it gives the error above.
+
+**Packaging needs**
+
+- **The Claude Code binary must be unpacked.** The SDK's binary comes in an
+  optional per-platform package (`@anthropic-ai/claude-agent-sdk-<platform>-<arch>`).
+  A file inside `app.asar` cannot be run (`spawn` fails with `ENOTDIR`).
+  `asarUnpack` in `electron-builder.yml` puts it in `app.asar.unpacked`.
+  electron-builder's default "smart unpack" also unpacks it, because it is an
+  executable; the explicit rule makes sure it stays that way.
+- **The SDK cannot find the unpacked copy by itself:** it resolves the binary
+  inside `app.asar`. Main resolves the path the same way and maps it to
+  `app.asar.unpacked` (`src/main/agent/executable.ts`), then passes it as
+  `pathToClaudeCodeExecutable`. The same code runs in dev, where the path has
+  no asar in it.
+- **The SDK must stay external** (a `dependency`, not bundled), so its binary
+  package is next to it in `node_modules`. electron-builder collects it from
+  pnpm's layout. **No `node-linker=hoisted` is needed.**
+- **One platform per build.** pnpm installs only this machine's binary
+  package, so build each OS on that OS. electron-builder warns about the other
+  platforms' packages; that is expected.
+- **Size.** The binary is about 250 MB unpacked, about half of the 545 MB
+  Linux app. If that is too much, US-18 can use the `claude` the user already
+  has installed instead (`pathToClaudeCodeExecutable`). The cost is a Claude
+  Code version that the app does not control.
+- **Peers.** The SDK's peer dependencies (`@anthropic-ai/sdk`,
+  `@modelcontextprotocol/sdk`, `zod`) are only needed for types. Its runtime
+  imports only Node built-ins, and they are not packaged.
+
+**Fallback if the login does not work in a packaged app:** ask for an
+Anthropic API key once, keep it with Electron `safeStorage` (encrypted by the
+OS keychain), and pass it to the SDK as `env.ANTHROPIC_API_KEY`. It is not
+built, because the login works.
+
 ## pnpm and Electron
 
-No special pnpm linker settings are needed for now. Main and preload bundle
-all their imports (core, zod), so only `electron` and Node built-ins stay
-external. The renderer is a normal Vite build. The built app in `out/`
-needs no `node_modules`, so pnpm's symlinked layout (the default
-`node-linker=isolated`) works for `dev`, `build` and `start`.
+No special pnpm linker settings are needed. Main and preload bundle all their
+imports (core, zod), so only `electron`, Node built-ins and the Agent SDK stay
+external. The renderer is a normal Vite build. electron-builder packages the
+one external package (and its platform binary) from pnpm's symlinked layout
+(the default `node-linker=isolated`).
 
-This is why every package is a devDependency: electron-vite keeps only
+This is why every other package is a devDependency: electron-vite keeps only
 `dependencies` external.
 
-Still to check: packaging (US-18), and the Agent SDK (US-09). The SDK starts
-a child process from its own package files, so it probably has to stay
-external and unpacked from the asar. That may need `node-linker=hoisted` for
-this app, or the packager's own dependency collection.
+Still to do in US-18: icons, installers (dmg / AppImage / NSIS), signing.

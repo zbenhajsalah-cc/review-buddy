@@ -157,9 +157,11 @@ The template moves to `packages/core/prompts/`.
   `gh` is logged in. Otherwise use GitHub OAuth device flow, or let the user
   paste a token. Store it with Electron `safeStorage`.
 - **Claude:** the Agent SDK runs Claude Code under the hood. For personal use it
-  can use the login already on the machine. **Spike first**: confirm this works
-  from a packaged Electron app (the SDK starts a child process; packaging may
-  need `asarUnpack` for the SDK package).
+  can use the login already on the machine. Checked in US-09: from Electron
+  main, in dev and in a packaged Linux build. The Claude Code binary (an
+  optional per-platform package of the SDK) must be unpacked from the asar,
+  and main passes its unpacked path as `pathToClaudeCodeExecutable`. Details
+  and the remaining check on a real login: `apps/desktop/README.md`.
 - **Agent runner:** `query()` with an **in-process MCP tool** `submit_review`
   (same JSON schema) whose handler runs `validateAgentReview` → `resolveReview`
   and returns the resolution notes to the agent, so it can fix bad anchors in
@@ -235,8 +237,9 @@ Test before merging: copy `apps/plugin` alone into an empty temp folder with no
   `node-linker=hoisted` for that app (set in `apps/desktop/.npmrc` or via the
   packager's config). Checked in US-08: not needed for `dev`, `build` and
   `start`, because main and preload bundle all their imports and the built
-  app needs no `node_modules`. Packaging (US-18) and the Agent SDK (US-09)
-  are still to check: see `apps/desktop/README.md`.
+  app needs no `node_modules`. US-09 added the Agent SDK as the one external
+  package; electron-builder packages it from pnpm's layout, still without
+  `hoisted`. See `apps/desktop/README.md`.
 - CI: install pnpm from `packageManager`, keep `oven-sh/setup-bun` (version
   from `.bun-version`), `pnpm install --frozen-lockfile`.
 

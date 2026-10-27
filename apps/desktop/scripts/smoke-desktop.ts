@@ -6,6 +6,8 @@
  *
  *   pnpm --filter desktop smoke     (builds first; on Linux without a display,
  *                                    run it under `xvfb-run -a`)
+ *   node scripts/smoke-desktop.ts --executable release/linux-unpacked/review-buddy
+ *                                   (the same checks on a packaged app)
  */
 /// <reference lib="dom" />
 /// <reference lib="dom.iterable" />
@@ -16,6 +18,9 @@ import { join } from "node:path";
 import { _electron, type ElectronApplication, type Page } from "playwright-core";
 
 const appDir = join(import.meta.dirname, "..");
+const flag = process.argv.indexOf("--executable");
+// A packaged app is its own executable; in the repo, the electron binary runs appDir.
+const packaged = flag >= 0 ? process.argv[flag + 1] : undefined;
 // The electron package's main export is the path of its binary.
 const electronPath = createRequire(join(appDir, "package.json"))("electron") as string;
 
@@ -49,9 +54,9 @@ async function waitForText(page: Page, text: string, present = true): Promise<vo
 }
 
 const app: ElectronApplication = await _electron.launch({
-  executablePath: electronPath,
+  executablePath: packaged ?? electronPath,
   // Chromium refuses to run as root with its sandbox on (CI containers).
-  args: [appDir, ...(process.getuid?.() === 0 ? ["--no-sandbox"] : [])],
+  args: [...(packaged ? [] : [appDir]), ...(process.getuid?.() === 0 ? ["--no-sandbox"] : [])],
   cwd: appDir,
 });
 const mainLog: string[] = [];
