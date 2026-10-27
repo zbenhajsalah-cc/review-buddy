@@ -424,7 +424,9 @@ resubmits after resolution notes, the phase goes back to "writing".
 
 **Stop** cancels the GitHub requests and the Claude run, and a stopped run
 shows no review, even if Claude had already submitted one; on a queued job it
-takes it out of the queue.
+takes it out of the queue. Once the review is being saved, Stop is too late
+(like Stop on a finished job): that save may replace a saved review of the
+same commit (**Run again**), and undoing it would lose that one and its Done.
 
 **Failures** say what failed (`errorKind`), with the reason and, when it
 helps, what to do:

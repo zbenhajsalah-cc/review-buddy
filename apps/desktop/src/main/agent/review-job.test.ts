@@ -278,23 +278,29 @@ describe("ReviewJobs", () => {
     expect(store.newestFor("octocat/hello-world#42")).toBeUndefined();
   });
 
-  test("stop while the review is saved: failed, and the saved review is deleted", async () => {
-    const { jobs, store } = await setup();
-    const add = store.addPrReview.bind(store);
-    // Stop comes while the review is written to disk.
-    store.addPrReview = async (...args) => {
-      const key = await add(...args);
-      jobs.stop(1);
-      return key;
-    };
+  test("stop while the review is saved is too late: a rerun keeps the saved review and Done", async () => {
+    const { jobs, store, review } = await setup();
+    const key = "octocat/hello-world#42@7e8e70534d5f";
     jobs.start("octocat/hello-world#42");
     await jobs.whenIdle();
-    expect(jobs.jobs()[0]).toMatchObject({ state: "failed", error: "Stopped." });
-    expect(jobs.jobs()[0]!.reviewKey).toBeUndefined();
-    await expect(store.getReview("octocat/hello-world#42@7e8e70534d5f")).rejects.toThrow(
-      "unknown review",
-    );
-    expect(store.newestFor("octocat/hello-world#42")).toBeUndefined();
+    const doneAt = await store.markDone(key);
+    const add = store.addPrReview.bind(store);
+    // Run again; Stop comes while its review is written to disk.
+    store.addPrReview = async (...args) => {
+      const saved = await add(...args);
+      jobs.stop(2);
+      jobs.stopAll();
+      return saved;
+    };
+    jobs.start("octocat/hello-world#42", { fresh: true });
+    await jobs.whenIdle();
+    expect(jobs.jobs()[1]).toMatchObject({ state: "done", reviewKey: key });
+    expect(await store.getReview(key)).toBe(review);
+    expect(store.newestFor("octocat/hello-world#42")).toEqual({
+      reviewKey: key,
+      headSha: HEAD,
+      doneAt,
+    });
   });
 
   test("stop reaches the GitHub requests; stop after the run changes nothing", async () => {

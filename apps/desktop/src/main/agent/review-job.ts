@@ -46,6 +46,8 @@ interface Job {
   abort: AbortController;
   /** Run the agent even if a review of this head is saved. */
   fresh: boolean;
+  /** The review is being saved: too late to stop (see `stop`). */
+  saving?: boolean;
 }
 
 export class ReviewJobs {
@@ -92,14 +94,16 @@ export class ReviewJobs {
 
   /**
    * Stops a running job, or takes a queued one out of the queue (it ends as
-   * "Stopped."). A finished job is kept as it is (its file reads still work).
+   * "Stopped."). A finished job is kept as it is (its file reads still work),
+   * and so is one whose review is being saved: that save may replace a saved
+   * review of the same commit (Run again), so it is never undone.
    */
   stop(id: unknown): ReviewJobStatus[] {
     const job = this.#jobs.find((j) => j.status.id === id);
     if (job?.status.state === "queued") {
       this.#unqueue(job);
       this.#changed();
-    } else if (job?.status.state === "running") {
+    } else if (job?.status.state === "running" && !job.saving) {
       job.abort.abort();
     }
     return this.jobs();
@@ -108,7 +112,9 @@ export class ReviewJobs {
   /** Stops everything (the app quits). */
   stopAll(): void {
     for (const job of this.#jobs) if (job.status.state === "queued") this.#unqueue(job);
-    for (const job of this.#jobs) if (job.status.state === "running") job.abort.abort();
+    for (const job of this.#jobs) {
+      if (job.status.state === "running" && !job.saving) job.abort.abort();
+    }
     this.#changed();
   }
 
@@ -199,6 +205,8 @@ export class ReviewJobs {
         const files = result.review ? await source.files() : [];
         // Stopped means stopped, even after a submission: the user asked for no review.
         if (result.review && !signal.aborted) {
+          // From here on, Stop is too late (set in the same tick as the check).
+          job.saving = true;
           // Viewed-file flags are kept per PR head: a new push is a new review.
           reviewKey = await this.deps.store.addPrReview(result.review, source, {
             label,
@@ -206,11 +214,6 @@ export class ReviewJobs {
             baseSha: source.baseSha,
             files,
           });
-          // Stopped while it was being saved: it is not kept either.
-          if (signal.aborted) {
-            await this.deps.store.delete(reviewKey).catch(() => {});
-            reviewKey = undefined;
-          }
         }
       }
     } catch (e) {
