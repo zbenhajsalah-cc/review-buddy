@@ -40,6 +40,7 @@ app. *Maintainer* = you, working on the code.
 | 18 | Packaged app | C. Desktop app | M | 12 |
 | 19 | Large PRs via a local clone | D. Later | L | 16 |
 | 20 | Post the review to GitHub | D. Later | L | 17 |
+| 21 | Use the installed Claude Code | C. Desktop app | M | 18 |
 
 ## Epic A: Monorepo
 
@@ -523,13 +524,61 @@ Acceptance criteria:
     binary keeps Anthropic's signature. The README says how to open an
     unsigned app on each OS.
   - The Claude Code binary stays bundled (the app runs the version it was
-    tested with), so the AppImage is about 240 MB.
+    tested with), so the AppImage is about 240 MB. US-21 replaces this with
+    the installed Claude Code.
   - An app icon (`build/icon.svg` → `icon.png`): risk-rated chapters.
   - Checked on Linux with the AppImage itself: the smoke test, `--agent-check`
     and the real-agent review (with a restart). macOS and Windows installers
     must be built on those systems and were not built here. electron-builder
     starts AppImages with `--no-sandbox`; the README explains it and how to
     keep the OS sandbox with the unpacked app.
+
+### US-21: Use the installed Claude Code
+
+**As a** desktop user, **I want** the app to use the Claude Code I already
+have installed, **so that** the app is small and runs the Claude Code I keep
+up to date.
+
+Why: since US-18 the installers carry the Agent SDK's own Claude Code binary
+(about 246 MB, most of the app), pinned to the SDK's version. Desktop users
+normally have Claude Code installed already.
+
+Acceptance criteria:
+- **Find it.** Main looks for `claude` (`claude.exe` on Windows) in the PATH
+  and in the usual install folders: `~/.local/bin`, `~/.claude/local`,
+  `/opt/homebrew/bin`, `/usr/local/bin`, `%USERPROFILE%\.local\bin`. An app
+  started from the Dock or the Start menu does not get the shell's PATH, so
+  the folders are searched too. Settings has **Choose…** for another place;
+  the choice is kept in the app settings.
+- **Check the version.** `claude --version` (e.g. `2.1.311 (Claude Code)`)
+  must be at least the SDK's `claudeCodeVersion` (2.1.296 for SDK 0.3.296),
+  read from the SDK's `package.json` at build time, not typed by hand. Newer
+  versions are accepted, with no upper limit (Claude Code updates itself
+  often). A check on 2026-10-27: SDK 0.3.296 ran a simple query with an
+  installed Claude Code 2.1.311.
+- **Say what to do.** Not found: "Review Buddy uses your Claude Code. Install
+  it, then press Check again", with a link to the install page. Too old:
+  "Claude Code 2.1.200 is too old for this app (needs 2.1.296 or newer). Run
+  `claude update`." Broken (`--version` fails or prints something else): the
+  path and the output.
+- **Where it shows.** A "Claude Code" card in Settings: path, version, state,
+  **Check again**, **Choose…**. Until a good `claude` is found, the Review
+  buttons (PR list, top bar, Try again) are disabled and say why. The check
+  runs at start, on **Check again**, and again before each job (a `claude`
+  updated or removed while the app is open); a job that fails it ends with a
+  `claude` error kind and the same message.
+- **Login.** No new check: "not logged in" from a run already says what to do
+  (US-15). A failed run's message names the `claude` path and version.
+- **Packaging.** The SDK's platform packages
+  (`@anthropic-ai/claude-agent-sdk-<platform>-<arch>`) are left out of the
+  installers; `asarUnpack` and `signIgnore` for them go. The new installer
+  size is written down.
+- **Dev and tests.** Dev mode uses the same search. Unit tests use fake
+  `claude` scripts (not found, too old, OK, bad output, not executable). The
+  smoke test checks the Settings card and the disabled Review buttons with a
+  fake `claude`. The real-agent e2e (`scripts/review-e2e.ts`) passes with an
+  installed `claude`, in dev and in the AppImage. `--agent-check` reports the
+  `claude` it used.
 
 ## Epic D: Later
 
