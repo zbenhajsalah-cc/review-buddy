@@ -233,6 +233,19 @@ Acceptance criteria:
   `get_pr_diff`"; there is no `source` or `cwd`.
 - `skills/review/SKILL.md` and the integration prompts are unchanged in
   content. `verify:prompts-fresh` covers the new variant.
+- Decisions made while building it:
+  - The template is `packages/core/prompts/review-template.md`. Text for one
+    kind of harness sits in `{{#standalone}}…{{/standalone}}` or
+    `{{#desktop}}…{{/desktop}}` blocks, so Steps 1–3 and the Critical rules
+    exist once.
+  - The desktop variant is `packages/core/prompts/review-desktop.md`
+    (generated, exported as `@review-buddy/core/prompts/review-desktop.md`).
+    Its Step 4 tells the agent to fix anchors from the resolution notes and
+    resubmit at most 2 times; US-12's `submit_review` handler must return
+    those notes.
+  - A plugin test checks that the skill and every generated prompt have the
+    same Steps 1–3 and Critical rules, so a change to the hand-written skill
+    that is not ported to the template fails CI.
 
 ## Epic B: Desktop spike
 

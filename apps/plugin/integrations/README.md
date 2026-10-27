@@ -13,9 +13,7 @@ codex/prompts/review-buddy.md            → copy into ~/.codex/prompts/
 ```
 
 > **Generated files — don't edit the three prompts by hand.** They are emitted
-> from `prompt-template.md` by `pnpm gen:prompts` (varying only frontmatter,
-> the Step 0 target line, and Codex's blocking-verdict section); CI's
-> `verify:prompts-fresh` fails on drift. The template itself is the standalone
-> port of `../skills/review/SKILL.md` (the structuring-prompt source of truth) —
-> when you change the skill's Steps 1–3 or Critical rules, port the change into
-> the template and regenerate.
+> from the shared template, `packages/core/prompts/review-template.md`, by
+> `pnpm gen:prompts` (varying only frontmatter, the Step 0 target line, and
+> Codex's blocking-verdict section); CI's `verify:prompts-fresh` fails on
+> drift. See [`packages/core/prompts/README.md`](../../../packages/core/prompts/README.md).

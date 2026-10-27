@@ -62,7 +62,7 @@ review-buddy/
 │   ├── src/cli/index.ts       # PreToolUse hook entry (open-review)
 │   ├── src/server/            # session lifecycle, local HTTP server, browser open
 │   ├── ui/                    # Vite entry: <ReviewViewer api={httpReviewApi} /> (token auth); COMMITTED build in ui/dist
-│   ├── integrations/          # Cursor / VS Code Copilot / Codex MCP configs + review prompts
+│   ├── integrations/          # Cursor / VS Code Copilot / Codex MCP configs + GENERATED review prompts
 │   ├── examples/hooks.json    # example plugin hook config (installed-binary form)
 │   └── scripts/               # build-plugin.ts (bundles → dist/), smoke-plugin.ts (runs apps/plugin alone)
 ├── packages/core/             # @review-buddy/core — runtime-neutral (no Bun/Node/DOM APIs; its typecheck enforces it)
@@ -75,7 +75,8 @@ review-buddy/
 │   ├── src/meta.ts            # review meta
 │   ├── src/source.ts          # ReviewDataSource: where the diff, PR metadata, and file bytes come from
 │   ├── src/node/              # Node-only (no Bun APIs): git/gh capture + LocalGitSource; own tsconfig.node.json
-│   └── schemas/review.schema.json # JSON Schema = submit_review inputSchema
+│   ├── schemas/review.schema.json # JSON Schema = submit_review inputSchema
+│   └── prompts/               # review-template.md (ONE template, {{#standalone}}/{{#desktop}} blocks) → `pnpm gen:prompts` → integration prompts + review-desktop.md
 ├── packages/viewer/           # @review-buddy/viewer — the review UI (React 19 + Tailwind v4 + @pierre/diffs), no app shell
 │   ├── src/ReviewViewer.tsx   # <ReviewViewer api /> — validates the review, overview ↔ chapters
 │   ├── src/review-api.tsx     # ReviewApi (reviewKey, getReview, getFileContent, getConfig, done) + context; HTTP in the plugin, IPC in desktop

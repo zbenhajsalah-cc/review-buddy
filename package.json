@@ -21,7 +21,7 @@
     "format": "biome format --write .",
     "smoke:plugin": "pnpm --filter review-buddy smoke",
     "verify:dist-fresh": "git add --intent-to-add -- apps/plugin/ui/dist apps/plugin/dist && git diff --exit-code -- apps/plugin/ui/dist apps/plugin/dist",
-    "verify:prompts-fresh": "pnpm gen:prompts && git add --intent-to-add -- apps/plugin/integrations && git diff --exit-code -- apps/plugin/integrations",
+    "verify:prompts-fresh": "pnpm gen:prompts && git add --intent-to-add -- apps/plugin/integrations packages/core/prompts && git diff --exit-code -- apps/plugin/integrations packages/core/prompts",
     "verify": "pnpm lint && pnpm test:core && pnpm test && pnpm typecheck:core && pnpm typecheck && pnpm typecheck:viewer && pnpm typecheck:ui && pnpm test:viewer && pnpm test:ui",
     "verify:ci": "pnpm lint && pnpm test:core && pnpm test && pnpm typecheck:core && pnpm typecheck && pnpm typecheck:viewer && pnpm build:ui && pnpm build:plugin && pnpm test:viewer && pnpm test:ui && pnpm verify:dist-fresh && pnpm verify:prompts-fresh && pnpm smoke:plugin"
   },

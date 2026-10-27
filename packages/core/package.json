@@ -6,6 +6,7 @@
   "type": "module",
   "exports": {
     "./review.schema.json": "./schemas/review.schema.json",
+    "./prompts/review-desktop.md": "./prompts/review-desktop.md",
     "./*": "./src/*.ts"
   },
   "scripts": {
