@@ -14,7 +14,8 @@ import { cn } from "@/lib/utils";
  *   block  — full flow: paragraphs, lists, headings, code fences, tables.
  *   inline — collapses the single wrapping paragraph so short fields
  *            (risk_reason, a key-change detail) drop into surrounding sentences,
- *            keeping only inline marks (bold, code, links).
+ *            keeping only inline marks (bold, code, links). It renders a <span>
+ *            and never emits block elements, so it is safe inside a <p>.
  */
 export function Markdown({
   value,
@@ -27,19 +28,25 @@ export function Markdown({
 }) {
   if (!value?.trim()) return null;
 
-  const components = variant === "inline" ? INLINE_COMPONENTS : BLOCK_COMPONENTS;
+  const inline = variant === "inline";
+  // <div> inside a <p> is invalid HTML, and inline callers sit inside one.
+  const Wrapper = inline ? "span" : "div";
 
   return (
-    <div className={cn("wrap-anywhere", className)}>
+    <Wrapper className={cn("wrap-anywhere", className)}>
       <ReactMarkdown
         remarkPlugins={[remarkGfm]}
-        components={components}
+        components={inline ? INLINE_COMPONENTS : BLOCK_COMPONENTS}
+        // Inline: block syntax (lists, headings, fences, tables) is unwrapped to
+        // its text, so stray block markup can't put a <ul>/<pre> inside a <p>.
+        allowedElements={inline ? INLINE_ELEMENTS : undefined}
+        unwrapDisallowed={inline}
         // Never render <img>: an agent/PR-controlled URL would be an outbound fetch.
         skipHtml
       >
         {value}
       </ReactMarkdown>
-    </div>
+    </Wrapper>
   );
 }
 
@@ -81,6 +88,9 @@ const del: Components["del"] = ({ children }) => (
 
 /** Shared inline marks — identical across both variants. */
 const INLINE_MARKS = { a: link, code, strong, em, del, img: () => null } as const;
+
+/** Elements the inline variant may emit; everything else is unwrapped to its children. */
+const INLINE_ELEMENTS = ["p", "a", "code", "strong", "em", "del", "br"];
 
 /** Inline: unwrap the block-level <p> so text flows into its container. */
 const INLINE_COMPONENTS: Components = {
