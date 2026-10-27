@@ -1,0 +1,11 @@
+{
+  "status": "ahead",
+  "ahead_by": 1,
+  "behind_by": 0,
+  "total_commits": 1,
+  "merge_base_commit": {
+    "sha": "dd0aba03f871da744fe6bc349f93ad9a3ab5b1ba"
+  },
+  "files": [],
+  "commits": []
+}

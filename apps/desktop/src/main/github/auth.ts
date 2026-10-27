@@ -92,7 +92,10 @@ export class GitHubAuth {
   token(): Promise<string> {
     return this.#run(async () => {
       if (!this.#loaded) await this.#load();
-      if (!this.#session) throw new Error("Not signed in to GitHub.");
+      if (!this.#session)
+        throw new Error(
+          "Not signed in to GitHub. Connect it in Settings (or run `gh auth login`).",
+        );
       return this.#session.token;
     });
   }

@@ -14,8 +14,10 @@ import { FIXTURE_REVIEW_KEY } from "../shared/ipc.ts";
 import { type AgentCheckResult, runAgentCheck } from "./agent/check.ts";
 import { claudeExecutablePath } from "./agent/executable.ts";
 import { loadFixtureReview } from "./fixture/index.ts";
+import { openGitHubPr } from "./github/api-source.ts";
 import { GitHubAuth } from "./github/auth.ts";
 import { findGh, ghAuthToken } from "./github/gh-cli.ts";
+import { parsePrArg, runPrCheck } from "./github/pr-check.ts";
 import { TokenStore } from "./github/token-store.ts";
 import { registerGitHubIpc, registerReviewIpc } from "./ipc.ts";
 import { ReviewStore } from "./reviews.ts";
@@ -146,18 +148,11 @@ async function agentCheck(): Promise<void> {
   app.exit(result.ok ? 0 : 1);
 }
 
-app.whenReady().then(async () => {
-  if (app.commandLine.hasSwitch("agent-check")) return agentCheck();
-
-  const store = new ReviewStore();
-  const fixture = await loadFixtureReview();
-  for (const warning of fixture.warnings) console.warn(`[review-buddy] fixture: ${warning}`);
-  store.add(FIXTURE_REVIEW_KEY, fixture.review, fixture.source);
-
-  // The GitHub token lives here, in main, only (US-10).
+/** The app's GitHub login (US-10). The token lives here, in main, only. */
+function createGitHubAuth(): GitHubAuth {
   const userData = app.getPath("userData");
   const settings = new SettingsFile(join(userData, "settings.json"));
-  const github = new GitHubAuth({
+  return new GitHubAuth({
     // Chromium's network stack: honors the system proxy settings.
     fetch: (url, init) => net.fetch(url, init),
     store: new TokenStore(join(userData, "github-token"), safeStorage),
@@ -168,6 +163,36 @@ app.whenReady().then(async () => {
     ghToken: () => ghAuthToken(),
     ghInstalled: () => findGh() !== null,
   });
+}
+
+/**
+ * `--pr-check=<owner/repo#123 | PR URL>`: read a real PR through the GitHub API
+ * with the app's GitHub login (US-11), print a summary as one JSON line, exit
+ * 0/1. No window.
+ */
+async function prCheck(value: string): Promise<void> {
+  const github = createGitHubAuth();
+  const result = await runPrCheck(async () =>
+    openGitHubPr(parsePrArg(value), {
+      fetch: (url, init) => net.fetch(url, init),
+      token: () => github.token(),
+    }),
+  );
+  console.log(`[review-buddy] pr-check ${JSON.stringify(result)}`);
+  app.exit(result.ok ? 0 : 1);
+}
+
+app.whenReady().then(async () => {
+  if (app.commandLine.hasSwitch("agent-check")) return agentCheck();
+  if (app.commandLine.hasSwitch("pr-check")) {
+    return prCheck(app.commandLine.getSwitchValue("pr-check"));
+  }
+
+  const store = new ReviewStore();
+  const fixture = await loadFixtureReview();
+  for (const warning of fixture.warnings) console.warn(`[review-buddy] fixture: ${warning}`);
+  store.add(FIXTURE_REVIEW_KEY, fixture.review, fixture.source);
+  const github = createGitHubAuth();
 
   hardenSessions();
   serveRenderer();

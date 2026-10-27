@@ -5,12 +5,13 @@ The desktop app shows a review in the same viewer as the plugin
 instead of HTTP. Plan and stories: `docs/DESIGN-desktop-app-shared-code.md`,
 `docs/backlog-desktop-app.md`.
 
-**Status (US-08 to US-10):** a skeleton. Main loads one fixed review
+**Status (US-08 to US-11):** a skeleton. Main loads one fixed review
 (`src/main/fixture/review.json`) through core (`validateAgentReview` →
 `resolveReview`) and shows it. A command-line check proves the Agent SDK runs
 from main with your Claude login (see "Claude (Agent SDK)"). The settings view
-connects GitHub (see "GitHub login"). Reading PRs, the review agent and the PR
-screens come in later stories.
+connects GitHub (see "GitHub login"). Main can read a PR from the GitHub API
+(see "Reading a PR"); the review agent and the PR screens come in later
+stories.
 
 ## Run it
 
@@ -46,7 +47,7 @@ that needs the Electron binary and a display.
 ```
 src/main/       # Electron main (Node): window, app:// protocol, IPC handlers, review store
 src/main/agent/ # Agent SDK: the Claude Code binary path, the --agent-check run
-src/main/github/ # GitHub login: gh CLI token, pasted token in safeStorage, GET /user
+src/main/github/ # GitHub login (gh CLI token, pasted token in safeStorage) and GitHubApiSource
 src/preload/    # exposes window.reviewBuddy = { review, github }; built as CommonJS
 src/renderer/   # App shell (top bar) + <ReviewViewer api={ipcReviewApi(...)} /> + GitHub settings
 src/shared/     # the IPC contract (channel names + types), used by all three
@@ -124,6 +125,54 @@ checks that the saved file does not contain the token. In the Linux
 container, a GNOME keyring was started for that check (`dbus-run-session` +
 `gnome-keyring-daemon --unlock`); without one, it checks that nothing is
 written.
+
+## Reading a PR (`GitHubApiSource`)
+
+`src/main/github/api-source.ts` is the desktop's `ReviewDataSource`: the same
+interface as the plugin's `LocalGitSource`, but over the GitHub REST API, so a
+PR can be reviewed without a clone. `openGitHubPr({ owner, repo, number })`
+reads, with the app's GitHub login:
+
+| What | Call |
+|---|---|
+| PR metadata (`PrMetadata`, with `url` and the head SHA) | `GET /repos/{o}/{r}/pulls/{n}` |
+| Merge base (the base side of file reads) | `GET /repos/{o}/{r}/compare/{base}...{head}?per_page=1&page=2` (the file list is only on page 1, so page 2 is about 14 KB instead of MBs) |
+| The diff (source B), read once | `GET /repos/{o}/{r}/pulls/{n}` with `Accept: application/vnd.github.diff` |
+| File bytes (source C), on demand | `GET /repos/{o}/{r}/contents/{path}?ref={sha}` with `Accept: application/vnd.github.raw+json` |
+
+- **Only the PR's own files** are read: the paths in its diff, the same set as
+  `allowedPaths` of the resolved review (resolution keeps every diff file).
+  Path segments are URL-encoded one by one; empty, `.` and `..` segments are
+  refused. Owner, repo and number are checked before they go into a URL.
+- A renamed file is read under its old name on the base side. Binary files,
+  the base of an added file and the head of a deleted file are `""` without a
+  call. A 404 or a file over 10 MB is `""` (unavailable). Other errors (rate
+  limit, 5xx) are thrown, not shown as an empty file.
+- **Never a partial diff.** GitHub refuses the diff of a very large PR (406,
+  code `too_large`, for example more than 300 files): that is a
+  `PrTooLargeError` with a clear message (US-19 adds a local clone for these).
+  Also, the diff's file count and line totals must equal the PR's
+  `changed_files` / `additions` / `deletions`, or it is an
+  `IncompleteDiffError` (the PR changed while loading, or the diff was cut).
+  Checked on 5 real diffs of this repo (4 to 88 files, with renames): core's
+  `parseDiff` counts match GitHub's exactly.
+
+**Try it on a real PR** (uses the app's GitHub login; prints one JSON line):
+
+```bash
+pnpm --filter desktop exec electron-vite dev -- --pr-check=owner/repo#123
+release/linux-unpacked/review-buddy --pr-check=https://github.com/owner/repo/pull/123
+```
+
+It prints the PR title, the two SHAs, the diff's size and counts, and the
+lengths of one file read on both sides, or the error (`errorKind`:
+`too_large`, `incomplete` or `other`).
+
+**Tests** run on recorded GitHub responses (`src/main/github/fixtures/`, see
+its README), with no network. The recording session could only reach this
+repo, which has no PRs, so the diff, merge base, contents and 404 were
+recorded from the same commits through `compare` and `contents`. The PR JSON
+and the 406 body follow GitHub's documented shapes.
 
 ## Claude (Agent SDK)
 

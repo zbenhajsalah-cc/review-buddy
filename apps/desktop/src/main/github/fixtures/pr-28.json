@@ -1,0 +1,28 @@
+{
+  "url": "https://api.github.com/repos/zbenhajsalah-cc/review-buddy/pulls/28",
+  "html_url": "https://github.com/zbenhajsalah-cc/review-buddy/pull/28",
+  "number": 28,
+  "state": "open",
+  "draft": false,
+  "title": "fix(viewer): start fresh when ReviewViewer gets another review",
+  "body": "A new review remounts the screens, so per-review file flags are not saved under the next review's key.",
+  "user": { "login": "zbenhajsalah-cc", "type": "User" },
+  "created_at": "2026-10-27T10:12:00Z",
+  "updated_at": "2026-10-27T10:40:00Z",
+  "head": {
+    "label": "zbenhajsalah-cc:claude/diff-chunking-web-app-38w6f7",
+    "ref": "claude/diff-chunking-web-app-38w6f7",
+    "sha": "7e8e70534d5fdb0a8ef1a5a0bf8407774b007b00",
+    "repo": { "full_name": "zbenhajsalah-cc/review-buddy" }
+  },
+  "base": {
+    "label": "zbenhajsalah-cc:develop",
+    "ref": "develop",
+    "sha": "dd0aba03f871da744fe6bc349f93ad9a3ab5b1ba",
+    "repo": { "full_name": "zbenhajsalah-cc/review-buddy" }
+  },
+  "commits": 1,
+  "changed_files": 4,
+  "additions": 35,
+  "deletions": 5
+}
