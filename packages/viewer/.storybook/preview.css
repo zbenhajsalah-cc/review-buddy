@@ -1,0 +1,3 @@
+/* Storybook's stand-in for an app's CSS (see src/theme.css). */
+@import "tailwindcss" source("../src");
+@import "../src/theme.css";

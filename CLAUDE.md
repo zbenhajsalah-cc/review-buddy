@@ -61,7 +61,7 @@ review-buddy/
 │   ├── src/mcp/standalone.ts  # non-Claude harnesses: submit_review does capture+serve itself
 │   ├── src/cli/index.ts       # PreToolUse hook entry (open-review)
 │   ├── src/server/            # session lifecycle, local HTTP server, browser open
-│   ├── ui/                    # Vite + React 19 + Tailwind v4 viewer (@pierre/diffs); COMMITTED build in ui/dist
+│   ├── ui/                    # Vite entry: <ReviewViewer api={httpReviewApi} /> (token auth); COMMITTED build in ui/dist
 │   ├── integrations/          # Cursor / VS Code Copilot / Codex MCP configs + review prompts
 │   ├── examples/hooks.json    # example plugin hook config (installed-binary form)
 │   └── scripts/               # build-plugin.ts (bundles → dist/), smoke-plugin.ts (runs apps/plugin alone)
@@ -76,6 +76,11 @@ review-buddy/
 │   ├── src/source.ts          # ReviewDataSource: where the diff, PR metadata, and file bytes come from
 │   ├── src/node/              # Node-only (no Bun APIs): git/gh capture + LocalGitSource; own tsconfig.node.json
 │   └── schemas/review.schema.json # JSON Schema = submit_review inputSchema
+├── packages/viewer/           # @review-buddy/viewer — the review UI (React 19 + Tailwind v4 + @pierre/diffs), no app shell
+│   ├── src/ReviewViewer.tsx   # <ReviewViewer api /> — validates the review, overview ↔ chapters
+│   ├── src/review-api.tsx     # ReviewApi (reviewKey, getReview, getFileContent, getConfig, done) + context; HTTP in the plugin, IPC in desktop
+│   ├── src/theme.css          # tokens + base styles; each app's CSS imports it AND adds `@source` for packages/viewer/src
+│   └── src/stories/fixtures.ts # fixtures + fakeReviewApi() for stories and tests
 ├── docs/
 │   ├── PRD.md                 # product requirements (source of truth for UX)
 │   ├── ARCHITECTURE.md        # data sources, flow, hook+server, endpoints, phasing
@@ -85,7 +90,7 @@ review-buddy/
 └── scripts/                   # release.sh (version bump across files + release), gen-prompts.ts
 ```
 
-**Workspace:** pnpm installs (`pnpm-workspace.yaml`: `packages/*`, `apps/*`, `apps/plugin/ui`); Bun runs the plugin and the tests. **Installed plugins run the committed bundles in `apps/plugin/dist/`** (`server.js`, `hook.js`; core, zod and the MCP SDK inlined) — no `node_modules`, no auto-install, and nothing outside `apps/plugin` (Claude Code copies only the marketplace `source` folder). After changing plugin or core source, run `pnpm build:plugin` and commit `apps/plugin/dist/` (CI's `verify:dist-fresh` fails otherwise; `pnpm smoke:plugin` copies `apps/plugin` alone and runs the bundles with auto-install disabled). The plugin source imports `@review-buddy/core` through a `workspace:*` dev dependency; it is only needed to build and test. See `docs/DESIGN-desktop-app-shared-code.md` and `docs/backlog-desktop-app.md`.
+**Workspace:** pnpm installs (`pnpm-workspace.yaml`: `packages/*`, `apps/*`, `apps/plugin/ui`); Bun runs the plugin and the tests. **Installed plugins run the committed bundles in `apps/plugin/dist/`** (`server.js`, `hook.js`; core, zod and the MCP SDK inlined) — no `node_modules`, no auto-install, and nothing outside `apps/plugin` (Claude Code copies only the marketplace `source` folder). After changing plugin or core source, run `pnpm build:plugin` and commit `apps/plugin/dist/` (CI's `verify:dist-fresh` fails otherwise; `pnpm smoke:plugin` copies `apps/plugin` alone and runs the bundles with auto-install disabled). The plugin source imports `@review-buddy/core` through a `workspace:*` dev dependency; it is only needed to build and test. The viewer uses **relative imports** (not `@/`), because each app builds its source with the app's own Vite config; it never fetches by itself — data comes from the `ReviewApi` the app passes in. See `docs/DESIGN-desktop-app-shared-code.md` and `docs/backlog-desktop-app.md`.
 
 ## Phase 1 (shipped)
 

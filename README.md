@@ -112,29 +112,32 @@ apps/plugin/         # the Claude Code plugin + standalone MCP server (self-cont
   src/mcp/server.ts  # MCP server exposing submit_review
   src/cli/index.ts   # PreToolUse hook entry (open-review)
   src/server/        # session lifecycle, local HTTP server, browser open
-  ui/                # Vite + React 19 + Tailwind v4 viewer (@pierre/diffs)
+  ui/                # Vite entry: mounts the viewer with the HTTP ReviewApi; committed build in ui/dist
   dist/              # committed bundles: server.js, hook.js
   integrations/      # Cursor / VS Code Copilot / Codex configs + review prompts
   examples/hooks.json # example Claude Code plugin hook config
 packages/core/       # @review-buddy/core: contracts, diff parser, chapter resolution, validation, git capture (src/node)
   schemas/           # review.schema.json = submit_review input schema
+packages/viewer/     # @review-buddy/viewer: <ReviewViewer api /> — React 19 + Tailwind v4 + @pierre/diffs, data via a ReviewApi
 docs/                # PRD, ARCHITECTURE, review-contract, build-plan, HARNESSES
 ```
 
 ## Development
 
-The repo is a [pnpm](https://pnpm.io) workspace: the plugin (`apps/plugin`: MCP server + hook), its viewer (`apps/plugin/ui`, a Vite package), and the shared review logic (`packages/core`). pnpm installs everything; [Bun](https://bun.sh) still runs the backend, the scripts, and the tests. Versions: pnpm from `package.json` `packageManager`, Bun from `.bun-version`.
+The repo is a [pnpm](https://pnpm.io) workspace: the plugin (`apps/plugin`: MCP server + hook, and `apps/plugin/ui`, the Vite entry that builds its viewer), the review UI (`packages/viewer`), and the shared review logic (`packages/core`). pnpm installs everything; [Bun](https://bun.sh) still runs the backend, the scripts, and the tests. Versions: pnpm from `package.json` `packageManager`, Bun from `.bun-version`.
 
 `pnpm verify` is the fast local loop (tests + typechecks); `pnpm verify:ci` is the exact gate CI runs on every pull request and on pushes to `main`/`develop` (it adds the UI and plugin builds, the committed-artifact freshness checks, and the plugin smoke test). Run `pnpm verify:ci` before opening a PR.
 
 ```bash
 pnpm install           # all workspace deps (backend + viewer), from pnpm-lock.yaml
-pnpm verify            # fast local loop: core + backend tests, all typechecks, UI tests
+pnpm verify            # fast local loop: core + backend tests, all typechecks, viewer + UI tests
 pnpm verify:ci         # full gate CI runs: verify + builds + freshness + plugin smoke test
 pnpm test:core         # core tests
 pnpm typecheck:core    # core tsc (rejects Bun/Node/DOM APIs)
 pnpm test              # plugin backend tests
 pnpm typecheck         # plugin backend tsc
+pnpm test:viewer       # viewer tests (components, with a fake in-memory ReviewApi)
+pnpm test:ui           # plugin viewer entry tests (the HTTP ReviewApi)
 
 pnpm --filter review-buddy-ui dev     # viewer dev server (proxies /api → 127.0.0.1:5199)
 pnpm build:ui                         # typecheck + production build (writes the committed apps/plugin/ui/dist)
@@ -142,9 +145,9 @@ pnpm build:plugin                     # bundle the MCP server + hook (writes the
 pnpm smoke:plugin                     # run apps/plugin alone, like an installed plugin: no node_modules, no auto-install
 ```
 
-Component stories live in `apps/plugin/ui`. Run `pnpm --filter review-buddy-ui storybook` for the dev catalog on port 6006, or `pnpm --filter review-buddy-ui build-storybook` for a static build.
+Component stories live in `packages/viewer` and use a fake in-memory `ReviewApi`. Run `pnpm --filter @review-buddy/viewer storybook` for the dev catalog on port 6006, or `pnpm --filter @review-buddy/viewer build-storybook` for a static build.
 
-> **Contributors:** `apps/plugin/ui/dist` (viewer) and `apps/plugin/dist` (plugin bundles) are **committed** prebuilt artifacts (so installs need no build). If you change viewer source, rebuild (`pnpm build:ui`); if you change plugin or `packages/core` source, rebuild (`pnpm build:plugin`); commit the updated artifacts in the same PR — CI fails otherwise. `pnpm smoke:plugin` runs the bundles from a `node_modules`-free copy with Bun auto-install disabled. The build is deterministic and grammar chunks are content-hashed, so a typical UI change only rewrites the small core chunk. Reviewers verify the CI freshness check rather than reviewing the artifact bytes.
+> **Contributors:** `apps/plugin/ui/dist` (viewer) and `apps/plugin/dist` (plugin bundles) are **committed** prebuilt artifacts (so installs need no build). If you change viewer source (`packages/viewer` or `apps/plugin/ui`), rebuild (`pnpm build:ui`); if you change plugin or `packages/core` source, rebuild (`pnpm build:plugin`); commit the updated artifacts in the same PR — CI fails otherwise. `pnpm smoke:plugin` runs the bundles from a `node_modules`-free copy with Bun auto-install disabled. The build is deterministic and grammar chunks are content-hashed, so a typical UI change only rewrites the small core chunk. Reviewers verify the CI freshness check rather than reviewing the artifact bytes.
 
 See `docs/build-plan.md` for the phased task breakdown and `docs/review-contract.md` for the agent vs UI/server contracts.
 

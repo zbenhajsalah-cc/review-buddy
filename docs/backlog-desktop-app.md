@@ -207,6 +207,20 @@ Acceptance criteria:
   in-memory `ReviewApi`.
 - The plugin's CSS adds `@source` for `packages/viewer/src`; the rebuilt `dist/`
   renders the same (checked in the browser with a real review).
+- Decisions made while building it:
+  - `<ReviewViewer api />` also owns the error boundary and the diff worker
+    pool, and validates `getReview()` with the zod schema (the data crosses a
+    process boundary in both apps).
+  - The viewer's CSS is `@review-buddy/viewer/theme.css` (tokens + base
+    styles, no `@import "tailwindcss"`), so each app has one Tailwind import
+    and scans its own shell plus the viewer.
+  - Viewer source uses relative imports instead of the `@/` alias: each app
+    builds it with its own Vite config. `components.json` and the viewer's
+    tsconfig keep `@/` only for the shadcn CLI.
+  - The plugin's `reviewKey` is the URL token, so the localStorage keys
+    (`rb.viewed.<token>`) are the same as before.
+  - Result: the viewer CSS is byte-identical, and screenshots of the old and
+    new build (overview, chapter, expanded file) are byte-identical.
 
 ### US-07: Shared prompt template with a desktop variant
 

@@ -63,6 +63,7 @@ VERSION_FILES=(
   "apps/plugin/.claude-plugin/plugin.json"
   "apps/plugin/ui/package.json"
   "packages/core/package.json"
+  "packages/viewer/package.json"
 )
 
 # Blockers are collected during preflight so a dry run can show them all at once.

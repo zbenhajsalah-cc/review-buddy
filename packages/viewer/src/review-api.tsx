@@ -1,0 +1,46 @@
+/**
+ * Where the viewer gets its data. The viewer never fetches by itself: each app
+ * passes a `ReviewApi` to `<ReviewViewer api />` — the plugin over its
+ * loopback HTTP server, the desktop app over Electron IPC.
+ */
+import type { ResolvedReview } from "@review-buddy/core/types";
+import { createContext, type ReactNode, useContext } from "react";
+
+export interface FileContent {
+  path: string;
+  side: "base" | "head";
+  language: string;
+  content: string;
+}
+
+export interface DoneResult {
+  verdict?: "approve" | "request_changes";
+  summary?: string;
+}
+
+export interface ReviewApi {
+  /**
+   * Stable id of this review. Viewed / collapsed file state is stored under it,
+   * so two reviews never share state.
+   */
+  reviewKey: string;
+  /** The resolved review (sources A + B). The viewer validates it before use. */
+  getReview(): Promise<ResolvedReview>;
+  /** Full file bytes for expansion (source C). content === "" means unavailable. */
+  getFileContent(path: string, side: "base" | "head"): Promise<FileContent>;
+  getConfig(): Promise<{ roundtrip: boolean }>;
+  /** The reviewer is finished (Done, or a verdict when round-trip is on). */
+  done(result: DoneResult): Promise<void>;
+}
+
+const ReviewApiContext = createContext<ReviewApi | null>(null);
+
+export function ReviewApiProvider({ api, children }: { api: ReviewApi; children: ReactNode }) {
+  return <ReviewApiContext.Provider value={api}>{children}</ReviewApiContext.Provider>;
+}
+
+export function useReviewApi(): ReviewApi {
+  const api = useContext(ReviewApiContext);
+  if (!api) throw new Error("useReviewApi: no ReviewApi — render inside <ReviewViewer api />");
+  return api;
+}

@@ -9,9 +9,11 @@
     "test": "pnpm --filter review-buddy test",
     "test:core": "pnpm --filter @review-buddy/core test",
     "test:ui": "pnpm --filter review-buddy-ui test",
+    "test:viewer": "pnpm --filter @review-buddy/viewer test",
     "typecheck": "pnpm --filter review-buddy typecheck",
     "typecheck:core": "pnpm --filter @review-buddy/core typecheck",
     "typecheck:ui": "pnpm --filter review-buddy-ui typecheck",
+    "typecheck:viewer": "pnpm --filter @review-buddy/viewer typecheck",
     "build:ui": "pnpm --filter review-buddy-ui build",
     "build:plugin": "pnpm --filter review-buddy build",
     "gen:prompts": "bun run scripts/gen-prompts.ts",
@@ -20,8 +22,8 @@
     "smoke:plugin": "pnpm --filter review-buddy smoke",
     "verify:dist-fresh": "git add --intent-to-add -- apps/plugin/ui/dist apps/plugin/dist && git diff --exit-code -- apps/plugin/ui/dist apps/plugin/dist",
     "verify:prompts-fresh": "pnpm gen:prompts && git add --intent-to-add -- apps/plugin/integrations && git diff --exit-code -- apps/plugin/integrations",
-    "verify": "pnpm lint && pnpm test:core && pnpm test && pnpm typecheck:core && pnpm typecheck && pnpm typecheck:ui && pnpm test:ui",
-    "verify:ci": "pnpm lint && pnpm test:core && pnpm test && pnpm typecheck:core && pnpm typecheck && pnpm build:ui && pnpm build:plugin && pnpm test:ui && pnpm verify:dist-fresh && pnpm verify:prompts-fresh && pnpm smoke:plugin"
+    "verify": "pnpm lint && pnpm test:core && pnpm test && pnpm typecheck:core && pnpm typecheck && pnpm typecheck:viewer && pnpm typecheck:ui && pnpm test:viewer && pnpm test:ui",
+    "verify:ci": "pnpm lint && pnpm test:core && pnpm test && pnpm typecheck:core && pnpm typecheck && pnpm typecheck:viewer && pnpm build:ui && pnpm build:plugin && pnpm test:viewer && pnpm test:ui && pnpm verify:dist-fresh && pnpm verify:prompts-fresh && pnpm smoke:plugin"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.5.3"

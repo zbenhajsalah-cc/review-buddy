@@ -1,16 +1,11 @@
+import { ReviewViewer } from "@review-buddy/viewer";
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import "./index.css";
-import { App } from "./App.tsx";
-import { ErrorBoundary } from "./components/ErrorBoundary.tsx";
-import { ReviewWorkerPoolProvider } from "./workerPool.tsx";
+import { httpReviewApi } from "./http-review-api.ts";
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
-    <ErrorBoundary>
-      <ReviewWorkerPoolProvider>
-        <App />
-      </ReviewWorkerPoolProvider>
-    </ErrorBoundary>
+    <ReviewViewer api={httpReviewApi} />
   </StrictMode>,
 );
