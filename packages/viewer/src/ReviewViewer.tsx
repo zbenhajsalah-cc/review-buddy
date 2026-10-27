@@ -19,7 +19,10 @@ export function ReviewViewer({ api }: { api: ReviewApi }) {
     <ErrorBoundary>
       <ReviewWorkerPoolProvider>
         <ReviewApiProvider api={api}>
-          <ReviewScreens />
+          {/* A new review remounts the screens: the view, the loaded review,
+              and the per-review file flags (whose storage key is read once,
+              on mount) must not carry over and be saved under the new key. */}
+          <ReviewScreens key={api.reviewKey} />
         </ReviewApiProvider>
       </ReviewWorkerPoolProvider>
     </ErrorBoundary>
