@@ -74,6 +74,8 @@ function ChapterReviewBody({
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [submitted, setSubmitted] = useState(false);
+  // afterDone "keep": done, but the review stays open (desktop).
+  const [markedDone, setMarkedDone] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [roundtrip, setRoundtrip] = useState(false);
   const [requesting, setRequesting] = useState(false); // textarea open
@@ -140,8 +142,12 @@ function ChapterReviewBody({
     setSubmitError(null);
     try {
       await api.done(result);
-      clearReviewFileState(api.reviewKey);
-      setSubmitted(true);
+      if (api.afterDone === "keep") {
+        setMarkedDone(true);
+      } else {
+        clearReviewFileState(api.reviewKey);
+        setSubmitted(true);
+      }
     } catch (e) {
       setSubmitError(String(e));
     } finally {
@@ -220,8 +226,8 @@ function ChapterReviewBody({
                 Request changes
               </Button>
             )}
-            <Button size="sm" onClick={done} disabled={submitting}>
-              {submitting ? "Submitting…" : "Done"}
+            <Button size="sm" onClick={done} disabled={submitting || markedDone}>
+              {submitting ? "Submitting…" : markedDone ? "Done ✓" : "Done"}
             </Button>
           </div>
           {roundtrip && requesting && (

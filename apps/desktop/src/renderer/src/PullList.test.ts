@@ -60,6 +60,24 @@ test("the newest job failed: said, unless it was stopped or another one runs", (
   ).toBeUndefined();
 });
 
+test("Done comes from the list, for the same review only", () => {
+  const listed = {
+    ...pull,
+    review: { reviewKey: "k", headSha: HEAD, doneAt: "2026-10-27T10:00:00Z" },
+  };
+  expect(pullState("octo/repo", listed, []).review).toEqual({
+    reviewKey: "k",
+    pr: "octo/repo#7",
+    current: true,
+    doneAt: "2026-10-27T10:00:00Z",
+  });
+  // A newer review (from a job) is not done yet.
+  const newer = pullState("octo/repo", listed, [
+    job(1, "done", { reviewKey: "k2", headSha: HEAD }),
+  ]);
+  expect(newer.review?.doneAt).toBeUndefined();
+});
+
 test("sizeText", () => {
   expect(sizeText(undefined)).toBe("");
   expect(sizeText({ additions: 120, deletions: 30, changedFiles: 5 })).toBe("+120 −30 · 5 files");

@@ -20,15 +20,14 @@ export function formatBytes(bytes: number): string {
 
 /**
  * Settings: the reviews saved on disk (US-16), newest first, each with
- * Delete, and Delete all (asked twice). `onDeleted` gets the deleted keys,
- * or "all".
+ * Delete, and Delete all (asked twice). `onDeleted` gets the deleted keys.
  */
 export function SavedReviews({
   bridge,
   onDeleted,
 }: {
   bridge: ReviewBridge;
-  onDeleted: (deleted: string[] | "all") => void;
+  onDeleted: (deleted: string[]) => void;
 }) {
   const [list, setList] = useState<SavedReviewInfo[] | null>(null);
   const [error, setError] = useState<string | undefined>();
@@ -39,7 +38,7 @@ export function SavedReviews({
     bridge.saved().then(setList, (e) => setError(ipcErrorMessage(e)));
   }, [bridge]);
 
-  const run = async (step: () => Promise<SavedReviewInfo[]>, deleted: string[] | "all") => {
+  const run = async (step: () => Promise<SavedReviewInfo[]>, deleted: string[]) => {
     setBusy(true);
     setError(undefined);
     try {
@@ -84,6 +83,7 @@ export function SavedReviews({
                     <div className="text-xs text-muted-foreground">
                       commit <code className="font-mono">{r.headSha.slice(0, 7)}</code> · saved{" "}
                       {timeAgo(r.savedAt, now)} · {formatBytes(r.bytes)}
+                      {r.doneAt ? ` · done ${timeAgo(r.doneAt, now)}` : ""}
                     </div>
                   </div>
                   <Button
@@ -108,7 +108,12 @@ export function SavedReviews({
                     variant="destructive"
                     size="sm"
                     disabled={busy}
-                    onClick={() => void run(() => bridge.deleteAllSaved(), "all")}
+                    onClick={() =>
+                      void run(
+                        () => bridge.deleteAllSaved(),
+                        list.map((r) => r.reviewKey),
+                      )
+                    }
                   >
                     Yes, delete all
                   </Button>

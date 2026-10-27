@@ -1,4 +1,4 @@
-import { ReviewViewer } from "@review-buddy/viewer";
+import { clearReviewFileState, ReviewViewer } from "@review-buddy/viewer";
 import { Button } from "@review-buddy/viewer/ui";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
@@ -11,7 +11,7 @@ import {
 import { GitHubSettings } from "./GitHubSettings.tsx";
 import { ipcReviewApi } from "./ipc-review-api.ts";
 import { PullList } from "./PullList.tsx";
-import { RepoList } from "./RepoList.tsx";
+import { RepoList, timeAgo } from "./RepoList.tsx";
 import { ipcErrorMessage, PrForm, RunPanel } from "./ReviewRun.tsx";
 import { SavedReviews } from "./SavedReviews.tsx";
 
@@ -22,8 +22,11 @@ type View =
   | { kind: "sample" }
   /** A job: its progress, its failure, or its review once done. */
   | { kind: "job"; id: number }
-  /** A review opened from the PR list; `outdated` if the PR moved on since. */
-  | { kind: "review"; reviewKey: string; pr: string; outdated?: boolean };
+  /**
+   * A review opened from the PR list; `outdated` if the PR moved on since,
+   * `doneAt` if the reviewer pressed Done.
+   */
+  | { kind: "review"; reviewKey: string; pr: string; outdated?: boolean; doneAt?: string };
 
 /**
  * The app shell: a thin bar with tabs above the current screen. The app
@@ -39,8 +42,10 @@ export function App({ bridge }: { bridge: DesktopBridge }) {
   const [back, setBack] = useState<Exclude<Screen, "settings">>("repos");
   const [github, setGitHub] = useState<GitHubStatus | null>(null);
   const [repo, setRepo] = useState<RepoSummary | null>(null);
-  // Counts deletions of saved reviews: the PR list reloads after one.
-  const [deletions, setDeletions] = useState(0);
+  // Counts changes to saved reviews (Done, delete): the PR list reloads after one.
+  const [savedChanges, setSavedChanges] = useState(0);
+  // Reviews marked done in this run, by key, with the time.
+  const [doneNow, setDoneNow] = useState<Record<string, string>>({});
   const [jobs, setJobs] = useState<ReviewJobStatus[]>([]);
   const [view, setView] = useState<View>({ kind: "sample" });
   const [startError, setStartError] = useState<string | undefined>();
@@ -75,7 +80,18 @@ export function App({ bridge }: { bridge: DesktopBridge }) {
       : job?.state === "done"
         ? job.reviewKey!
         : FIXTURE_REVIEW_KEY;
-  const api = useMemo(() => ipcReviewApi(bridge.review, reviewKey), [bridge, reviewKey]);
+  const api = useMemo(() => {
+    const base = ipcReviewApi(bridge.review, reviewKey);
+    return {
+      ...base,
+      done: async (result: Parameters<typeof base.done>[0]) => {
+        await base.done(result);
+        setDoneNow((d) => ({ ...d, [reviewKey]: new Date().toISOString() }));
+        setSavedChanges((n) => n + 1);
+      },
+    };
+  }, [bridge, reviewKey]);
+  const doneAt = doneNow[reviewKey] ?? (view.kind === "review" ? view.doneAt : undefined);
   const reviewTab = view.kind === "review" ? view.pr : (job?.pr ?? "Sample review");
 
   /**
@@ -112,11 +128,12 @@ export function App({ bridge }: { bridge: DesktopBridge }) {
   };
 
   /** Saved reviews were deleted: nothing may show them any more. */
-  const savedDeleted = (deleted: string[] | "all") => {
-    if (view.kind === "review" && (deleted === "all" || deleted.includes(view.reviewKey))) {
-      setView({ kind: "sample" });
-    }
-    setDeletions((n) => n + 1);
+  const savedDeleted = (deleted: string[]) => {
+    // Their viewed / collapsed state goes too.
+    for (const key of deleted) clearReviewFileState(key);
+    if (view.kind === "review" && deleted.includes(view.reviewKey)) setView({ kind: "sample" });
+    setDoneNow((d) => Object.fromEntries(Object.entries(d).filter(([k]) => !deleted.includes(k))));
+    setSavedChanges((n) => n + 1);
   };
 
   const openRepo = (chosen: RepoSummary) => {
@@ -187,7 +204,7 @@ export function App({ bridge }: { bridge: DesktopBridge }) {
         <div hidden={screen !== "pulls"}>
           {repo ? (
             <PullList
-              key={`${repo.fullName}:${deletions}`}
+              key={`${repo.fullName}:${savedChanges}`}
               bridge={bridge.github}
               repo={repo}
               jobs={jobs}
@@ -243,6 +260,14 @@ export function App({ bridge }: { bridge: DesktopBridge }) {
                 <Button size="sm" onClick={() => void startReviews([view.pr], true)}>
                   Review again
                 </Button>
+              </div>
+            ) : doneAt && reviewKey !== FIXTURE_REVIEW_KEY ? (
+              <div
+                role="status"
+                className="shrink-0 border-b bg-muted px-4 py-2 text-sm text-muted-foreground"
+              >
+                You marked this review done {timeAgo(doneAt, Date.now())}. Your viewed files are
+                kept.
               </div>
             ) : null}
             <div className="min-h-0 flex-1">

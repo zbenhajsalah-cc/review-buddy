@@ -81,6 +81,48 @@ describe("ReviewStore", () => {
     expect(third.saved()).toEqual([]);
   });
 
+  test("Done: shown for the PR's newest review, kept after a restart", async () => {
+    const dir = cacheDir();
+    const { review, source } = await loadFixtureReview();
+    const open = async () => {
+      const cache = new ReviewCache(dir);
+      await cache.load();
+      return new ReviewStore({
+        cache,
+        reopen: () => source,
+        now: () => new Date("2026-10-27T12:00:00Z"),
+      });
+    };
+    const first = await open();
+    const key = await first.addPrReview(review, source, {
+      label: "octo/repo#1",
+      headSha: B,
+      baseSha: A,
+      files: [],
+    });
+    expect(first.newestFor("octo/repo#1")?.doneAt).toBeUndefined();
+    expect(await first.markDone(key)).toBe("2026-10-27T12:00:00.000Z");
+    expect(first.newestFor("octo/repo#1")?.doneAt).toBe("2026-10-27T12:00:00.000Z");
+    await expect(first.markDone("nope")).rejects.toThrow("unknown review");
+
+    const second = await open();
+    expect(second.newestFor("octo/repo#1")).toEqual({
+      reviewKey: key,
+      headSha: B,
+      doneAt: "2026-10-27T12:00:00.000Z",
+    });
+    // A new review of the same head starts not done.
+    await second.addPrReview(review, source, {
+      label: "octo/repo#1",
+      headSha: B,
+      baseSha: A,
+      files: [],
+    });
+    expect(second.newestFor("octo/repo#1")?.doneAt).toBeUndefined();
+    // The sample can be marked done (not saved anywhere).
+    expect(await (await store()).markDone("fixture")).toBeString();
+  });
+
   test("delete refuses the sample and non-strings; deleteAll keeps the sample", async () => {
     const s = await store();
     const { review, source } = await loadFixtureReview();

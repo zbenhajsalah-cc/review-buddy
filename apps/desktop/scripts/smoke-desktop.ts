@@ -158,11 +158,17 @@ try {
   await waitForText(page, sleepLine);
   check(true, "expand full file shows lines from the head file over IPC");
 
-  // Done reaches main.
+  // Done reaches main. The app keeps reviews, so Done keeps the viewed state
+  // and the review stays open (US-17).
+  await page.getByRole("switch", { name: "viewed" }).first().click();
   await page.getByRole("button", { name: /^done/i }).first().click();
-  await page.getByText("Review submitted").waitFor();
+  await page.getByRole("button", { name: "Done ✓" }).waitFor();
   await page.waitForTimeout(300);
   check(mainLog.join("").includes("review fixture done"), "Done reaches main over IPC");
+  check(
+    (await page.evaluate(() => localStorage.getItem("rb.viewed.fixture"))) !== null,
+    "Done keeps the viewed files, and the review stays open",
+  );
 
   // GitHub settings (US-10). The result depends on the machine: signed in
   // through a logged-in gh, or not connected.
@@ -308,7 +314,7 @@ try {
   check(!(await pageText(page)).includes("ghp_smoke"), "the token is not in the page");
   await page.getByRole("button", { name: "Back", exact: true }).click();
   await page
-    .getByText("Review submitted")
+    .getByRole("button", { name: "Done ✓" })
     .or(page.getByText("Friendlier greetings"))
     .first()
     .waitFor();
@@ -382,6 +388,17 @@ try {
     !(await page.getByText("This review is for an older commit").isVisible()),
     "Open review shows the saved review at once, with no out-of-date banner",
   );
+  // Done on it (US-17): the review says so, and so does the PR list.
+  await page.getByText("Retry backoff with jitter").first().click();
+  await page.getByRole("switch", { name: "viewed" }).first().click();
+  await page.getByRole("button", { name: "Done", exact: true }).click();
+  await page.getByRole("button", { name: "Done ✓" }).waitFor();
+  await page.getByText(/^You marked this review done/).waitFor();
+  await page.getByRole("button", { name: "octo-org/widgets", exact: true }).click();
+  await pullRow(12).getByText("Done ✓").waitFor();
+  check(true, "Done marks the review finished: a banner on it, Done ✓ in the PR list");
+  await page.getByRole("button", { name: "Load more" }).click();
+  await pullRow(5).waitFor();
   await page.getByRole("button", { name: "octo-org/widgets", exact: true }).click();
   await page.getByRole("button", { name: "Open the review of #5" }).click();
   await page.getByText(/^This review is for an older commit/).waitFor();
@@ -424,8 +441,11 @@ try {
   const savedList = page.getByRole("list", { name: "Saved reviews" });
   await savedList.waitFor();
   check(
-    (await savedList.getByRole("listitem").count()) === 2,
-    "the settings list both saved reviews",
+    (await savedList.getByRole("listitem").count()) === 2 &&
+      (
+        await savedList.getByRole("listitem").filter({ hasText: "widgets#12" }).innerText()
+      ).includes("· done"),
+    "the settings list both saved reviews; the one marked done says so",
   );
   await page
     .getByRole("button", {
@@ -434,6 +454,13 @@ try {
     .click();
   await page.waitForFunction(() =>
     window.reviewBuddy.review.saved().then((list) => list.length === 1),
+  );
+  check(
+    (await page.evaluate(
+      (key) => localStorage.getItem(`rb.viewed.${key}`),
+      `octo-org/widgets#12@${HEAD_12.slice(0, 12)}`,
+    )) === null,
+    "deleting a saved review also forgets its viewed files",
   );
   await page.getByRole("button", { name: "Back", exact: true }).click();
   await pullRow(12).waitFor();
@@ -525,7 +552,7 @@ try {
   check(true, "Try again runs the review again (a new job, followed)");
   await page.getByRole("button", { name: "Show the sample review" }).click();
   await page
-    .getByText("Review submitted")
+    .getByRole("button", { name: "Done ✓" })
     .or(page.getByText("Friendlier greetings"))
     .first()
     .waitFor();

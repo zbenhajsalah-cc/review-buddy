@@ -36,6 +36,7 @@ export interface ReviewStoreOptions {
   reopen?: (saved: SavedReview) => FileSource;
   /** A save failed (the review still works until the app quits). */
   log?: (line: string) => void;
+  now?: () => Date;
 }
 
 interface LoadedReview {
@@ -49,6 +50,8 @@ export class ReviewStore {
   #reviews = new Map<string, LoadedReview>();
   /** The newest review of each PR in memory, by lower-case `owner/repo#123`. */
   #newest = new Map<string, { reviewKey: string; headSha: string }>();
+  /** When the reviewer pressed Done, by review key (US-17). */
+  #done = new Map<string, string>();
 
   constructor(private readonly options: ReviewStoreOptions = {}) {}
 
@@ -62,6 +65,7 @@ export class ReviewStore {
     const reviewKey = reviewKeyOf(pr.label, pr.headSha);
     this.add(reviewKey, review, source);
     this.#newest.set(pr.label.toLowerCase(), { reviewKey, headSha: pr.headSha });
+    this.#done.delete(reviewKey); // a new review of this head starts not done
     try {
       await this.options.cache?.save({
         pr: pr.label,
@@ -76,10 +80,32 @@ export class ReviewStore {
     return reviewKey;
   }
 
-  /** The newest review of `owner/repo#123`, at whatever head it had. */
-  newestFor(label: string): { reviewKey: string; headSha: string } | undefined {
-    const found = this.#newest.get(label.toLowerCase()) ?? this.options.cache?.newestFor(label);
-    return found && { ...found };
+  /** The newest review of `owner/repo#123`, at whatever head it had, and when it was done. */
+  newestFor(label: string): { reviewKey: string; headSha: string; doneAt?: string } | undefined {
+    const inMemory = this.#newest.get(label.toLowerCase());
+    const found = inMemory ? { ...inMemory } : this.options.cache?.newestFor(label);
+    if (!found) return undefined;
+    // Done this run, or (for a saved review) in an earlier one.
+    const doneAt = this.#done.get(found.reviewKey) ?? found.doneAt;
+    return doneAt ? { ...found, doneAt } : found;
+  }
+
+  /**
+   * The reviewer pressed Done (US-17): kept with the saved review, so the PR
+   * list shows it after a restart. The sample review is not saved. Answers
+   * with the time.
+   */
+  async markDone(reviewKey: unknown): Promise<string> {
+    await this.#get(reviewKey); // unknown review → error
+    const key = reviewKey as string;
+    const doneAt = (this.options.now ?? (() => new Date()))().toISOString();
+    this.#done.set(key, doneAt);
+    try {
+      await this.options.cache?.markDone(key, doneAt);
+    } catch (e) {
+      this.options.log?.(`could not save Done for ${key}: ${e instanceof Error ? e.message : e}`);
+    }
+    return doneAt;
   }
 
   /** The review of `owner/repo#123` at exactly this head, if the app has one. */
@@ -126,6 +152,7 @@ export class ReviewStore {
     // Only PR reviews have a key with "@<sha>"; the sample cannot be deleted.
     if (!reviewKey.includes("@")) throw new Error("unknown review");
     this.#reviews.delete(reviewKey);
+    this.#done.delete(reviewKey);
     for (const [label, newest] of this.#newest) {
       if (newest.reviewKey === reviewKey) this.#newest.delete(label);
     }

@@ -484,6 +484,21 @@ Acceptance criteria:
 Acceptance criteria:
 - Viewed / collapsed state survives an app restart (keyed by `reviewKey`).
 - "Done" marks the review as finished; the PR list shows it.
+- Decisions made while building it:
+  - Viewed / collapsed state stays where the viewer keeps it: the page's
+    `localStorage`, keyed by `reviewKey`. The app's `app://renderer` origin
+    stores it in the profile, so it survives a restart (checked by
+    `review-e2e` after a real restart). No new IPC for it.
+  - The viewer cleared that state on Done and said "Review submitted — you
+    can close this tab", which is right for the plugin only. A new optional
+    `ReviewApi.afterDone` ("close" by default, so the plugin is unchanged;
+    "keep" in the app) keeps the state and the open review, with a
+    **Done ✓** button. The plugin's UI bundle was rebuilt for it; its
+    behavior is the same.
+  - Done is saved with the review (`doneAt` in the saved-review index) and
+    shown in the PR list (**Done ✓**), on the review ("You marked this review
+    done …") and in Settings. A new review of the same commit is not done.
+  - Deleting a saved review also removes its viewed / collapsed state.
 
 ### US-18: Packaged app
 

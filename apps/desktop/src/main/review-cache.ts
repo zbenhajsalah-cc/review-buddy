@@ -89,9 +89,11 @@ export class ReviewCache {
   }
 
   /** The newest saved review of `owner/repo#123` (any case), at whatever head. */
-  newestFor(pr: string): { reviewKey: string; headSha: string } | undefined {
+  newestFor(pr: string): { reviewKey: string; headSha: string; doneAt?: string } | undefined {
     const found = this.list().find((info) => info.pr.toLowerCase() === pr.toLowerCase());
-    return found && { reviewKey: found.reviewKey, headSha: found.headSha };
+    if (!found) return undefined;
+    const { reviewKey, headSha, doneAt } = found;
+    return doneAt ? { reviewKey, headSha, doneAt } : { reviewKey, headSha };
   }
 
   /** The saved review of `pr` at exactly `headSha`. */
@@ -162,6 +164,15 @@ export class ReviewCache {
     return reviewKey;
   }
 
+  /** The reviewer pressed Done (US-17); false if the review is not saved. */
+  async markDone(reviewKey: string, doneAt: string): Promise<boolean> {
+    const info = this.#index.get(reviewKey);
+    if (!info) return false;
+    info.doneAt = doneAt;
+    await this.#writeIndex();
+    return true;
+  }
+
   /** Deletes one saved review; false if it was not saved. */
   async delete(reviewKey: unknown): Promise<boolean> {
     const info = typeof reviewKey === "string" ? this.#index.get(reviewKey) : undefined;
@@ -221,7 +232,7 @@ function toInfo(value: unknown): SavedReviewInfo | null {
   ) {
     return null;
   }
-  return {
+  const info: SavedReviewInfo = {
     reviewKey: v.reviewKey,
     pr: v.pr,
     title: typeof v.title === "string" ? v.title : v.pr,
@@ -229,4 +240,6 @@ function toInfo(value: unknown): SavedReviewInfo | null {
     savedAt: v.savedAt,
     bytes: typeof v.bytes === "number" ? v.bytes : 0,
   };
+  if (typeof v.doneAt === "string") info.doneAt = v.doneAt;
+  return info;
 }

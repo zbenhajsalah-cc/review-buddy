@@ -15,8 +15,11 @@ import { elapsed, ipcErrorMessage, PHASES, useNow } from "./ReviewRun.tsx";
 export interface PullRowState {
   /** Queued or running. */
   job?: ReviewJobStatus;
-  /** The newest review; `current` if it is for the PR's head now. */
-  review?: { reviewKey: string; pr: string; current: boolean };
+  /**
+   * The newest review; `current` if it is for the PR's head now; `doneAt` if
+   * the reviewer pressed Done on it (US-17).
+   */
+  review?: { reviewKey: string; pr: string; current: boolean; doneAt?: string };
   /** The newest job failed (not stopped), and none is in progress. */
   failed?: string;
 }
@@ -37,6 +40,10 @@ export function pullState(repo: string, pull: PullSummary, jobs: ReviewJobStatus
       pr: label,
       current: review.headSha === pull.headSha,
     };
+    // Done is known from the list (main), for that same review.
+    if (pull.review?.doneAt && pull.review.reviewKey === review.reviewKey) {
+      state.review.doneAt = pull.review.doneAt;
+    }
   }
   const last = mine.filter((j) => j.state === "done" || j.state === "failed").at(-1);
   if (!active && last?.state === "failed" && last.error !== "Stopped.") {
@@ -89,7 +96,12 @@ export function PullList({
    * saved review); resolves with what went wrong, if anything.
    */
   onReview: (numbers: number[], follow: boolean, fresh?: boolean) => Promise<string | undefined>;
-  onOpenReview: (review: { reviewKey: string; pr: string; outdated: boolean }) => void;
+  onOpenReview: (review: {
+    reviewKey: string;
+    pr: string;
+    outdated: boolean;
+    doneAt?: string;
+  }) => void;
   onFollow: (jobId: number) => void;
   onStop: (jobId: number) => void;
   onSignedOut: () => void;
@@ -268,7 +280,12 @@ function PullRow({
   selected: boolean;
   onToggle: () => void;
   onReview: (fresh: boolean) => void;
-  onOpenReview: (review: { reviewKey: string; pr: string; outdated: boolean }) => void;
+  onOpenReview: (review: {
+    reviewKey: string;
+    pr: string;
+    outdated: boolean;
+    doneAt?: string;
+  }) => void;
   onFollow: (jobId: number) => void;
   onStop: (jobId: number) => void;
 }) {
@@ -343,7 +360,11 @@ function PullRow({
           <>
             {review ? (
               <>
-                {review.current ? (
+                {review.current && review.doneAt ? (
+                  <Badge title={`You pressed Done ${timeAgo(review.doneAt, Date.now())}.`}>
+                    Done ✓
+                  </Badge>
+                ) : review.current ? (
                   <Badge variant="secondary">Reviewed</Badge>
                 ) : (
                   <Badge variant="outline" title="The PR has new commits since this review.">
@@ -359,6 +380,7 @@ function PullRow({
                       reviewKey: review.reviewKey,
                       pr: review.pr,
                       outdated: !review.current,
+                      doneAt: review.doneAt,
                     })
                   }
                 >

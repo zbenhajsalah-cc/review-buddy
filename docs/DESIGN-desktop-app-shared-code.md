@@ -121,6 +121,8 @@ interface ReviewApi {
   getFileContent(path: string, side: "base" | "head"): Promise<FileContent>;
   getConfig(): Promise<{ roundtrip: boolean }>;
   done(result: DoneResult): Promise<void>;
+  /** US-17: "close" (default, plugin) clears viewed state after Done; "keep" (desktop) keeps it. */
+  afterDone?: "close" | "keep";
 }
 ```
 

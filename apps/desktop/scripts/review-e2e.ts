@@ -211,6 +211,23 @@ try {
   await page.getByRole("button", { name: "Open the review of #28" }).click();
   await page.getByText(firstLine(review.prologue.why), { exact: false }).first().waitFor();
   check(true, "the PR list shows #28 as reviewed, and opens its review");
+
+  // US-17: mark a file viewed in another chapter, then Done.
+  const other = review.chapters.findIndex((c) => !c.files.some((f) => f.path === target));
+  const openChapter = (n: number) =>
+    page
+      .getByText(review.chapters[n]!.title.replace(/[*_`]/g, ""), { exact: false })
+      .first()
+      .click();
+  const checkedSwitches = () => page.getByRole("switch", { name: "viewed", checked: true }).count();
+  await openChapter(other);
+  await page.getByRole("switch", { name: "viewed" }).first().click();
+  check((await checkedSwitches()) === 1, `a file of chapter ${other + 1} is marked viewed`);
+  await page.getByRole("button", { name: "Done", exact: true }).click();
+  await page.getByRole("button", { name: "Done ✓" }).waitFor();
+  await page.getByRole("button", { name: "zbenhajsalah-cc/review-buddy", exact: true }).click();
+  await page.getByText("Done ✓").first().waitFor();
+  check(true, "Done: the PR list shows #28 as done");
   check(errors.length === 0, `no page errors${errors.length ? `: ${errors.join(" | ")}` : ""}`);
 
   // After a restart (US-16): the saved review shows at once, with no new run,
@@ -218,10 +235,15 @@ try {
   await app.close();
   ({ app, page, mainLog, errors } = await launch());
   await page.getByRole("button", { name: /^zbenhajsalah-cc\/review-buddy/ }).click();
-  await page.getByText("Reviewed", { exact: true }).waitFor();
+  await page.getByText("Done ✓").first().waitFor();
   await page.getByRole("button", { name: "Open the review of #28" }).click();
   await page.getByText(firstLine(review.prologue.why), { exact: false }).first().waitFor();
-  check(true, "after a restart, the PR is still Reviewed and its saved review opens");
+  await page.getByText(/^You marked this review done/).waitFor();
+  check(true, "after a restart, the PR is still done and its saved review opens");
+  await openChapter(other);
+  await page.waitForTimeout(500);
+  check((await checkedSwitches()) === 1, "after a restart, the viewed file is still viewed");
+  await page.getByRole("button", { name: "← Overview" }).click();
   await page
     .getByText(review.chapters[chapter]!.title.replace(/[*_`]/g, ""), { exact: false })
     .first()

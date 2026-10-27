@@ -5,7 +5,7 @@ The desktop app shows a review in the same viewer as the plugin
 instead of HTTP. Plan and stories: `docs/DESIGN-desktop-app-shared-code.md`,
 `docs/backlog-desktop-app.md`.
 
-**Status (US-08 to US-16):** the app opens on your GitHub repositories (see
+**Status (US-08 to US-17):** the app opens on your GitHub repositories (see
 "Repositories"). Pick one to see its open PRs (see "Pull requests") and
 review one or several of them (or type any `owner/repo#123` or PR URL in the
 top bar): main reads each PR from the GitHub API (see "Reading a PR"), Claude
@@ -14,7 +14,8 @@ shows the result. You see each review's progress as it runs, can stop it,
 and can try again after a failure. The "Sample review" tab shows a fixed review
 (`src/main/fixture/review.json`) until you follow a review. The settings view
 connects GitHub (see "GitHub login"). Finished reviews are saved, so a PR
-reviewed before opens at once, also after a restart (see "Saved reviews").
+reviewed before opens at once, also after a restart; your viewed files and
+**Done** are kept too (see "Saved reviews").
 
 ## Run it
 
@@ -232,8 +233,19 @@ looked up in the index. A missing or damaged file is dropped.
   the row says **Outdated review**. Opening it shows a bar: "This review is
   for an older commit … has new commits since", with **Review again**.
 - **Deleting:** Settings → **Saved reviews** lists them (PR, title, commit,
-  when, size) with **Delete** each and **Delete all** (asked twice). A
-  deleted review disappears from the PR list and from the jobs list.
+  when, size, done) with **Delete** each and **Delete all** (asked twice). A
+  deleted review disappears from the PR list and from the jobs list, and its
+  viewed files are forgotten.
+
+**Viewed files and Done (US-17).** The viewer keeps viewed / collapsed files
+in the page's `localStorage`, keyed by the review key; for the app's own
+`app://renderer` origin that lives in the profile and survives a restart.
+The plugin clears that state on **Done** (the review is over); the app keeps
+it (`ReviewApi.afterDone: "keep"`): the review stays open, the button shows
+**Done ✓**, and you can come back to it. **Done** is saved with the review
+(`doneAt` in the index): the PR list shows **Done ✓** instead of
+**Reviewed**, and the review opens with "You marked this review done …".
+Reviewing the same commit again starts a new review that is not done.
 
 **Tests:** `review-cache.test.ts` (save, reload, newest, replace, delete,
 damaged or missing files, an index entry that points outside the folder,
@@ -241,8 +253,9 @@ unsafe names); `reviews.test.ts` (a store reloads a saved review, with its
 file reads, after a "restart"). The smoke test writes two saved reviews into
 its profile before launch, in the saved format, and checks Reviewed /
 Outdated, Open review, the banner, the no-run reopen, Delete and Delete all.
-`review-e2e` restarts the app after the real review and checks the PR is
-still Reviewed, the review opens, "expand full file" works, and no agent ran.
+`review-e2e` marks a file viewed and presses **Done**, restarts the app, and
+checks the PR is still done, the review opens with the file still viewed,
+"expand full file" works, and no agent ran.
 
 ## Reading a PR (`GitHubApiSource`)
 

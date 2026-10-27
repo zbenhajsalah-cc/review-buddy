@@ -32,9 +32,10 @@ export function registerReviewIpc(
   );
   handle(IPC.getConfig, isTrusted, () => ({ roundtrip: false }));
   handle(IPC.done, isTrusted, async (reviewKey, result) => {
-    await store.getReview(reviewKey); // unknown review → error
     const { verdict } = parseDoneResult(result);
-    // What "Done" does in desktop (mark finished, post to GitHub) is US-17/US-20.
+    // Marked finished, and kept with the saved review (US-17). Posting the
+    // review to GitHub is US-20.
+    await store.markDone(reviewKey); // unknown review → error
     console.log(`[review-buddy] review ${String(reviewKey)} done${verdict ? `: ${verdict}` : ""}`);
   });
   handle(IPC.startReview, isTrusted, (pr, options) => jobs.start(pr, options));

@@ -148,4 +148,20 @@ describe("ReviewCache", () => {
     ).rejects.toThrow("Cannot save");
     expect(cache.list()).toEqual([]);
   });
+
+  test("Done is kept in the index; a new review of the same head is not done", async () => {
+    const { save, cache, reopen } = await setup();
+    const key = await save("octo/repo#12", B);
+    expect(await cache.markDone(key, "2026-10-27T12:00:00.000Z")).toBe(true);
+    expect(await cache.markDone("nope", "x")).toBe(false);
+    const again = await reopen();
+    expect(again.list()[0]!.doneAt).toBe("2026-10-27T12:00:00.000Z");
+    expect(again.newestFor("octo/repo#12")).toEqual({
+      reviewKey: key,
+      headSha: B,
+      doneAt: "2026-10-27T12:00:00.000Z",
+    });
+    await save("octo/repo#12", B);
+    expect(cache.list()[0]!.doneAt).toBeUndefined();
+  });
 });

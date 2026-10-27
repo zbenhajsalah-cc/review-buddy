@@ -102,6 +102,8 @@ export interface SavedReviewInfo {
   savedAt: string;
   /** Size of the saved file. */
   bytes: number;
+  /** When the reviewer pressed Done (US-17). */
+  doneAt?: string;
 }
 
 /** What the preload script exposes. Every call names the review it is about. */
@@ -184,7 +186,7 @@ export interface PullSummary {
   /** From the PR itself (the list has no sizes); missing if that read failed. */
   size?: { additions: number; deletions: number; changedFiles: number };
   /** The newest review made in the app for this PR, at whatever head it had. */
-  review?: { reviewKey: string; headSha: string };
+  review?: { reviewKey: string; headSha: string; doneAt?: string };
 }
 
 /** One page of a repository's open PRs, most recently updated first. */
