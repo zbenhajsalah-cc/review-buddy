@@ -7,7 +7,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bun run ${CLAUDE_PLUGIN_ROOT}/src/cli/index.ts open-review",
+            "command": "bun run ${CLAUDE_PLUGIN_ROOT}/dist/hook.js open-review",
             "timeout": 345600
           }
         ]

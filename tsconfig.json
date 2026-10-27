@@ -17,11 +17,12 @@
     "noEmit": true,
     "esModuleInterop": true,
     "forceConsistentCasingInFileNames": true,
-    // The plugin resolves @review-buddy/core through these paths, not through
-    // a workspace dependency: GitHub installs have no node_modules (Bun
-    // auto-installs) and local clones run plain `bun install`, and neither
-    // understands `workspace:*`. Bun honors tsconfig paths at runtime. Keep in
-    // sync with "exports" in packages/core/package.json.
+    // The plugin source resolves @review-buddy/core through these paths, not a
+    // `workspace:*` dependency. Installed plugins run the bundles in dist/
+    // (core inlined), but older Cursor / Copilot / Codex configs still run
+    // src/mcp/server.ts from clones set up with plain `bun install`, which
+    // never links workspace packages. Bun honors tsconfig paths at runtime.
+    // Keep in sync with "exports" in packages/core/package.json.
     "paths": {
       "@review-buddy/core/review.schema.json": ["./packages/core/schemas/review.schema.json"],
       "@review-buddy/core/*": ["./packages/core/src/*"]

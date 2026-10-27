@@ -1,7 +1,6 @@
 /**
- * Standalone-mode flag parsing — its own tiny module so the MCP server can
- * decide the mode at startup without loading the standalone handler (and the
- * whole review-session stack behind it) in the default Claude Code mode.
+ * Standalone-mode flag parsing — its own tiny module, separate from the
+ * standalone handler, so it is cheap to test.
  *
  * The mode is a CLI flag on the server command — deliberately NOT an env var:
  * env is ambient, and a user who exports it globally (e.g. for Cursor) would

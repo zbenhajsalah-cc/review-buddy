@@ -51,7 +51,8 @@ review-buddy/
 ├── CLAUDE.md                  # you are here — orientation + decisions
 ├── README.md                  # human overview: install, dev, status
 ├── .claude-plugin/            # plugin.json + marketplace.json (Claude Code plugin manifest)
-├── bin/review-buddy.js        # plugin entry shim → src/cli
+├── bin/review-buddy.js        # plugin entry shim → dist/hook.js
+├── dist/                      # COMMITTED plugin bundles: server.js (MCP) + hook.js (hook/CLI); `pnpm build:plugin`
 ├── hooks/hooks.json           # the real PreToolUse hook wiring
 ├── skills/review/SKILL.md     # the /review skill — the structuring prompt (source of truth)
 ├── packages/core/             # @review-buddy/core — runtime-neutral (no Bun/Node/DOM APIs; its typecheck enforces it)
@@ -82,7 +83,7 @@ review-buddy/
 └── scripts/release.sh         # version bump across files + release
 ```
 
-**Workspace:** pnpm installs (`pnpm-workspace.yaml`: `packages/*`, `src/ui`); Bun runs the plugin and the tests. The plugin (root package) reaches `@review-buddy/core` through `paths` in the root `tsconfig.json`, **not** a `workspace:*` dependency: GitHub plugin installs have no `node_modules` (Bun auto-installs) and local clones run plain `bun install`, and neither understands `workspace:*`. Bun honors tsconfig `paths` at runtime. See `docs/DESIGN-desktop-app-shared-code.md` and `docs/backlog-desktop-app.md`.
+**Workspace:** pnpm installs (`pnpm-workspace.yaml`: `packages/*`, `src/ui`); Bun runs the plugin and the tests. **Installed plugins run the committed bundles in `dist/`** (`server.js`, `hook.js`; core, zod and the MCP SDK inlined) — no `node_modules`, no auto-install. After changing plugin or core source, run `pnpm build:plugin` and commit `dist/` (CI's `verify:dist-fresh` fails otherwise; `pnpm smoke:plugin` runs the bundles with auto-install disabled). The plugin source reaches `@review-buddy/core` through `paths` in the root `tsconfig.json`, not a `workspace:*` dependency, so older standalone configs that run `src/mcp/server.ts` from a `bun install`ed clone keep working. See `docs/DESIGN-desktop-app-shared-code.md` and `docs/backlog-desktop-app.md`.
 
 ## Phase 1 (shipped)
 

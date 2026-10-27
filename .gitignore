@@ -15,3 +15,9 @@ storybook-static
 # chunk, not the ~300 syntax grammars. Treated as generated in .gitattributes.
 !src/ui/dist/
 !src/ui/dist/**
+
+# Prebuilt plugin bundles (dist/server.js, dist/hook.js) — committed for the
+# same reason: an installed plugin runs them directly, with no node_modules and
+# no build (US-04). Rebuilt by `pnpm build:plugin`; checked by verify:dist-fresh.
+!/dist/
+!/dist/**

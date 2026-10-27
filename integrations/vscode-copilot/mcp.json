@@ -4,7 +4,7 @@
     "review-buddy": {
       "type": "stdio",
       "command": "bun",
-      "args": ["run", "/ABSOLUTE/PATH/TO/review-buddy/src/mcp/server.ts", "--standalone"],
+      "args": ["run", "/ABSOLUTE/PATH/TO/review-buddy/dist/server.js", "--standalone"],
       "env": {
         "REVIEW_BUDDY_CWD": "${workspaceFolder}"
       }

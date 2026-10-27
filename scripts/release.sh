@@ -325,14 +325,14 @@ main() {
       step "Skip GitHub Release (gh not installed or not authenticated)"
     fi
   else
-    # Rebuild the committed viewer so every release ships current bytes. The
-    # build is deterministic (content-hashed chunks), so this is a no-op stage
-    # when src/ui/dist is already fresh; when UI source moved ahead of the
-    # committed artifact, it brings dist up to date (plan 016). `pnpm` is only
-    # required for a real release, not for a dry-run preview.
+    # Rebuild the committed viewer and plugin bundles so every release ships
+    # current bytes. Both builds are deterministic, so this is a no-op stage
+    # when src/ui/dist and dist/ are already fresh; when source moved ahead of
+    # the committed artifacts, it brings them up to date (plan 016, US-04).
+    # `pnpm` is only required for a real release, not for a dry-run preview.
     require_command pnpm
-    (cd "$REPO_ROOT" && pnpm install --frozen-lockfile && pnpm build:ui)
-    step "Rebuild the committed viewer (src/ui/dist)"
+    (cd "$REPO_ROOT" && pnpm install --frozen-lockfile && pnpm build:ui && pnpm build:plugin)
+    step "Rebuild the committed viewer (src/ui/dist) and plugin bundles (dist/)"
 
     for f in "${VERSION_FILES[@]}"; do
       write_version_to "$f" "$version"
@@ -345,7 +345,7 @@ main() {
     done
     step "Verify every version file agrees"
 
-    git add "${VERSION_FILES[@]}" src/ui/dist
+    git add "${VERSION_FILES[@]}" src/ui/dist dist
     if git diff --cached --quiet; then
       log_error "No staged changes — files may already be at $version"
       exit 1

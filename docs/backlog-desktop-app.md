@@ -125,17 +125,33 @@ Acceptance criteria:
   and `dist/hook.js` (hook + `dev` CLI) with core, `zod`, the MCP SDK, and the
   JSON schema inlined.
 - `plugin.json`, `hooks.json` and `bin/review-buddy.js` point at the bundles.
-- The root package may then depend on `@review-buddy/core` with
-  `workspace:*` instead of the tsconfig `paths` from US-02 (`bun build`
-  inlines it either way).
+- The root package keeps the tsconfig `paths` from US-02 instead of a
+  `workspace:*` dependency, so older Cursor / Copilot / Codex configs that
+  run `src/mcp/server.ts` from a `bun install`ed clone keep working.
+- `src/mcp/server.ts` imports the standalone handler statically: with a
+  dynamic `import()`, Bun's bundler put zod behind lazy initializers and the
+  bundled server crashed at startup (found by the smoke test).
+- The plugin root is found by walking up to `.claude-plugin/plugin.json`
+  (`src/plugin-root.ts`), so the viewer folder and the version are found
+  from both source and bundle.
+- The runtime dependencies (`@modelcontextprotocol/sdk`, `zod`) become
+  `devDependencies` of the root package: they are build inputs now.
 - The bundles are committed, marked `linguist-generated` in `.gitattributes`,
   and covered by `verify:dist-fresh` (the build is deterministic).
 - The root `bun.lock` and the `verify:bun-lock` script are removed (nothing
   auto-installs any more).
-- A CI smoke test copies the plugin files into an empty folder with **no
-  `node_modules`**, then:
-  - pipes a sample hook event into `hook.js` and gets a valid PreToolUse answer;
-  - starts `server.js` and lists the `submit_review` tool.
+- A CI smoke test (`pnpm smoke:plugin`, last step of `verify:ci`) copies the
+  plugin files into an empty folder with **no `node_modules`** and runs the
+  bundles with Bun auto-install **disabled** (`--no-install`), then:
+  - pipes a bad hook event into `hook.js` and gets a valid PreToolUse answer;
+  - runs a full hook review: viewer page, `/api/review`, `/api/file-content`,
+    Done → "allow";
+  - starts `server.js`, checks the version, and lists the `submit_review`
+    tool;
+  - starts `server.js --standalone` and calls `submit_review`, which returns
+    a working viewer URL.
+- Integration configs and `docs/HARNESSES.md` point at `dist/server.js`; the
+  README install steps drop `bun install`.
 
 ### US-05: Plugin moves to `apps/plugin`
 

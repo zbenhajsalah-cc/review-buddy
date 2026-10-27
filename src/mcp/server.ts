@@ -25,10 +25,13 @@ import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { CallToolRequestSchema, ListToolsRequestSchema } from "@modelcontextprotocol/sdk/types.js";
 import reviewSchema from "@review-buddy/core/review.schema.json";
-// Only the flag parser is imported eagerly — the standalone handler (and the
-// whole review-session stack behind it) loads lazily, so the default Claude
-// Code mode pays nothing for machinery only other harnesses use.
+import { pluginRoot } from "../plugin-root.ts";
 import { standaloneMode } from "./mode.ts";
+// Static on purpose, though only standalone mode uses it: with a dynamic
+// import(), Bun's bundler wraps the shared zod modules in lazy initializers,
+// and the MCP SDK's top-level z.custom() then runs before zod's classes exist
+// (dist/server.js crashed at startup). Importing it only defines functions.
+import { handleStandaloneSubmit, makeShutdown } from "./standalone.ts";
 
 // The JSON Schema is the single source of truth; strip JSON-Schema meta
 // keywords MCP inputSchema doesn't need.
@@ -57,8 +60,11 @@ const TOOL_DESCRIPTION = [
 
 // Version comes from package.json so release.sh's bump covers this too —
 // a hardcoded string here was the one version site the release script missed.
-const pkgPath = join(import.meta.dir, "..", "..", "package.json");
-const pkg = JSON.parse(readFileSync(pkgPath, "utf8")) as { version?: string };
+// Read at runtime (not bundled) so a version bump doesn't change dist/.
+const root = pluginRoot();
+const pkg = (root ? JSON.parse(readFileSync(join(root, "package.json"), "utf8")) : {}) as {
+  version?: string;
+};
 
 const server = new Server(
   { name: "review-buddy", version: pkg.version ?? "0.0.0" },
@@ -77,7 +83,6 @@ server.setRequestHandler(CallToolRequestSchema, async (req) => {
     };
   }
   if (MODE !== "off") {
-    const { handleStandaloneSubmit } = await import("./standalone.ts");
     return handleStandaloneSubmit(req.params.arguments, MODE);
   }
   return {
@@ -97,7 +102,6 @@ await server.connect(new StdioServerTransport());
 // its port) can't outlive the client. Off (Claude Code) mode has no long-lived
 // viewer — the hook owns the lifecycle — so this only applies to standalone.
 if (MODE !== "off") {
-  const { makeShutdown } = await import("./standalone.ts");
   const shutdown = makeShutdown();
   server.onclose = shutdown;
   process.stdin.on("end", shutdown);

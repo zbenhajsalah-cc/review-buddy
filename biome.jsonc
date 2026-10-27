@@ -12,9 +12,9 @@
       "!!docs/**/*.html",
       "!!**/node_modules",
       "!!src/ui/dist",
+      "!!dist",
       "!!storybook-static",
-      "!!**/*.tsbuildinfo",
-      "!!bun.lock"
+      "!!**/*.tsbuildinfo"
     ]
   },
   "formatter": {

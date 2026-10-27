@@ -18,13 +18,14 @@ import { buildMeta } from "@review-buddy/core/meta";
 import { localGitSource } from "@review-buddy/core/node/local-source";
 import { resolveReview } from "@review-buddy/core/resolve";
 import type { AgentReview } from "@review-buddy/core/types";
+import { pluginRoot } from "../plugin-root.ts";
 import { openBrowser } from "./browser.ts";
 import { type RunningServer, startServer } from "./http.ts";
 
-const repoRoot = join(import.meta.dir, "..", "..");
-
 function uiDir(): string | undefined {
-  const dir = join(repoRoot, "src", "ui", "dist");
+  const root = pluginRoot();
+  if (!root) return undefined;
+  const dir = join(root, "src", "ui", "dist");
   return existsSync(join(dir, "index.html")) ? dir : undefined;
 }
 

@@ -61,8 +61,11 @@ purpose.
 ## Prerequisites (all harnesses)
 
 - [Bun](https://bun.sh) ≥ 1.3 on your PATH (runs the MCP server and viewer).
-- A clone of this repo with backend deps installed: `bun install` (the viewer
-  ships prebuilt in `src/ui/dist/`, so there is no build step).
+- A clone of this repo. Nothing to install or build: the MCP server ships
+  prebuilt as `dist/server.js` (all dependencies inlined) and the viewer as
+  `src/ui/dist/`. Older configs point at `src/mcp/server.ts`;
+  they keep working in a clone where you ran `bun install`, but switch them to
+  `dist/server.js`.
 - `gh` CLI authenticated if you want PR reviews (`source.type = "pr"`).
 
 ## Cursor

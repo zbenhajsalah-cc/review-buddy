@@ -37,30 +37,29 @@ Review Buddy is a **Claude Code plugin**. It registers an MCP server (`review-bu
 
 ### Install
 
-The viewer ships **prebuilt** in the repo, so there's no build step on either path.
+The viewer and the plugin's MCP server + hook ship **prebuilt** in the repo (`src/ui/dist/`, `dist/`), so there's no build or install step on either path.
 
 #### Quick install (from GitHub)
 
-Claude Code can add the marketplace directly from GitHub — it clones the repo into its local plugin cache for you. No manual `git clone` and no `bun install` needed.
+Claude Code can add the marketplace directly from GitHub — it clones the repo into its local plugin cache for you. No manual `git clone` and no install step needed.
 
 ```text
 /plugin marketplace add ziedhajsalah/review-buddy
 /plugin install review-buddy@review-buddy
 ```
 
-[Bun](https://bun.sh) is still required — the plugin's MCP server and hook run on it. The cached copy has no `node_modules`; Bun auto-installs the two runtime dependencies (`@modelcontextprotocol/sdk`, `zod`) on first launch, so that first launch needs network access and may take a few extra seconds.
+[Bun](https://bun.sh) is still required — the plugin's MCP server and hook run on it. They are self-contained bundles with every dependency inlined, so nothing is downloaded on first launch.
 
 Restart Claude Code (or reload plugins) if prompted, so the MCP server and hook load.
 
 #### Install from a local clone
 
-For development, or if you'll also use the standalone harnesses (Cursor / Copilot / Codex — see below), clone the repo and install deps yourself:
+For development, or if you'll also use the standalone harnesses (Cursor / Copilot / Codex — see below), clone the repo yourself. No install step is needed to run the plugin (for development, see [Development](#development)):
 
 ```bash
-# 1. Clone and install the backend deps (for the MCP server + hook)
+# 1. Clone
 git clone https://github.com/ziedhajsalah/review-buddy
 cd review-buddy
-bun install
 ```
 
 ```text
@@ -120,12 +119,12 @@ integrations/        # Cursor / VS Code Copilot / Codex configs + review prompts
 
 The repo is a [pnpm](https://pnpm.io) workspace: the root package (MCP server + hook), the shared review logic (`packages/core`), and the viewer (`src/ui`, a Vite package). pnpm installs everything; [Bun](https://bun.sh) still runs the backend, the scripts, and the tests. Versions: pnpm from `package.json` `packageManager`, Bun from `.bun-version`.
 
-`pnpm verify` is the fast local loop (tests + typechecks); `pnpm verify:ci` is the exact gate CI runs on every pull request and on pushes to `main`/`develop` (it adds the UI production build). Run `pnpm verify:ci` before opening a PR.
+`pnpm verify` is the fast local loop (tests + typechecks); `pnpm verify:ci` is the exact gate CI runs on every pull request and on pushes to `main`/`develop` (it adds the UI and plugin builds, the committed-artifact freshness checks, and the plugin smoke test). Run `pnpm verify:ci` before opening a PR.
 
 ```bash
 pnpm install           # all workspace deps (backend + viewer), from pnpm-lock.yaml
 pnpm verify            # fast local loop: core + backend tests, all typechecks, UI tests
-pnpm verify:ci         # full gate CI runs: verify + UI production build
+pnpm verify:ci         # full gate CI runs: verify + builds + freshness + plugin smoke test
 pnpm test:core         # core tests
 pnpm typecheck:core    # core tsc (rejects Bun/Node/DOM APIs)
 pnpm test              # plugin backend tests
@@ -133,13 +132,13 @@ pnpm typecheck         # plugin backend tsc
 
 pnpm --filter review-buddy-ui dev     # viewer dev server (proxies /api → 127.0.0.1:5199)
 pnpm build:ui                         # typecheck + production build (writes the committed src/ui/dist)
+pnpm build:plugin                     # bundle the MCP server + hook (writes the committed dist/)
+pnpm smoke:plugin                     # run dist/ like an installed plugin: no node_modules, no auto-install
 ```
 
 Component stories live in `src/ui`. Run `pnpm --filter review-buddy-ui storybook` for the dev catalog on port 6006, or `pnpm --filter review-buddy-ui build-storybook` for a static build.
 
-> **Why there is still a `bun.lock`:** the plugin's local-clone install (and the Cursor / Copilot / Codex setup) runs plain `bun install` in the repo root, and the root `bun.lock` pins those versions. Bun does not read `pnpm-lock.yaml`, so `bun.lock` stays until the plugin ships bundled. If you change the root `package.json` dependencies, also run `bun install --lockfile-only`. `pnpm verify:ci` fails when `bun.lock` no longer matches `package.json`.
-
-> **Contributors:** `src/ui/dist` is a **committed** prebuilt artifact (so installs need no build). If you change viewer source, rebuild (`pnpm build:ui`) and commit the updated `src/ui/dist` in the same PR — CI fails otherwise. The build is deterministic and grammar chunks are content-hashed, so a typical UI change only rewrites the small core chunk. Reviewers verify the CI freshness check rather than reviewing the artifact bytes.
+> **Contributors:** `src/ui/dist` (viewer) and `dist/` (plugin bundles) are **committed** prebuilt artifacts (so installs need no build). If you change viewer source, rebuild (`pnpm build:ui`); if you change plugin or `packages/core` source, rebuild (`pnpm build:plugin`); commit the updated artifacts in the same PR — CI fails otherwise. `pnpm smoke:plugin` runs the bundles from a `node_modules`-free copy with Bun auto-install disabled. The build is deterministic and grammar chunks are content-hashed, so a typical UI change only rewrites the small core chunk. Reviewers verify the CI freshness check rather than reviewing the artifact bytes.
 
 See `docs/build-plan.md` for the phased task breakdown and `docs/review-contract.md` for the agent vs UI/server contracts.
 
