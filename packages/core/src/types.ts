@@ -182,7 +182,18 @@ export type DiffLayout = "unified" | "split";
 
 export interface DisplaySettings {
   layout: DiffLayout;
+  /** Color mode: "auto" follows prefers-color-scheme. */
   theme: "auto" | "light" | "dark";
+  /** Syntax theme used in light mode (a @pierre/diffs / Shiki theme id). */
+  lightTheme: string;
+  /** Syntax theme used in dark mode (a @pierre/diffs / Shiki theme id). */
+  darkTheme: string;
+  /** Code font id from the viewer's font catalog ("system" = the OS monospace). */
+  font: string;
+  /** Code font size in px. */
+  fontSize: number;
+  /** Render programming ligatures (e.g. `!==` as one glyph). */
+  ligatures: boolean;
   changeIndicator: "classic" | "bars" | "none";
   granularity: "line" | "word" | "char";
   wrap: boolean;
