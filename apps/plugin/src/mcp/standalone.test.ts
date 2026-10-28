@@ -147,6 +147,32 @@ test("blocking: forces the verdict UI on and returns the request-changes note", 
   expect(res.content[0]!.text).toContain("tighten the null check");
 });
 
+test("blocking: an approval returns the reviewer's line comments", async () => {
+  let pending!: Promise<Awaited<ReturnType<typeof handleStandaloneSubmit>>>;
+  const u = await urlOf(() => {
+    pending = handleStandaloneSubmit(review(dir), "blocking");
+  });
+  await fetch(`${u.origin}/api/done?token=${u.searchParams.get("token")}`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      verdict: "approve",
+      comments: [{ chapterIndex: 1, path: "app.ts", side: "new", line: 2, body: "Why 20?" }],
+    }),
+  });
+  const text = (await pending).content[0]!.text;
+  expect(text).toContain("Review complete");
+  expect(text).toContain("Reviewer approved, with comments.");
+  expect(text).toContain("- `app.ts` line 2 (new): Why 20?");
+});
+
+test("detached: no verdict UI, since nothing could carry a verdict back", async () => {
+  const res = await handleStandaloneSubmit(review(dir), "detached");
+  const m = res.content[0]!.text.match(VIEWER_URL_RE)!;
+  const config = await fetch(`http://127.0.0.1:${m[1]}/api/config?token=${m[2]}`);
+  expect(((await config.json()) as { roundtrip: boolean }).roundtrip).toBe(false);
+});
+
 test("blocking: a newer submit supersedes the pending review and unblocks its await", async () => {
   let pending!: Promise<Awaited<ReturnType<typeof handleStandaloneSubmit>>>;
   const old = await urlOf(() => {

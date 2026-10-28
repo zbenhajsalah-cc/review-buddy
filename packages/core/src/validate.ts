@@ -1,4 +1,5 @@
 import { z } from "zod";
+import type { DoneResult } from "./types.ts";
 
 const KeyChange = z.object({ headline: z.string(), detail: z.string() });
 const ReviewFocus = z.object({ summary: z.string(), file: z.string() });
@@ -47,6 +48,9 @@ export const AgentReviewSchema = z.object({
   source: Source.optional(),
 });
 
+const describeIssues = (error: z.ZodError): string =>
+  error.issues.map((i) => `${i.path.join(".") || "(root)"}: ${i.message}`).join("; ");
+
 /**
  * Validate an agent review payload. Returns a concise human-readable reason on
  * failure, or null when the payload is usable. Never throws.
@@ -54,5 +58,38 @@ export const AgentReviewSchema = z.object({
 export function validateAgentReview(agent: unknown): string | null {
   const parsed = AgentReviewSchema.safeParse(agent);
   if (parsed.success) return null;
-  return parsed.error.issues.map((i) => `${i.path.join(".") || "(root)"}: ${i.message}`).join("; ");
+  return describeIssues(parsed.error);
+}
+
+const CommentSide = z.enum(["old", "new"]);
+const LineNumber = z.number().int().min(1);
+// Generous limits: no reviewer reaches them, and the text the agent gets is
+// cut much shorter anyway (messages.ts).
+const ReviewCommentSchema = z.object({
+  chapterIndex: z.number().int().min(1),
+  path: z.string().min(1).max(4096),
+  side: CommentSide,
+  line: LineNumber,
+  startSide: CommentSide.optional(),
+  startLine: LineNumber.optional(),
+  body: z.string().max(50_000),
+});
+
+/** Shape of POST /api/done. Unknown keys are dropped. */
+export const DoneResultSchema = z.object({
+  verdict: z.enum(["approve", "request_changes"]).optional(),
+  summary: z.string().max(50_000).optional(),
+  comments: z.array(ReviewCommentSchema).max(2000).optional(),
+});
+
+/**
+ * Parse what the viewer sent when the reviewer finished. Returns the result,
+ * or a short reason when it is malformed. Never throws.
+ */
+export function parseDoneResult(
+  body: unknown,
+): { ok: true; value: DoneResult } | { ok: false; error: string } {
+  const parsed = DoneResultSchema.safeParse(body);
+  if (parsed.success) return { ok: true, value: parsed.data };
+  return { ok: false, error: describeIssues(parsed.error) };
 }

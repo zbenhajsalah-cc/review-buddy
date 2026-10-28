@@ -13,6 +13,7 @@ import {
   type LineComment,
   type LineRange,
   sortComments,
+  toReviewComments,
   useComments,
 } from "../lib/comments.ts";
 import { keepFileInView, keepInView } from "../lib/keepFileInView.ts";
@@ -199,7 +200,7 @@ function ChapterReviewBody({
     [font, fontSize, ligatures],
   );
 
-  // Verdict UI is gated by REVIEW_BUDDY_ROUNDTRIP; the server exposes it via /api/config.
+  // Round-trip (the verdict UI, and comments sent to the agent) comes from the app's config.
   useEffect(() => {
     api
       .getConfig()
@@ -297,21 +298,24 @@ function ChapterReviewBody({
     }
   };
 
+  // With round-trip on, the comments go to the agent with the verdict.
+  const sentComments = () =>
+    allComments.length > 0 ? { comments: toReviewComments(allComments) } : {};
   const finish = () => {
     setUnfinished(null);
-    void submit(roundtrip ? { verdict: "approve" } : undefined);
+    void submit(roundtrip ? { verdict: "approve", ...sentComments() } : undefined);
   };
   // Done asks first while files are not marked viewed (over the whole review),
-  // and when it would drop comments: in the plugin, Done ends the review and
-  // clears them, and it does not send them to the agent yet.
+  // and when it would drop comments: without round-trip, the plugin's Done
+  // ends the review and clears them without sending them.
   const done = () => {
     const progress = reviewProgress(chapters, readViewedEntries(api.reviewKey));
-    const comments = api.afterDone === "keep" ? 0 : allComments.length;
+    const comments = api.afterDone === "keep" || roundtrip ? 0 : allComments.length;
     if (progress.viewed >= progress.total && comments === 0) return finish();
     setRequesting(false);
     setUnfinished({ ...progress, comments });
   };
-  const requestChanges = () => submit({ verdict: "request_changes", summary });
+  const requestChanges = () => submit({ verdict: "request_changes", summary, ...sentComments() });
 
   if (submitted) return <ReviewSubmitted />;
 
@@ -378,7 +382,18 @@ function ChapterReviewBody({
                 Request changes
               </Button>
             )}
-            <Button size="sm" onClick={done} disabled={submitting || markedDone}>
+            <Button
+              size="sm"
+              onClick={done}
+              disabled={submitting || markedDone}
+              title={
+                !roundtrip
+                  ? undefined
+                  : allComments.length > 0
+                    ? "Approve, and send your comments to the agent"
+                    : "Approve"
+              }
+            >
               {submitting ? "Submitting…" : markedDone ? "Done ✓" : "Done"}
             </Button>
           </div>
@@ -422,15 +437,20 @@ function ChapterReviewBody({
                 rows={3}
                 className="w-full rounded-md border border-border bg-background px-2 py-1 text-sm"
               />
-              <Button
-                size="sm"
-                variant="destructive"
-                onClick={requestChanges}
-                disabled={submitting}
-                className="self-end"
-              >
-                Submit request
-              </Button>
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-xs text-muted-foreground">
+                  {allComments.length === 1 && "Your comment goes too."}
+                  {allComments.length > 1 && `Your ${allComments.length} comments go too.`}
+                </span>
+                <Button
+                  size="sm"
+                  variant="destructive"
+                  onClick={requestChanges}
+                  disabled={submitting}
+                >
+                  Submit request
+                </Button>
+              </div>
             </div>
           )}
           {submitError && <p className="text-xs text-[var(--color-risk-high)]">{submitError}</p>}

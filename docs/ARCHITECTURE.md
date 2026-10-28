@@ -53,17 +53,17 @@ The structuring prompt's original output format had the agent transcribe diff li
 |---|---|---|
 | `/api/review` | GET | The merged review: `{ meta, pr, prologue, chapters, stats }` (A + B + computed). Chapters' hunks are **resolved** here (real content from B). |
 | `/api/file-content` | GET | Full file for expansion / word-level context (`?path=&side=base\|head`). Source C. |
-| `/api/done` | POST | Reviewer closes the viewer; unblocks the hook (one-way: returns `allow`). |
+| `/api/config` | GET | `{ roundtrip }`: whether the viewer shows "Request changes" and sends the verdict and line comments. |
+| `/api/done` | POST | Reviewer finished: `{ verdict?, summary?, comments? }`, validated (`parseDoneResult`; 400 when malformed). Unblocks the hook: "request changes" → `deny` with the note + comments; otherwise `allow` (comments in `additionalContext`). |
 
 ### Later phases
 | Endpoint | Method | Purpose |
 |---|---|---|
 | `/api/file-viewed` | POST | Persist per-file/chapter viewed state (round-trip). |
-| `/api/feedback` | POST | Submit verdict + annotations; hook returns `deny` + feedback to agent. |
 | `/api/github/*` | — | Open PR, copy branch, CI status, reviewers (via `gh`). |
 | `/api/ai/*` | — | In-context conversational assistant. |
 
-**Round-trip design + spike:** see [`DESIGN-roundtrip.md`](./DESIGN-roundtrip.md). The Phase 2 verdict path is spiked (behind `REVIEW_BUDDY_ROUNDTRIP=1`) by carrying `{ verdict, summary }` on the existing **`POST /api/done`** — the hook returns `deny` + the summary as `permissionDecisionReason` — with **`GET /api/config`** exposing the flag to the client. The richer `/api/feedback` (per-line annotations) and `/api/file-viewed` remain the real Phase 2 build; the design doc is their brief.
+**Round-trip:** see [`DESIGN-roundtrip.md`](./DESIGN-roundtrip.md). The verdict, the note and the line comments ride on **`POST /api/done`** (no separate `/api/feedback`); **`GET /api/config`** tells the client whether round-trip is on (by default; `REVIEW_BUDDY_ROUNDTRIP=0` turns it off). `/api/file-viewed` is still to build.
 
 ## Hook design
 
@@ -71,8 +71,8 @@ The structuring prompt's original output format had the agent transcribe diff li
 - The hook command receives the tool call on stdin: `{ tool_name, tool_input: <review JSON>, cwd, session_id, transcript_path, permission_mode }`.
 - **The hook re-captures the diff (source B) — and must capture the SAME one the agent reviewed.** It never sees `/review`'s arguments, so the agent's payload carries a `source`: `worktree` (default → `git diff HEAD`), `pr` → `gh pr diff <ref>`, or `branch` → `git diff <ref>`. Without this a PR review would re-run the local `git diff HEAD` (usually empty, since the PR branch isn't checked out) and the viewer would render zero hunks. See `localGitSource` in `packages/core/src/node/local-source.ts` (an implementation of the `ReviewDataSource` interface, `packages/core/src/source.ts`).
 - It reads files on demand (C), starts the server, opens the browser, and **blocks** until `/api/done` (long timeout, e.g. `345600`).
-- **Phase 1 return:** `{ hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "allow" } }` (the review was informational; let the agent proceed).
-- **Later (round-trip):** return `permissionDecision: "deny"` with the human's annotations as `permissionDecisionReason`, so the agent acts on the feedback.
+- **Done / approve:** `{ hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "allow" } }`, with the reviewer's comments (and resolution notes) in `additionalContext` — an `allow` reason only reaches the debug log.
+- **Request changes:** `permissionDecision: "deny"` with the reviewer's note and line comments as `permissionDecisionReason` (shown to Claude), so the agent acts on the feedback and re-submits. A hook `deny` is honored in `bypassPermissions` mode too (checked with Claude Code 2.1.312).
 
 Why `PreToolUse` over `PermissionRequest`: `PreToolUse` always fires; `PermissionRequest` is skipped when the tool is auto-allowed by a permission rule. Both can block and modify input, but for a guaranteed gate `PreToolUse` is safer.
 

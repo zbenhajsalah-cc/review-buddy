@@ -42,7 +42,12 @@ export const httpReviewApi: ReviewApi = {
       body: JSON.stringify(result),
     });
     if (!res.ok) {
-      throw new Error(`/api/done → ${res.status} ${res.statusText}`);
+      // A 400 names what the server refused (e.g. a malformed comment).
+      const reason = await res
+        .json()
+        .then((b: { error?: unknown }) => (typeof b.error === "string" ? `: ${b.error}` : ""))
+        .catch(() => "");
+      throw new Error(`/api/done → ${res.status} ${res.statusText}${reason}`);
     }
     finished = true;
   },

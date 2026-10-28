@@ -28,11 +28,12 @@ So standalone mode defaults to **detached**: `submit_review` returns the viewer
 URL immediately and the review server keeps running inside the MCP server
 process (which lives as long as your editor session). Submitting a new review
 supersedes the previous one. There is no verdict round-trip in detached mode —
-it's the Phase 1 one-way viewer.
+it's the Phase 1 one-way viewer (the viewer shows no "Request changes", whatever
+`REVIEW_BUDDY_ROUNDTRIP` says).
 
 On Codex you can opt into **blocking** mode (`--standalone=blocking` plus a
 large `tool_timeout_sec`): the tool call holds the turn and returns the
-reviewer's verdict — including "request changes" notes — straight to the agent.
+reviewer's verdict — with their note and line comments — straight to the agent.
 
 ## Mode selection (server command flag)
 
@@ -54,9 +55,10 @@ Whichever wins must be inside a git work tree.
 
 The env vars (`REVIEW_BUDDY_BASE`, `REVIEW_BUDDY_NO_OPEN`,
 `REVIEW_BUDDY_ROUNDTRIP`, `REVIEW_BUDDY_MODEL`) work the same in every mode,
-with one exception: `--standalone=blocking` forces the verdict UI on (no need
-to also set `REVIEW_BUDDY_ROUNDTRIP`) — returning the verdict is the mode's
-purpose.
+with one exception: the standalone modes ignore `REVIEW_BUDDY_ROUNDTRIP`.
+`--standalone=blocking` always shows the verdict UI — returning the verdict is
+the mode's purpose — and detached never does. In Claude Code the round-trip is
+on by default; `REVIEW_BUDDY_ROUNDTRIP=0` turns it off.
 
 ## Prerequisites (all harnesses)
 

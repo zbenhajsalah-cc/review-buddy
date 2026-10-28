@@ -55,12 +55,20 @@ const CODEX_BLOCKING_SECTION = `
 ### If the tool returns a verdict instead of a URL (blocking mode)
 
 When the server is registered with \`--standalone=blocking\`, the tool holds
-the turn until the reviewer finishes and returns their verdict. If it reports
-**"Reviewer requested changes"**, read the note as review feedback, make the
-requested edits, then call \`submit_review\` again with the same \`source\` and
-\`cwd\`. Acknowledge what you changed between submissions. Re-submit at most
-**3 times**; if the reviewer still requests changes, stop and ask the human
-directly rather than looping.
+the turn until the reviewer finishes and returns their verdict, with their
+note and line comments. Each comment names a file and lines, like
+\`\` \`src/a.ts\` lines 10-14 (new): … \`\` — \`(new)\` is a line number in the
+changed version of the file, \`(old)\` one in the base version.
+
+If it reports **"Reviewer requested changes"**, read the note and the comments
+as review feedback, make the requested edits, then call \`submit_review\` again
+with the same \`source\` and \`cwd\`. Acknowledge what you changed between
+submissions. Re-submit at most **3 times**; if the reviewer still requests
+changes, stop and ask the human directly rather than looping.
+
+If the reviewer approved with comments, answer their questions and make the
+small fixes they ask for; do not call \`submit_review\` again unless the user
+asks.
 `;
 
 const variants: {
