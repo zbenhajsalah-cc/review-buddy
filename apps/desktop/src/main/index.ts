@@ -18,7 +18,7 @@ import { ReviewJobs } from "./agent/review-job.ts";
 import { loadFixtureReview } from "./fixture/index.ts";
 import { openGitHubPr, prFileReader } from "./github/api-source.ts";
 import { GitHubAuth } from "./github/auth.ts";
-import { findGit, PrClones } from "./github/clones.ts";
+import { findGits, PrClones } from "./github/clones.ts";
 import { findGh, ghAuthToken } from "./github/gh-cli.ts";
 import { parsePrArg, runPrCheck } from "./github/pr-check.ts";
 import { GitHubPulls } from "./github/pulls.ts";
@@ -226,6 +226,15 @@ async function chooseClaudePath(): Promise<string | undefined> {
   return answer.canceled ? undefined : answer.filePaths[0];
 }
 
+/** Local copies of repositories, for PRs too large for the API (US-19). */
+function createPrClones(github: GitHubAuth): PrClones {
+  return new PrClones({
+    dir: join(app.getPath("userData"), "clones"),
+    git: () => findGits(),
+    token: () => github.token(),
+  });
+}
+
 /** Small app settings (never secrets) in the userData folder. */
 function appSettings(): SettingsFile {
   return new SettingsFile(join(app.getPath("userData"), "settings.json"));
@@ -336,12 +345,20 @@ function createReviewJobs(
  */
 async function prCheck(value: string): Promise<void> {
   const github = createGitHubAuth(appSettings());
+  const clones = createPrClones(github);
+  let fromCopy = false;
   const result = await runPrCheck(async () =>
     openGitHubPr(parsePrArg(value), {
       fetch: (url, init) => net.fetch(url, init),
       token: () => github.token(),
+      // The same fallback as a review (US-19): a PR too large for the API.
+      largeDiff: (pr) => {
+        fromCopy = true;
+        return clones.diff(pr, (step) => console.log(`[review-buddy] pr-check: ${step}`));
+      },
     }),
   );
+  if (result.diff) result.diff.from = fromCopy ? "local copy" : "api";
   console.log(`[review-buddy] pr-check ${JSON.stringify(result)}`);
   app.exit(result.ok ? 0 : 1);
 }
@@ -364,12 +381,7 @@ app.whenReady().then(async () => {
     const found = status.state === "ok" ? `${status.version} at ${status.path}` : status.message;
     console.log(`[review-buddy] claude code: ${status.state}: ${found}`);
   });
-  // Local copies of repositories, for PRs too large for the API (US-19).
-  const clones = new PrClones({
-    dir: join(app.getPath("userData"), "clones"),
-    git: () => findGit(),
-    token: () => github.token(),
-  });
+  const clones = createPrClones(github);
   const jobs = createReviewJobs(store, github, repos, claudeCode, clones);
   const pulls = new GitHubPulls({
     fetch: (url, init) => net.fetch(url, init),

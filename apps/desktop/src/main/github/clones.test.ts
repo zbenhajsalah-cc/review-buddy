@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   authHeader,
-  findGit,
+  findGits,
   type GitRun,
   gitCandidates,
   gitConfigEnv,
@@ -36,9 +36,10 @@ describe("gitCandidates", () => {
     expect(list).toContain("C:\\Users\\me\\AppData\\Local\\Programs\\Git\\cmd\\git.exe");
   });
 
-  test("findGit: the first that exists, or null", () => {
-    expect(findGit("linux", { PATH: "/a:/b" }, (p) => p === "/b/git")).toBe("/b/git");
-    expect(findGit("linux", { PATH: "" }, () => false)).toBeNull();
+  test("findGits: every one that exists, in search order", () => {
+    const exists = (p: string) => p === "/b/git" || p === "/usr/local/bin/git";
+    expect(findGits("linux", { PATH: "/a:/b" }, exists)).toEqual(["/b/git", "/usr/local/bin/git"]);
+    expect(findGits("linux", { PATH: "" }, () => false)).toEqual([]);
   });
 });
 
@@ -86,7 +87,7 @@ test("authHeader is the basic header git sends to github.com", () => {
   );
 });
 
-const GIT = findGit();
+const GIT = findGits()[0];
 
 describe.skipIf(!GIT)("PrClones against a local remote", () => {
   const root = mkdtempSync(join(tmpdir(), "rb-clones-"));
@@ -124,7 +125,7 @@ describe.skipIf(!GIT)("PrClones against a local remote", () => {
   ) =>
     new PrClones({
       dir,
-      git: () => GIT,
+      git: () => [GIT!],
       token: async () => "secret-token",
       remote: () => `file://${origin}`,
       env,
@@ -223,13 +224,80 @@ describe.skipIf(!GIT)("PrClones against a local remote", () => {
   });
 
   test("no git, or a git too old: says what to do", async () => {
-    await expect(clones(undefined, { git: () => null }).diff(pr, () => {})).rejects.toThrow(
+    await expect(clones(undefined, { git: () => [] }).diff(pr, () => {})).rejects.toThrow(
       "Install git, then try again.",
     );
     const old: GitRun = async () => "git version 2.20.1";
     await expect(clones(join(root, "clones-old"), { run: old }).diff(pr, () => {})).rejects.toThrow(
       "git 2.20.1 is too old",
     );
+  });
+
+  test("an old git first in the PATH does not hide a newer one", async () => {
+    const asked: string[] = [];
+    const twoGits: GitRun = (git, args, options) => {
+      if (args[0] === "--version") asked.push(git);
+      if (git === "/old/git") return Promise.resolve("git version 2.20.1");
+      return runGit(GIT!, args, options);
+    };
+    const c = clones(join(root, "clones-two"), {
+      git: () => ["/old/git", "/new/git"],
+      run: twoGits,
+    });
+    expect((await c.diff(pr, () => {})).trim()).toBe(expected);
+    await c.diff(pr, () => {});
+    expect(asked).toEqual(["/old/git", "/new/git"]); // checked once
+    const broken: GitRun = async () => {
+      throw new Error("ENOENT");
+    };
+    await expect(
+      clones(join(root, "clones-two"), { git: () => ["/a/git", "/b/git"], run: broken }).diff(
+        pr,
+        () => {},
+      ),
+    ).rejects.toThrow("git did not run (/a/git): ENOENT");
+  });
+
+  test("a submodule change is in the diff, whatever diff.ignoreSubmodules says", async () => {
+    const sub = join(root, "sub-origin");
+    mkdirSync(sub);
+    sh(sub, "init", "--quiet", "-b", "main");
+    sh(sub, "config", "uploadpack.allowFilter", "true");
+    sh(sub, "config", "uploadpack.allowAnySHA1InWant", "true");
+    writeFileSync(join(sub, "a.txt"), "a\n");
+    sh(sub, "add", ".");
+    sh(
+      sub,
+      "-c",
+      "user.email=t@example.com",
+      "-c",
+      "user.name=t",
+      "commit",
+      "--quiet",
+      "-m",
+      "base",
+    );
+    const subBase = sh(sub, "rev-parse", "HEAD");
+    // A submodule entry (a gitlink) pointing at some commit.
+    sh(sub, "update-index", "--add", "--cacheinfo", `160000,${"1".repeat(40)},vendor/lib`);
+    sh(
+      sub,
+      "-c",
+      "user.email=t@example.com",
+      "-c",
+      "user.name=t",
+      "commit",
+      "--quiet",
+      "-m",
+      "head",
+    );
+    const subHead = sh(sub, "rev-parse", "HEAD");
+    const c = clones(join(root, "clones-sub"), {
+      remote: () => `file://${sub}`,
+      env: gitConfigEnv(env, [["diff.ignoreSubmodules", "all"]]),
+    });
+    const diff = await c.diff({ ...pr, headSha: subHead, baseSha: subBase }, () => {});
+    expect(diff).toContain("diff --git a/vendor/lib b/vendor/lib");
   });
 
   test("bad names and SHAs are refused before git runs", async () => {

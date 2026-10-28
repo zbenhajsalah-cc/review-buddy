@@ -27,7 +27,14 @@ export interface PrCheckResult {
   pr?: { title: string; author: string; base: string; head: string; url?: string };
   headSha?: string;
   baseSha?: string;
-  diff?: { files: number; additions: number; deletions: number; bytes: number };
+  diff?: {
+    files: number;
+    additions: number;
+    deletions: number;
+    bytes: number;
+    /** Where the diff came from: GitHub's API, or a local copy for a PR too large for it (US-19). */
+    from?: "api" | "local copy";
+  };
   /** One modified text file, read on both sides (lengths only). */
   fileRead?: { path: string; headChars: number; baseChars: number };
   error?: string;

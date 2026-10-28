@@ -51,12 +51,13 @@ export function gitCandidates(platform: string, env: Record<string, string | und
   return [...new Set(dirs.map((d) => path.join(d, name)))];
 }
 
-export function findGit(
+/** Every git found, in search order (the first new enough one is used). */
+export function findGits(
   platform: string = process.platform,
   env: Record<string, string | undefined> = process.env,
   exists: (path: string) => boolean = existsSync,
-): string | null {
-  return gitCandidates(platform, env).find(exists) ?? null;
+): string[] {
+  return gitCandidates(platform, env).filter(exists);
 }
 
 /** "git version 2.43.0" (or "2.43.0.windows.1") → "2.43.0"; null for anything else. */
@@ -185,8 +186,8 @@ export interface ClonePr {
 export interface PrClonesDeps {
   /** The copies' folder, e.g. `<userData>/clones`. */
   dir: string;
-  /** The git binary, or null if there is none. */
-  git: () => string | null;
+  /** The git binaries found, in search order (none: an empty list). */
+  git: () => string[];
   token: () => Promise<string>;
   /** The URL git fetches from (tests use a local repository). */
   remote?: (ref: PrRef) => string;
@@ -289,6 +290,7 @@ export class PrClones {
           "--find-renames",
           "--diff-algorithm=myers",
           "--submodule=short",
+          "--ignore-submodules=none",
           "--src-prefix=a/",
           "--dst-prefix=b/",
           pr.baseSha,
@@ -362,29 +364,37 @@ export class PrClones {
     return join(this.deps.dir, owner!, `${repo}.git`);
   }
 
-  /** The git binary, checked once: present and new enough. */
+  /**
+   * The first git found that runs and is new enough (an old one early in the
+   * PATH does not hide a newer one); checked once while it stays first.
+   * None: the first one's reason, or "install git".
+   */
   async #git(): Promise<string> {
-    const git = this.deps.git();
-    if (!git) {
-      throw new Error(
-        "Reviewing a PR this large needs git, and the app found none. Install git, then try again.",
-      );
-    }
-    if (this.#gitChecked !== git) {
-      const output = await (this.deps.run ?? runGit)(git, ["--version"], {
+    const found = this.deps.git();
+    if (this.#gitChecked && found.includes(this.#gitChecked)) return this.#gitChecked;
+    let firstProblem: string | undefined;
+    for (const git of found) {
+      const problem = await (this.deps.run ?? runGit)(git, ["--version"], {
         env: this.deps.env ?? process.env,
-      }).catch((e: Error) => {
-        throw new Error(`git did not run (${git}): ${e.message}`);
-      });
-      const version = parseGitVersion(output);
-      if (!version || !versionAtLeast(version, MIN_GIT_VERSION)) {
-        throw new Error(
-          `git ${version ?? "(unknown version)"} is too old: reviewing a PR this large needs git ${MIN_GIT_VERSION} or newer.`,
-        );
+      }).then(
+        (output) => {
+          const version = parseGitVersion(output);
+          return version && versionAtLeast(version, MIN_GIT_VERSION)
+            ? undefined
+            : `git ${version ?? "(unknown version)"} is too old (${git}): reviewing a PR this large needs git ${MIN_GIT_VERSION} or newer.`;
+        },
+        (e: Error) => `git did not run (${git}): ${e.message}`,
+      );
+      if (!problem) {
+        this.#gitChecked = git;
+        return git;
       }
-      this.#gitChecked = git;
+      firstProblem ??= problem;
     }
-    return git;
+    throw new Error(
+      firstProblem ??
+        "Reviewing a PR this large needs git, and the app found none. Install git, then try again.",
+    );
   }
 
   /** git's environment: no prompts; the token only when the repo may be private. */

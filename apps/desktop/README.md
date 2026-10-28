@@ -388,7 +388,8 @@ instead (`src/main/github/clones.ts`, given to `openGitHubPr` as
   no fetch.
 - **The diff:** `git diff <merge base> <head>` with fixed options
   (`--no-ext-diff --no-textconv --find-renames --diff-algorithm=myers
-  --src-prefix=a/ --dst-prefix=b/`), whatever the user's git config says. For
+  --ignore-submodules=none --src-prefix=a/ --dst-prefix=b/`), whatever the
+  user's git config says. For
   PR #28 it is byte for byte the diff GitHub sends. It is checked against the
   PR's file count and line totals like GitHub's own; a copy that fails says
   why ("the local copy did not work: …") as a `too-large` error.
@@ -404,7 +405,9 @@ instead (`src/main/github/clones.ts`, given to `openGitHubPr` as
   `credential.helper` is cleared and git never prompts.
 - **git:** found in the PATH (absolute folders only) or the usual folders
   (`/usr/bin`, `/opt/homebrew/bin`, `/usr/local/bin`; Git for Windows'
-  folders); it must be 2.31 or newer. Missing or too old: the error says so.
+  folders); it must be 2.31 or newer. The first one found that is new enough
+  is used (an old git early in the PATH does not hide a newer one). None:
+  the error says why.
 - **One git job per copy at a time.** Settings → **Local copies of
   repositories** lists them with their size and when they were used, with
   **Delete** and **Delete all**. A copy a review is reading cannot be
@@ -429,8 +432,9 @@ pnpm --filter desktop exec electron-vite dev -- --pr-check=owner/repo#123
 release/linux-unpacked/review-buddy --pr-check=https://github.com/owner/repo/pull/123
 ```
 
-It prints the PR title, the two SHAs, the diff's size and counts, and the
-lengths of one file read on both sides, or the error (`errorKind`:
+It prints the PR title, the two SHAs, the diff's size and counts (and
+`from`: `"api"`, or `"local copy"` for a PR too large for the API, US-19),
+and the lengths of one file read on both sides, or the error (`errorKind`:
 `too_large`, `incomplete` or `other`).
 
 **Tests** run on recorded GitHub responses (`src/main/github/fixtures/`, see
