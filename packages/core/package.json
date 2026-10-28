@@ -1,6 +1,6 @@
 {
   "name": "@review-buddy/core",
-  "version": "0.4.0",
+  "version": "1.0.0",
   "private": true,
   "description": "Review logic shared by the Claude Code plugin and the desktop app: runtime-neutral contracts, diff parsing, resolution, validation, plus Node-only local git capture (src/node).",
   "type": "module",
