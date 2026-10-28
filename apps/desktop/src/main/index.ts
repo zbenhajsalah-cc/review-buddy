@@ -11,6 +11,9 @@ import { readFile } from "node:fs/promises";
 import { extname, join } from "node:path";
 import desktopPrompt from "@review-buddy/core/prompts/review-desktop.md?raw";
 import { app, BrowserWindow, dialog, net, protocol, safeStorage, session, shell } from "electron";
+// `?asset` copies the file into out/ and resolves to its path there, so the
+// icon travels with the `files: out/**` the installers ship.
+import appIcon from "../../build/icon.png?asset";
 import { FIXTURE_REVIEW_KEY, IPC } from "../shared/ipc.ts";
 import { type AgentCheckResult, runAgentCheck } from "./agent/check.ts";
 import { ClaudeCode } from "./agent/claude-code.ts";
@@ -122,6 +125,9 @@ function createWindow(): BrowserWindow {
     height: 860,
     show: false,
     title: "Review Buddy",
+    // macOS takes the window icon from the bundle, Windows from the .exe;
+    // on Linux it is the window's own.
+    ...(process.platform === "linux" ? { icon: appIcon } : {}),
     webPreferences: {
       preload: join(import.meta.dirname, "../preload/index.cjs"),
       contextIsolation: true,
@@ -371,6 +377,9 @@ app.whenReady().then(async () => {
   if (app.commandLine.hasSwitch("pr-check")) {
     return prCheck(app.commandLine.getSwitchValue("pr-check"));
   }
+  // `dev` runs Electron's own bundle, whose Info.plist icon is Electron's; a
+  // packaged app has its icon.icns, so only dev needs this.
+  if (process.platform === "darwin" && !app.isPackaged) app.dock?.setIcon(appIcon);
 
   const settings = appSettings();
   const github = createGitHubAuth(settings);
