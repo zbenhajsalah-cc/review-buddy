@@ -22,12 +22,14 @@ test("elapsed", () => {
 test("a failure is named by what failed", () => {
   const pr = "octo/repo#7";
   expect(failureTitle("github", pr)).toBe("Could not read octo/repo#7 from GitHub");
-  expect(failureTitle("too-large", pr)).toBe("octo/repo#7 is too large for the GitHub API");
+  expect(failureTitle("too-large", pr)).toBe(
+    "octo/repo#7 is too large for the GitHub API, and the local copy failed",
+  );
   expect(failureTitle("claude", pr)).toBe("Claude could not review octo/repo#7");
   expect(failureTitle("stopped", pr)).toBe("The review of octo/repo#7 was stopped");
   expect(failureTitle("agent", pr)).toBe("Claude did not finish the review of octo/repo#7");
   expect(failureTitle(undefined, pr)).toBe(failureTitle("agent", pr));
-  expect(failureHint("too-large")).toContain("local clone");
+  expect(failureHint("too-large")).toContain("with git, from a local copy");
   expect(failureHint("claude")).toBeUndefined();
 });
 

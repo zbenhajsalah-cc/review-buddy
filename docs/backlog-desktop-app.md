@@ -616,6 +616,30 @@ Acceptance criteria:
 - When `GitHubApiSource` reports "too large", the app uses a cached partial
   clone in the app data folder and `LocalGitSource`.
 - Clone progress is shown; disk use is visible and can be cleared.
+- Decisions made while building it:
+  - Not `LocalGitSource`: it reads a PR with `gh pr diff`, which uses the same
+    API and is refused the same way. `src/main/github/clones.ts` runs git
+    itself, and `openGitHubPr` takes it as `largeDiff`.
+  - Not a full partial clone: the copy fetches only the PR's head and merge
+    base, by SHA, one commit deep, without blobs, into
+    `refs/review-buddy/<sha>` (the refs keep them and say they are there; in a
+    partial copy, asking git for a missing object fetches it). For PR #28
+    that is about 340 KB, and its diff is byte for byte GitHub's.
+  - The diff from the copy gets the same check as GitHub's (file count and
+    line totals equal the PR's). A failed copy stays a `too-large` error,
+    with git's reason; Try again is now offered for it.
+  - File bytes still come from the API, so saved reviews never need a copy.
+  - The token goes to git only when the PR's `base.repo.private` is not
+    `false`, in `GIT_CONFIG_KEY_n` entries added after the ones already set
+    (never on the command line or in the copy's config); no credential
+    helper, no prompt. git 2.31 or newer (for those entries).
+  - Progress: "Fetching the commits of owner/repo#123: 25%" steps (receiving
+    only, every 25 %), so a fetch adds a handful of steps, not dozens.
+  - Settings → **Local copies of repositories**: size, last use, Delete,
+    Delete all; a copy in use by a review is kept.
+  - Checked with `review-e2e --too-large` (the fake GitHub refuses the diff;
+    the commits come from the real, public github.com repository). No real
+    PR over GitHub's limits was reachable from here.
 
 ### US-20: Post the review to GitHub
 

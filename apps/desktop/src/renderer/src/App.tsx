@@ -12,6 +12,7 @@ import {
 import { ClaudeCodeSettings, claudeBlocked } from "./ClaudeCodeSettings.tsx";
 import { GitHubSettings } from "./GitHubSettings.tsx";
 import { ipcReviewApi } from "./ipc-review-api.ts";
+import { LocalCopies } from "./LocalCopies.tsx";
 import { PullList } from "./PullList.tsx";
 import { RepoList, timeAgo } from "./RepoList.tsx";
 import { ipcErrorMessage, PrForm, RunPanel } from "./ReviewRun.tsx";
@@ -270,6 +271,7 @@ export function App({ bridge }: { bridge: DesktopBridge }) {
           >
             <ClaudeCodeSettings bridge={bridge.claude} status={claude} onStatus={setClaude} />
             <SavedReviews bridge={bridge.review} onDeleted={savedDeleted} />
+            <LocalCopies bridge={bridge.review} />
           </GitHubSettings>
         ) : screen !== "review" ? null : job && job.state !== "done" ? (
           <RunPanel

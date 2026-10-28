@@ -66,7 +66,7 @@ export function failureTitle(kind: ReviewErrorKind | undefined, pr: string): str
     case "github":
       return `Could not read ${pr} from GitHub`;
     case "too-large":
-      return `${pr} is too large for the GitHub API`;
+      return `${pr} is too large for the GitHub API, and the local copy failed`;
     case "claude":
       return `Claude could not review ${pr}`;
     case "stopped":
@@ -82,7 +82,7 @@ export function failureHint(kind: ReviewErrorKind | undefined): string | undefin
     case "github":
       return "Check the GitHub login in Settings, and that it can read this repository.";
     case "too-large":
-      return "Until the app can review from a local clone, run /review with the Claude Code plugin in a clone of the repository.";
+      return "The app reads PRs this large with git, from a local copy of the repository. Fix what the error says (git installed, the network, access to the repository), then try again.";
     case "agent":
       return "Trying again often works. The steps show how far it got.";
     default:
@@ -185,12 +185,9 @@ export function RunPanel({
               </Button>
             ) : (
               <>
-                {/* The same PR fails the same way: no retry for "too large". */}
-                {status.errorKind === "too-large" ? null : (
-                  <Button onClick={onRetry} disabled={!!retryBlocked} title={retryBlocked}>
-                    Try again
-                  </Button>
-                )}
+                <Button onClick={onRetry} disabled={!!retryBlocked} title={retryBlocked}>
+                  Try again
+                </Button>
                 <Button variant="outline" onClick={onDismiss}>
                   Show the sample review
                 </Button>

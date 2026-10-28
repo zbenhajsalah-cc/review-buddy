@@ -131,9 +131,9 @@ electron-builder makes the `.icns` and `.ico` from the PNG.
 ```
 src/main/       # Electron main (Node): window, app:// protocol, IPC handlers, review store + saved reviews
 src/main/agent/ # Agent SDK: the installed Claude Code (find + version check), --agent-check, the review tools, runner and job
-src/main/github/ # GitHub login (gh CLI token, pasted token in safeStorage), repo and PR lists, GitHubApiSource
+src/main/github/ # GitHub login (gh CLI token, pasted token in safeStorage), repo and PR lists, GitHubApiSource, local copies for large PRs
 src/preload/    # exposes window.reviewBuddy = { review, github, claude }; built as CommonJS
-src/renderer/   # App shell (top bar, tabs) + repo and PR lists + <ReviewViewer api={ipcReviewApi(...)} /> + settings (GitHub, Claude Code, saved reviews)
+src/renderer/   # App shell (top bar, tabs) + repo and PR lists + <ReviewViewer api={ipcReviewApi(...)} /> + settings (GitHub, Claude Code, saved reviews, local copies)
 src/shared/     # the IPC contract (channel names + types), used by all three
 scripts/        # smoke-desktop.ts (no Claude), review-e2e.ts (the real agent)
 electron-builder.yml  # packaging: installers per OS, without the SDK's Claude Code binary
@@ -366,12 +366,64 @@ reads, with the app's GitHub login:
   limit, 5xx) are thrown, not shown as an empty file.
 - **Never a partial diff.** GitHub refuses the diff of a very large PR (406,
   code `too_large`, for example more than 300 files): that is a
-  `PrTooLargeError` with a clear message (US-19 adds a local clone for these).
+  `PrTooLargeError` unless the local copy below gives the diff.
   Also, the diff's file count and line totals must equal the PR's
   `changed_files` / `additions` / `deletions`, or it is an
   `IncompleteDiffError` (the PR changed while loading, or the diff was cut).
   Checked on 5 real diffs of this repo (4 to 88 files, with renames): core's
   `parseDiff` counts match GitHub's exactly.
+
+### Large PRs: a local copy (US-19)
+
+When GitHub refuses the diff (406 `too_large`), the review gets it with git
+instead (`src/main/github/clones.ts`, given to `openGitHubPr` as
+`largeDiff`):
+
+- **The copy:** `<userData>/clones/<owner>/<repo>.git`, a bare repository,
+  kept for the next review. It holds only the PR's head commit and its merge
+  base, fetched by SHA, one commit deep, without file contents
+  (`git fetch --depth=1 --filter=blob:none origin <sha>:refs/review-buddy/<sha>`).
+  git fetches the file contents the diff reads, on demand. For PR #28 of this
+  repo that is about 340 KB, and a second review of the same commits needs
+  no fetch.
+- **The diff:** `git diff <merge base> <head>` with fixed options
+  (`--no-ext-diff --no-textconv --find-renames --diff-algorithm=myers
+  --ignore-submodules=none --src-prefix=a/ --dst-prefix=b/`), whatever the
+  user's git config says. For
+  PR #28 it is byte for byte the diff GitHub sends. It is checked against the
+  PR's file count and line totals like GitHub's own; a copy that fails says
+  why ("the local copy did not work: …") as a `too-large` error.
+- **File bytes** still come from the API (`prFileReader`), so a saved review
+  never needs the copy, and deleting one only costs a fetch next time.
+- **Progress:** the job's steps show "Making a local copy of owner/repo",
+  "Fetching the commits of owner/repo#123: 25%" … and "Reading the diff …
+  from the local copy".
+- **The token** goes to git only when GitHub does not say the repository is
+  public, in the environment, as an extra HTTP header for github.com (as
+  actions/checkout does): never on the command line or in the copy's config.
+  Entries are added after any `GIT_CONFIG_KEY_n` already set.
+  `credential.helper` is cleared and git never prompts.
+- **git:** found in the PATH (absolute folders only) or the usual folders
+  (`/usr/bin`, `/opt/homebrew/bin`, `/usr/local/bin`; Git for Windows'
+  folders); it must be 2.31 or newer. The first one found that is new enough
+  is used (an old git early in the PATH does not hide a newer one). None:
+  the error says why.
+- **One git job per copy at a time.** Settings → **Local copies of
+  repositories** lists them with their size and when they were used, with
+  **Delete** and **Delete all**. A copy a review is reading cannot be
+  deleted.
+
+**What was checked (US-19).** Unit tests against a local "remote" repository
+(made, fetched, reused without a fetch, renames, the token only for a
+repository not known to be public and never in the config, progress, list,
+delete, in use, a missing commit, stop, no git, an old git, bad names);
+`openGitHubPr` with a fake GitHub that answers 406 (the diff from the copy,
+a cut diff refused, a failed copy); the smoke test (a seeded copy listed and
+deleted); and the real agent: `node scripts/review-e2e.ts --too-large`, where
+the fake GitHub refuses the diff and the app fetches PR #28's commits from
+the real github.com repository. Not checked: a real PR over GitHub's limits
+(none is reachable from here), a private repository's token over git, and
+Windows and macOS.
 
 **Try it on a real PR** (uses the app's GitHub login; prints one JSON line):
 
@@ -380,8 +432,9 @@ pnpm --filter desktop exec electron-vite dev -- --pr-check=owner/repo#123
 release/linux-unpacked/review-buddy --pr-check=https://github.com/owner/repo/pull/123
 ```
 
-It prints the PR title, the two SHAs, the diff's size and counts, and the
-lengths of one file read on both sides, or the error (`errorKind`:
+It prints the PR title, the two SHAs, the diff's size and counts (and
+`from`: `"api"`, or `"local copy"` for a PR too large for the API, US-19),
+and the lengths of one file read on both sides, or the error (`errorKind`:
 `too_large`, `incomplete` or `other`).
 
 **Tests** run on recorded GitHub responses (`src/main/github/fixtures/`, see
@@ -435,13 +488,12 @@ helps, what to do:
 | Kind | When | Title |
 |---|---|---|
 | `github` | not signed in, not found, no access, GitHub unreachable, a diff that does not match the PR | "Could not read owner/repo#1 from GitHub" |
-| `too-large` | GitHub sends no diff (406 `too_large`) | "owner/repo#1 is too large for the GitHub API" |
+| `too-large` | GitHub sends no diff (406 `too_large`) and the local copy failed (no git, no network, no access) | "owner/repo#1 is too large for the GitHub API, and the local copy failed" |
 | `claude` | Claude Code cannot start, or Claude reports an error code: not signed in (`authentication_failed`: "Run `claude /login`"), billing, rate limit, overloaded, … | "Claude could not review owner/repo#1" |
 | `agent` | Claude ran but no review came out (out of turns, timed out, gave up) | "Claude did not finish the review of owner/repo#1" |
 | `stopped` | you pressed Stop | "The review of owner/repo#1 was stopped" |
 
-**Try again** starts the same PR as a new job and follows it (not offered
-for "too large": it would fail the same way). The console gets
+**Try again** starts the same PR as a new job and follows it. The console gets
 one `[review-buddy] review-run {…}` line per run, with the turns, cost and
 number of resolution notes.
 
@@ -465,14 +517,16 @@ no saved session. The input schema of `submit_review` is the shared
 so it is converted with `z.fromJSONSchema`; a test checks that the schema the
 agent sees is the shared one.
 
-The PR's metadata and diff are read **before** Claude starts, so a PR that is
-too large for the API fails without spending tokens.
+The PR's metadata and diff are read **before** Claude starts (from the local
+copy for a PR too large for the API), so a PR that cannot be read fails
+without spending tokens.
 
 **End-to-end check with the real agent** (not in CI: it costs one review):
 
 ```bash
 pnpm --filter desktop review-e2e        # on Linux without a display: under xvfb-run -a
 node scripts/review-e2e.ts --executable release/linux-unpacked/review-buddy   # packaged
+node scripts/review-e2e.ts --too-large   # GitHub refuses the diff: the local copy (git + network)
 ```
 
 It fakes GitHub inside main with the recorded PR #28 of this repo (and file

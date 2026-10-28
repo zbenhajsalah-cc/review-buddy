@@ -20,6 +20,9 @@ test("every call names its review", async () => {
     saved: mock(async () => []),
     deleteSaved: mock(async () => []),
     deleteAllSaved: mock(async () => []),
+    clones: mock(async () => []),
+    deleteClone: mock(async () => []),
+    deleteAllClones: mock(async () => []),
   } satisfies ReviewBridge;
 
   const api = ipcReviewApi(bridge, "octo/repo#1@abc");

@@ -19,6 +19,9 @@ export const IPC = {
   savedReviews: "review:saved",
   deleteSavedReview: "review:delete-saved",
   deleteAllSavedReviews: "review:delete-all-saved",
+  clones: "review:clones",
+  deleteClone: "review:delete-clone",
+  deleteAllClones: "review:delete-all-clones",
   /** Main → renderer: the job list changed (an event, not a call). */
   reviewJobsChanged: "review:jobs-changed",
   githubStatus: "github:status",
@@ -111,6 +114,21 @@ export interface SavedReviewInfo {
   doneAt?: string;
 }
 
+/**
+ * A local copy of a repository (US-19), made to review a PR too large for
+ * GitHub's diff API, as the settings list it.
+ */
+export interface CloneInfo {
+  /** `owner/repo`, lower case. */
+  repo: string;
+  /** Disk use. */
+  bytes: number;
+  /** ISO time it was last used. */
+  usedAt: string;
+  /** A review is reading it now: it cannot be deleted. */
+  inUse: boolean;
+}
+
 /** What the preload script exposes. Every call names the review it is about. */
 export interface ReviewBridge {
   getReview(reviewKey: string): Promise<ResolvedReview>;
@@ -135,6 +153,12 @@ export interface ReviewBridge {
   /** Deletes one saved review (and forgets it); answers with the ones left. */
   deleteSaved(reviewKey: string): Promise<SavedReviewInfo[]>;
   deleteAllSaved(): Promise<SavedReviewInfo[]>;
+  /** The local copies of repositories (US-19), most recently used first. */
+  clones(): Promise<CloneInfo[]>;
+  /** Deletes one copy (`owner/repo`); refused while a review uses it. Answers with the ones left. */
+  deleteClone(repo: string): Promise<CloneInfo[]>;
+  /** Deletes every copy no review is using. */
+  deleteAllClones(): Promise<CloneInfo[]>;
 }
 
 /**
