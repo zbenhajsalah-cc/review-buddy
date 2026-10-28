@@ -80,7 +80,7 @@ export const SHORTCUTS = {
   BEGIN_REVIEW: {
     keys: ["Enter"],
     label: "↵",
-    description: "Begin review (overview only)",
+    description: "Begin or continue the review (overview only)",
     group: "Review",
     surfaces: ["overview"],
   },

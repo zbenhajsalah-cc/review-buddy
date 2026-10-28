@@ -45,6 +45,12 @@ export function Overview({
     [chapters, viewedEntries],
   );
   const completedCount = chapterProgress.filter((p) => p.complete).length;
+  // Once the reviewer has viewed a file, "Begin review" continues at the first
+  // chapter that is not complete (-1: nothing viewed yet, or all complete).
+  const resumeAt = chapterProgress.some((p) => p.viewedCount > 0)
+    ? chapters.findIndex((ch, i) => ch.fileCount > 0 && !chapterProgress[i]?.complete)
+    : -1;
+  const startAt = Math.max(resumeAt, 0);
 
   useShortcuts({
     SHOW_SHORTCUTS: {
@@ -53,7 +59,7 @@ export function Overview({
     },
     BEGIN_REVIEW: {
       handler: () => {
-        if (chapters.length > 0) onBeginReview(0);
+        if (chapters.length > 0) onBeginReview(startAt);
       },
       enabled: !shortcutsOpen && chapters.length > 0,
     },
@@ -279,12 +285,12 @@ export function Overview({
       </ol>
 
       <Button
-        onClick={() => onBeginReview(0)}
+        onClick={() => onBeginReview(startAt)}
         disabled={chapters.length === 0}
         size="lg"
         className="mt-8"
       >
-        Begin review →
+        {resumeAt >= 0 ? `Continue with chapter ${chapters[resumeAt]?.index} →` : "Begin review →"}
       </Button>
 
       <ShortcutsDialog open={shortcutsOpen} onOpenChange={setShortcutsOpen} surface="overview" />
