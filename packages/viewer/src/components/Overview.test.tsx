@@ -160,3 +160,48 @@ test("clicking copy control writes the full review as Markdown", async () => {
   expect(writeText).toHaveBeenCalledTimes(1);
   expect(writeText).toHaveBeenCalledWith(reviewToMarkdown(fakeResolvedReview));
 });
+
+const withFocus = (file: string) => ({
+  ...fakeResolvedReview,
+  prologue: { ...fakeResolvedReview.prologue, review_focus: { summary: "Check it.", file } },
+});
+
+test("the review focus file opens its chapter at that file", () => {
+  const onBeginReview = mock((_position: number, _file?: string) => {});
+  renderWithApi(<Overview review={fakeResolvedReview} onBeginReview={onBeginReview} />);
+  fireEvent.click(screen.getByRole("button", { name: "src/example.ts →" }));
+  expect(onBeginReview).toHaveBeenCalledWith(0, "src/example.ts");
+});
+
+test("a focus file written as ./path or path:line still finds its chapter", () => {
+  const onBeginReview = mock((_position: number, _file?: string) => {});
+  renderWithApi(
+    <Overview
+      review={withFocus("./src/server/auth/session.ts:42")}
+      onBeginReview={onBeginReview}
+    />,
+  );
+  fireEvent.click(screen.getByTitle("Open in chapter 2"));
+  expect(onBeginReview).toHaveBeenCalledWith(1, "src/server/auth/session.ts");
+});
+
+test("a focus file the diff does not have stays plain text", () => {
+  renderWithApi(<Overview review={withFocus("docs/missing.md")} onBeginReview={() => {}} />);
+  expect(screen.getByText("docs/missing.md").tagName).toBe("CODE");
+  expect(screen.queryByTitle(/Open in chapter/)).toBeNull();
+});
+
+test("a focus file named by its old path opens the renamed file", () => {
+  const onBeginReview = mock((_position: number, _file?: string) => {});
+  const review = withFocus("src/jobs/retry.ts");
+  const [first, second, third] = review.chapters;
+  const renamed = {
+    ...third!.files[0]!,
+    change_type: "renamed" as const,
+    old_path: "src/jobs/retry.ts",
+  };
+  review.chapters = [first!, second!, { ...third!, files: [renamed] }];
+  renderWithApi(<Overview review={review} onBeginReview={onBeginReview} />);
+  fireEvent.click(screen.getByTitle("Open in chapter 3"));
+  expect(onBeginReview).toHaveBeenCalledWith(2, "src/jobs/backoff.ts");
+});

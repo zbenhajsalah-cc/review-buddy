@@ -20,7 +20,7 @@ export function useChapterShortcuts({
   scrollToFile,
   isCollapsed,
   setCollapsed,
-  chapterFilePaths,
+  onToggleAllCollapsed,
   isViewed,
   onViewedChange,
 }: {
@@ -38,8 +38,8 @@ export function useChapterShortcuts({
   scrollToFile: (path: string) => void;
   isCollapsed: (path: string) => boolean;
   setCollapsed: (path: string, collapsed: boolean) => void;
-  /** Unfiltered chapter file paths (toggle-all ignores the sidebar filter). */
-  chapterFilePaths: readonly string[];
+  /** Collapse all the chapter's files, or expand all (the same as the button). */
+  onToggleAllCollapsed: () => void;
   isViewed: (path: string) => boolean;
   onViewedChange: (path: string, viewed: boolean) => void;
 }): void {
@@ -94,12 +94,7 @@ export function useChapterShortcuts({
       enabled: shortcutsActive,
     },
     TOGGLE_ALL_COLLAPSED: {
-      handler: () => {
-        const anyExpanded = chapterFilePaths.some((p) => !isCollapsed(p));
-        for (const p of chapterFilePaths) {
-          setCollapsed(p, anyExpanded);
-        }
-      },
+      handler: onToggleAllCollapsed,
       enabled: shortcutsActive,
     },
     TOGGLE_VIEWED: {

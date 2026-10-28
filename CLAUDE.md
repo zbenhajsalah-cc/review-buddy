@@ -105,14 +105,15 @@ rather than diluting the narrative; the overview shows per-chapter review progre
 viewer is keyboard-driven (`?` opens the cheatsheet) and `c` copies the review or the
 current chapter as Markdown (narrative + file inventory only — the reference-not-reproduce
 rule applies to the clipboard too); "Begin review" continues at the first chapter not
-complete; file headers are sticky; the plugin keeps the chapter in the URL hash
-(`<ReviewViewer urlHash />`; off in desktop, where one window shows many reviews) and asks
-before the tab closes without Done; a "Theme & font" popover picks the light/dark syntax
-themes (any `@pierre/diffs`/Shiki theme) and the code font, size and ligatures
-(`packages/viewer/src/appearance.ts`; fonts self-hosted in `src/fonts/`); and
-**resolution notes now travel back to the agent**
-(hook `additionalContext` on Claude Code, tool-result text standalone) so a review whose
-anchors missed can be corrected next time.
+complete; file headers are sticky; the review-focus file opens its chapter at that file; the
+chapter's file list shows folders and has Collapse all / Hide viewed files; Done asks first
+while files are not marked viewed; the plugin keeps the chapter in the URL hash and names
+the tab after it (`<ReviewViewer urlHash tabTitle />`; both off in desktop, where one window
+shows many reviews) and asks before the tab closes without Done; a "Theme & font" popover
+picks the light/dark syntax themes (any `@pierre/diffs`/Shiki theme) and the code font, size
+and ligatures (`packages/viewer/src/appearance.ts`; fonts self-hosted in `src/fonts/`); and
+**resolution notes now travel back to the agent** (hook `additionalContext` on Claude Code,
+tool-result text standalone) so a review whose anchors missed can be corrected next time.
 
 **Deferred to later phases** (per PRD): viewed-state persistence round-trip, verdict submission, GitHub collaboration (open PR, copy branch, reviewers, CI), Activity view, Chat, conversational AI assistant.
 

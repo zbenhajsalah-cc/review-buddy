@@ -21,7 +21,9 @@ working tree). **Remember which**, because in Step 4 you must tell the tool via
 `submit_review` payload):
 
 - **Nothing specified** → review the local working tree; `source = { "type": "worktree" }`. Run:
-  - `git diff` — tracked changes (the tool captures the same, so your anchors line up)
+  - `git diff HEAD` — tracked changes, staged and unstaged (the tool captures the same, so your
+    anchors line up; plain `git diff` leaves out staged changes). In a repo with no commits yet,
+    run `git diff $(git hash-object -t tree /dev/null)` instead.
   - `git status --short` — note any untracked files (new files the diff above may not show)
   - For each untracked file you intend to include, `git diff --no-index -- /dev/null <file>` to see it as a new-file diff.
 - **A PR number or URL** → `source = { "type": "pr", "ref": "<arg>" }`. Run `gh pr diff <arg>`

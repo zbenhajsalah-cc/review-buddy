@@ -10,9 +10,9 @@ guardUnfinishedReview(reviewFinished);
 // apps/desktop/src/renderer/src/main.tsx. The shipped viewer is a production
 // build, where StrictMode is inert, but `pnpm dev` here would hit the same
 // silently-unhighlighted diffs. One review per page: the chapter shown lives
-// in the URL hash.
+// in the URL hash, and the tab is named after the review and the chapter.
 createRoot(document.getElementById("root")!).render(
   <ReviewWorkerPoolProvider>
-    <ReviewViewer api={httpReviewApi} urlHash />
+    <ReviewViewer api={httpReviewApi} urlHash tabTitle />
   </ReviewWorkerPoolProvider>,
 );
