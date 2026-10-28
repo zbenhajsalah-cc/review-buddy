@@ -83,3 +83,15 @@ test("sizeText", () => {
   expect(sizeText({ additions: 120, deletions: 30, changedFiles: 5 })).toBe("+120 −30 · 5 files");
   expect(sizeText({ additions: 1, deletions: 0, changedFiles: 1 })).toBe("+1 −0 · 1 file");
 });
+
+test("the posted verdict comes from the list, for the same review only (US-20)", () => {
+  const listed = {
+    ...pull,
+    review: { reviewKey: "k", headSha: HEAD, doneAt: "2026-10-27T10:00:00Z", posted: "approve" },
+  } satisfies PullSummary;
+  expect(pullState("octo/repo", listed, []).review?.posted).toBe("approve");
+  const newer = pullState("octo/repo", listed, [
+    job(1, "done", { reviewKey: "k2", headSha: HEAD }),
+  ]);
+  expect(newer.review?.posted).toBeUndefined();
+});

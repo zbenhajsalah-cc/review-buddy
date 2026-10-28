@@ -20,6 +20,7 @@ import { openGitHubPr, prFileReader } from "./github/api-source.ts";
 import { GitHubAuth } from "./github/auth.ts";
 import { findGits, PrClones } from "./github/clones.ts";
 import { findGh, ghAuthToken } from "./github/gh-cli.ts";
+import { ReviewPosting } from "./github/post-review.ts";
 import { parsePrArg, runPrCheck } from "./github/pr-check.ts";
 import { GitHubPulls } from "./github/pulls.ts";
 import { GitHubRepos } from "./github/repos.ts";
@@ -393,7 +394,13 @@ app.whenReady().then(async () => {
 
   hardenSessions();
   serveRenderer();
-  registerReviewIpc(store, jobs, clones, isTrustedPage);
+  // Posting a review to GitHub (US-20), with the app's login.
+  const posting = new ReviewPosting({
+    fetch: (url, init) => net.fetch(url, init),
+    auth: github,
+    store,
+  });
+  registerReviewIpc(store, jobs, clones, posting, isTrustedPage);
   registerGitHubIpc(github, repos, pulls, isTrustedPage);
   registerClaudeIpc(claudeCode, chooseClaudePath, isTrustedPage);
   createWindow();

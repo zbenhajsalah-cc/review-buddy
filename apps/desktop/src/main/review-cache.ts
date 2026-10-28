@@ -15,7 +15,7 @@
 import { mkdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import type { ResolvedReview } from "@review-buddy/core/types";
-import type { SavedReviewInfo } from "../shared/ipc.ts";
+import type { PostedReview, SavedReviewInfo } from "../shared/ipc.ts";
 import { type DiffFileInfo, isRepoName } from "./github/api-source.ts";
 
 export const CACHE_VERSION = 1;
@@ -89,11 +89,24 @@ export class ReviewCache {
   }
 
   /** The newest saved review of `owner/repo#123` (any case), at whatever head. */
-  newestFor(pr: string): { reviewKey: string; headSha: string; doneAt?: string } | undefined {
+  newestFor(
+    pr: string,
+  ): { reviewKey: string; headSha: string; doneAt?: string; posted?: PostedReview } | undefined {
     const found = this.list().find((info) => info.pr.toLowerCase() === pr.toLowerCase());
     if (!found) return undefined;
-    const { reviewKey, headSha, doneAt } = found;
-    return doneAt ? { reviewKey, headSha, doneAt } : { reviewKey, headSha };
+    const { reviewKey, headSha, doneAt, posted } = found;
+    return {
+      reviewKey,
+      headSha,
+      ...(doneAt ? { doneAt } : {}),
+      ...(posted ? { posted } : {}),
+    };
+  }
+
+  /** A saved review's index entry. */
+  info(reviewKey: string): SavedReviewInfo | undefined {
+    const info = this.#index.get(reviewKey);
+    return info ? { ...info } : undefined;
   }
 
   /** The saved review of `pr` at exactly `headSha`. */
@@ -150,9 +163,11 @@ export class ReviewCache {
     await rename(`${file}.tmp`, file);
     // The review it replaces: the same PR head, maybe another spelling (owner/repo case).
     let doneAt: string | undefined;
+    let posted: PostedReview | undefined;
     for (const [key, info] of this.#index) {
       if (key.toLowerCase() === reviewKey.toLowerCase()) {
         doneAt ??= info.doneAt;
+        posted ??= info.posted;
         this.#index.delete(key);
       }
     }
@@ -165,8 +180,9 @@ export class ReviewCache {
       bytes: Buffer.byteLength(text),
     };
     // Done belongs to the commit, like the viewed files: a new review of the
-    // same head only replaces Claude's text.
+    // same head only replaces Claude's text. So does what was posted (US-20).
     if (doneAt) info.doneAt = doneAt;
+    if (posted) info.posted = posted;
     this.#index.set(reviewKey, info);
     await this.#writeIndex();
     return reviewKey;
@@ -177,6 +193,15 @@ export class ReviewCache {
     const info = this.#index.get(reviewKey);
     if (!info) return false;
     info.doneAt = doneAt;
+    await this.#writeIndex();
+    return true;
+  }
+
+  /** A review of this commit was posted to GitHub (US-20); false if it is not saved. */
+  async markPosted(reviewKey: string, posted: PostedReview): Promise<boolean> {
+    const info = this.#index.get(reviewKey);
+    if (!info) return false;
+    info.posted = { ...posted };
     await this.#writeIndex();
     return true;
   }
@@ -249,5 +274,23 @@ function toInfo(value: unknown): SavedReviewInfo | null {
     bytes: typeof v.bytes === "number" ? v.bytes : 0,
   };
   if (typeof v.doneAt === "string") info.doneAt = v.doneAt;
+  const posted = toPosted(v.posted);
+  if (posted) info.posted = posted;
   return info;
+}
+
+/** A posted review from disk, checked, or undefined. */
+function toPosted(value: unknown): PostedReview | undefined {
+  const p = value as Partial<PostedReview> | null | undefined;
+  if (
+    !p ||
+    (p.verdict !== "approve" && p.verdict !== "request_changes" && p.verdict !== "comment") ||
+    typeof p.postedAt !== "string" ||
+    typeof p.url !== "string" ||
+    !p.url.startsWith("https://github.com/") ||
+    typeof p.login !== "string"
+  ) {
+    return undefined;
+  }
+  return { verdict: p.verdict, postedAt: p.postedAt, url: p.url, login: p.login };
 }

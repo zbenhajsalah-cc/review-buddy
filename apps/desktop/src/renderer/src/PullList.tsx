@@ -3,11 +3,13 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type {
   GitHubBridge,
   GitHubListError,
+  PostVerdict,
   PullPage,
   PullSummary,
   RepoSummary,
   ReviewJobStatus,
 } from "../../shared/ipc.ts";
+import { postedLabel } from "./PostReview.tsx";
 import { timeAgo } from "./RepoList.tsx";
 import { elapsed, ipcErrorMessage, PHASES, useNow } from "./ReviewRun.tsx";
 
@@ -17,9 +19,16 @@ export interface PullRowState {
   job?: ReviewJobStatus;
   /**
    * The newest review; `current` if it is for the PR's head now; `doneAt` if
-   * the reviewer pressed Done on it (US-17).
+   * the reviewer pressed Done on it (US-17); `posted` if it went to GitHub.
    */
-  review?: { reviewKey: string; pr: string; current: boolean; doneAt?: string };
+  review?: {
+    reviewKey: string;
+    pr: string;
+    current: boolean;
+    doneAt?: string;
+    /** The verdict last posted to GitHub (US-20). */
+    posted?: PostVerdict;
+  };
   /** The newest job failed (not stopped), and none is in progress. */
   failed?: string;
 }
@@ -40,9 +49,10 @@ export function pullState(repo: string, pull: PullSummary, jobs: ReviewJobStatus
       pr: label,
       current: review.headSha === pull.headSha,
     };
-    // Done is known from the list (main), for that same review.
-    if (pull.review?.doneAt && pull.review.reviewKey === review.reviewKey) {
-      state.review.doneAt = pull.review.doneAt;
+    // Done and posted are known from the list (main), for that same review.
+    if (pull.review?.reviewKey === review.reviewKey) {
+      if (pull.review.doneAt) state.review.doneAt = pull.review.doneAt;
+      if (pull.review.posted) state.review.posted = pull.review.posted;
     }
   }
   const last = mine.filter((j) => j.state === "done" || j.state === "failed").at(-1);
@@ -367,7 +377,11 @@ function PullRow({
           <>
             {review ? (
               <>
-                {review.current && review.doneAt ? (
+                {review.current && review.posted ? (
+                  <Badge title="You posted your review of this commit to GitHub.">
+                    {postedLabel(review.posted)} on GitHub
+                  </Badge>
+                ) : review.current && review.doneAt ? (
                   <Badge title={`You pressed Done ${timeAgo(review.doneAt, Date.now())}.`}>
                     Done ✓
                   </Badge>

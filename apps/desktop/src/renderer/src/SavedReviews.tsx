@@ -8,6 +8,7 @@ import {
 } from "@review-buddy/viewer/ui";
 import { useEffect, useState } from "react";
 import type { ReviewBridge, SavedReviewInfo } from "../../shared/ipc.ts";
+import { postedLabel } from "./PostReview.tsx";
 import { timeAgo } from "./RepoList.tsx";
 import { ipcErrorMessage } from "./ReviewRun.tsx";
 
@@ -84,6 +85,9 @@ export function SavedReviews({
                       commit <code className="font-mono">{r.headSha.slice(0, 7)}</code> · saved{" "}
                       {timeAgo(r.savedAt, now)} · {formatBytes(r.bytes)}
                       {r.doneAt ? ` · done ${timeAgo(r.doneAt, now)}` : ""}
+                      {r.posted
+                        ? ` · ${postedLabel(r.posted.verdict).toLowerCase()} on GitHub`
+                        : ""}
                     </div>
                   </div>
                   <Button

@@ -9,7 +9,13 @@ import { languageOf } from "@review-buddy/core/diff";
 import { allowedPaths } from "@review-buddy/core/resolve";
 import type { ReviewDataSource } from "@review-buddy/core/source";
 import type { ResolvedReview } from "@review-buddy/core/types";
-import type { FileSide, IpcDoneResult, IpcFileContent, SavedReviewInfo } from "../shared/ipc.ts";
+import type {
+  FileSide,
+  IpcDoneResult,
+  IpcFileContent,
+  PostedReview,
+  SavedReviewInfo,
+} from "../shared/ipc.ts";
 import type { DiffFileInfo } from "./github/api-source.ts";
 import { type ReviewCache, reviewKeyOf, type SavedReview } from "./review-cache.ts";
 
@@ -52,6 +58,10 @@ export class ReviewStore {
   #newest = new Map<string, { reviewKey: string; headSha: string }>();
   /** When the reviewer pressed Done, by review key (US-17). */
   #done = new Map<string, string>();
+  /** The PR and head of each PR review of this run, by review key. */
+  #prs = new Map<string, { label: string; headSha: string }>();
+  /** The last review posted to GitHub, by review key (US-20). */
+  #posted = new Map<string, PostedReview>();
 
   constructor(private readonly options: ReviewStoreOptions = {}) {}
 
@@ -65,11 +75,15 @@ export class ReviewStore {
     const reviewKey = reviewKeyOf(pr.label, pr.headSha);
     this.add(reviewKey, review, source);
     this.#newest.set(pr.label.toLowerCase(), { reviewKey, headSha: pr.headSha });
-    // Done stays with the commit (see ReviewCache.save), whatever the spelling.
-    for (const [key, doneAt] of this.#done) {
-      if (key !== reviewKey && key.toLowerCase() === reviewKey.toLowerCase()) {
-        this.#done.delete(key);
-        this.#done.set(reviewKey, doneAt);
+    this.#prs.set(reviewKey, { label: pr.label, headSha: pr.headSha });
+    // Done and the posted review stay with the commit (see ReviewCache.save),
+    // whatever the spelling.
+    for (const marks of [this.#done, this.#posted] as Map<string, unknown>[]) {
+      for (const [key, value] of marks) {
+        if (key !== reviewKey && key.toLowerCase() === reviewKey.toLowerCase()) {
+          marks.delete(key);
+          marks.set(reviewKey, value);
+        }
       }
     }
     try {
@@ -86,17 +100,59 @@ export class ReviewStore {
     return reviewKey;
   }
 
-  /** The newest review of `owner/repo#123`, at whatever head it had, and when it was done. */
-  newestFor(label: string): { reviewKey: string; headSha: string; doneAt?: string } | undefined {
+  /**
+   * The newest review of `owner/repo#123`, at whatever head it had, when it
+   * was done, and the verdict last posted to GitHub.
+   */
+  newestFor(label: string):
+    | {
+        reviewKey: string;
+        headSha: string;
+        doneAt?: string;
+        posted?: PostedReview["verdict"];
+      }
+    | undefined {
     const saved = this.options.cache?.newestFor(label);
     const found = this.#newest.get(label.toLowerCase()) ?? saved;
     if (!found) return undefined;
     const { reviewKey, headSha } = found;
-    // Done this run, or kept with the saved review of this head.
-    const doneAt =
-      this.#done.get(reviewKey) ??
-      (saved?.reviewKey.toLowerCase() === reviewKey.toLowerCase() ? saved.doneAt : undefined);
-    return doneAt ? { reviewKey, headSha, doneAt } : { reviewKey, headSha };
+    // This run's, or kept with the saved review of this head.
+    const same = saved?.reviewKey.toLowerCase() === reviewKey.toLowerCase();
+    const doneAt = this.#done.get(reviewKey) ?? (same ? saved.doneAt : undefined);
+    const posted = (this.#posted.get(reviewKey) ?? (same ? saved.posted : undefined))?.verdict;
+    return {
+      reviewKey,
+      headSha,
+      ...(doneAt ? { doneAt } : {}),
+      ...(posted ? { posted } : {}),
+    };
+  }
+
+  /** The PR and head of a PR review (not the sample), or undefined. */
+  prOf(reviewKey: unknown): { label: string; headSha: string } | undefined {
+    if (typeof reviewKey !== "string") return undefined;
+    const run = this.#prs.get(reviewKey);
+    if (run) return run;
+    const saved = this.options.cache?.info(reviewKey);
+    return saved ? { label: saved.pr, headSha: saved.headSha } : undefined;
+  }
+
+  /** The last review posted to GitHub for this one (US-20), or null. */
+  posted(reviewKey: unknown): PostedReview | null {
+    if (typeof reviewKey !== "string") return null;
+    return this.#posted.get(reviewKey) ?? this.options.cache?.info(reviewKey)?.posted ?? null;
+  }
+
+  /** A review of this commit was posted to GitHub: kept with the saved review. */
+  async markPosted(reviewKey: string, posted: PostedReview): Promise<void> {
+    this.#posted.set(reviewKey, posted);
+    try {
+      await this.options.cache?.markPosted(reviewKey, posted);
+    } catch (e) {
+      this.options.log?.(
+        `could not save the posted review for ${reviewKey}: ${e instanceof Error ? e.message : e}`,
+      );
+    }
   }
 
   /**
@@ -164,7 +220,9 @@ export class ReviewStore {
     // typed): the disk keeps one of them, memory may have both.
     const same = (key: string) => key.toLowerCase() === reviewKey.toLowerCase();
     for (const key of [...this.#reviews.keys()]) if (same(key)) this.#reviews.delete(key);
-    for (const key of [...this.#done.keys()]) if (same(key)) this.#done.delete(key);
+    for (const marks of [this.#done, this.#prs, this.#posted] as Map<string, unknown>[]) {
+      for (const key of [...marks.keys()]) if (same(key)) marks.delete(key);
+    }
     for (const [label, newest] of this.#newest) {
       if (same(newest.reviewKey)) this.#newest.delete(label);
     }

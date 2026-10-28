@@ -13,8 +13,9 @@ import { ClaudeCodeSettings, claudeBlocked } from "./ClaudeCodeSettings.tsx";
 import { GitHubSettings } from "./GitHubSettings.tsx";
 import { ipcReviewApi } from "./ipc-review-api.ts";
 import { LocalCopies } from "./LocalCopies.tsx";
+import { DoneBar } from "./PostReview.tsx";
 import { PullList } from "./PullList.tsx";
-import { RepoList, timeAgo } from "./RepoList.tsx";
+import { RepoList } from "./RepoList.tsx";
 import { ipcErrorMessage, PrForm, RunPanel } from "./ReviewRun.tsx";
 import { SavedReviews } from "./SavedReviews.tsx";
 
@@ -302,13 +303,15 @@ export function App({ bridge }: { bridge: DesktopBridge }) {
                 </Button>
               </div>
             ) : doneAt && reviewKey !== FIXTURE_REVIEW_KEY ? (
-              <div
-                role="status"
-                className="shrink-0 border-b bg-muted px-4 py-2 text-sm text-muted-foreground"
-              >
-                You marked this review done {timeAgo(doneAt, Date.now())}. Your viewed files are
-                kept.
-              </div>
+              // Done (US-17), and from there posting to GitHub (US-20).
+              <DoneBar
+                bridge={bridge.review}
+                reviewKey={reviewKey}
+                pr={reviewTab}
+                doneAt={doneAt}
+                github={github}
+                onPosted={() => setSavedChanges((n) => n + 1)}
+              />
             ) : null}
             <div className="min-h-0 flex-1">
               {/* A new job remounts the viewer, even for the same PR head. */}

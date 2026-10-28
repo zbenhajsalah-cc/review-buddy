@@ -72,7 +72,9 @@ const HEAD_12 = "12".padStart(40, "c");
 const OLD_5 = "e".repeat(40);
 {
   const dir = join(userDataDir, "reviews");
-  const { review } = await loadFixtureReview();
+  const { review: fixture } = await loadFixtureReview();
+  // By @mona, like the fake PR list: the login (@octocat) may approve it.
+  const review = { ...fixture, pr: { ...fixture.pr, author: "mona" } };
   const index = [];
   for (const [n, headSha] of [
     [12, HEAD_12],
@@ -335,6 +337,25 @@ try {
       if (auth !== "Bearer ghp_smoke" || g.__expired) {
         return Response.json({ message: "Bad credentials" }, { status: 401 });
       }
+      // Posting a review (US-20): refused while `__postRefused`, else kept in `__posts`.
+      if (init?.method === "POST") {
+        if (String(input) !== `${widgets}/pulls/12/reviews`) {
+          return Response.json({ message: "Not Found" }, { status: 404 });
+        }
+        if (g.__postRefused) {
+          return Response.json(
+            { message: "Resource not accessible by personal access token" },
+            { status: 403 },
+          );
+        }
+        g.__posts ??= [];
+        (g.__posts as unknown[]).push(JSON.parse(String(init.body)));
+        return Response.json({
+          id: 1,
+          html_url: "https://github.com/octo-org/widgets/pull/12#pullrequestreview-1",
+          user: { login: "octocat" },
+        });
+      }
       const answer = answers[String(input)];
       return answer ? answer() : Response.json({ message: "Not Found" }, { status: 404 });
     };
@@ -446,6 +467,63 @@ try {
   await page.getByRole("button", { name: "octo-org/widgets", exact: true }).click();
   await pullRow(12).getByText("Done ✓").waitFor();
   check(true, "Done marks the review finished: a banner on it, Done ✓ in the PR list");
+
+  // Post it to GitHub (US-20): write, check, confirm; nothing before the confirm.
+  await page.getByRole("button", { name: "Open the review of #12" }).click();
+  await page.getByRole("button", { name: "Post to GitHub…" }).click();
+  const dialog = page.getByRole("dialog", { name: "Post your review of octo-org/widgets#12" });
+  await dialog.waitFor();
+  await dialog.getByLabel("Request changes").check();
+  check(
+    await dialog.getByRole("button", { name: "Next: check and post" }).isDisabled(),
+    "Request changes needs a text before it can go on",
+  );
+  await dialog.getByLabel(/^Summary/).fill("Please add a test for the jitter.");
+  await dialog.getByLabel("Add the list of chapters (titles, risk and size)").check();
+  await dialog.getByRole("button", { name: "Next: check and post" }).click();
+  const confirm = page.getByRole("dialog", { name: "Post this review to octo-org/widgets#12?" });
+  await confirm.waitFor();
+  const shown = await confirm
+    .getByRole("region", { name: "Text to post" })
+    .locator("pre")
+    .innerText();
+  const confirmText = await confirm.innerText();
+  check(
+    confirmText.includes("Request changes") &&
+      confirmText.includes("@octocat") &&
+      confirmText.includes(HEAD_12.slice(0, 7)) &&
+      shown.startsWith("Please add a test for the jitter.\n\n**Chapters** (from Review Buddy)") &&
+      (await app.evaluate(() => (globalThis as Record<string, unknown>).__posts)) === undefined,
+    "the confirm step shows the verdict, the login, the commit and the exact text; nothing is posted yet",
+  );
+  await app.evaluate(() => {
+    (globalThis as Record<string, unknown>).__postRefused = true;
+  });
+  await confirm.getByRole("button", { name: "Post to GitHub" }).click();
+  await confirm.getByRole("alert").waitFor();
+  check(
+    (await confirm.getByRole("alert").innerText()).includes('"Pull requests: Read and write"'),
+    "a token that cannot write reviews: GitHub's answer and what the token needs",
+  );
+  await app.evaluate(() => {
+    (globalThis as Record<string, unknown>).__postRefused = false;
+  });
+  await confirm.getByRole("button", { name: "Post to GitHub" }).click();
+  await confirm.waitFor({ state: "detached" });
+  await page.getByText(/Changes requested on GitHub .* as @octocat/).waitFor();
+  const posts = (await app.evaluate(
+    () => (globalThis as Record<string, unknown>).__posts,
+  )) as Record<string, string>[];
+  check(
+    posts.length === 1 &&
+      posts[0]!.event === "REQUEST_CHANGES" &&
+      posts[0]!.commit_id === HEAD_12 &&
+      posts[0]!.body === shown,
+    "Post to GitHub posts exactly the text shown, on the reviewed commit, once",
+  );
+  await page.getByRole("button", { name: "octo-org/widgets", exact: true }).click();
+  await pullRow(12).getByText("Changes requested on GitHub").waitFor();
+  check(true, "the review says what was posted, and so does the PR list");
   await page.getByRole("button", { name: "Load more" }).click();
   await pullRow(5).waitFor();
   await page.getByRole("button", { name: "octo-org/widgets", exact: true }).click();
@@ -670,7 +748,7 @@ try {
   check(inPage.noNode, "no Node globals in the renderer");
   check(
     inPage.bridge.join() ===
-      "claude.check,claude.choose,claude.search,claude.status,github.markRepoUsed,github.pulls,github.repos,github.signInWithToken,github.signOut,github.status,github.useGh,review.clones,review.deleteAllClones,review.deleteAllSaved,review.deleteClone,review.deleteSaved,review.done,review.getConfig,review.getFileContent,review.getReview,review.jobs,review.onJobs,review.saved,review.start,review.stop",
+      "claude.check,claude.choose,claude.search,claude.status,github.markRepoUsed,github.pulls,github.repos,github.signInWithToken,github.signOut,github.status,github.useGh,review.clones,review.deleteAllClones,review.deleteAllSaved,review.deleteClone,review.deleteSaved,review.done,review.getConfig,review.getFileContent,review.getReview,review.jobs,review.onJobs,review.post,review.posted,review.saved,review.start,review.stop",
     `preload exposes only the review, GitHub and Claude Code calls (${inPage.bridge.join()})`,
   );
   check(inPage.inlineBlocked, "CSP blocks inline scripts");

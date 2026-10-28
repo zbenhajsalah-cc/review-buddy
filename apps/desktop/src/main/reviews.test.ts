@@ -131,6 +131,48 @@ describe("ReviewStore", () => {
     expect(await (await store()).markDone("fixture")).toBeString();
   });
 
+  test("posted (US-20): the PR of a review, the record, kept after a restart", async () => {
+    const dir = cacheDir();
+    const { review, source } = await loadFixtureReview();
+    const open = async () => {
+      const cache = new ReviewCache(dir);
+      await cache.load();
+      return new ReviewStore({ cache, reopen: () => source });
+    };
+    const first = await open();
+    const key = await first.addPrReview(review, source, {
+      label: "octo/repo#1",
+      headSha: B,
+      baseSha: A,
+      files: [],
+    });
+    expect(first.prOf(key)).toEqual({ label: "octo/repo#1", headSha: B });
+    expect(first.prOf("fixture")).toBeUndefined();
+    expect(first.prOf(42)).toBeUndefined();
+    expect(first.posted(key)).toBeNull();
+    const posted = {
+      verdict: "request_changes" as const,
+      postedAt: "2026-10-27T12:00:00.000Z",
+      url: "https://github.com/octo/repo/pull/1#pullrequestreview-7",
+      login: "octocat",
+    };
+    await first.markPosted(key, posted);
+    expect(first.posted(key)).toEqual(posted);
+    expect(first.newestFor("octo/repo#1")?.posted).toBe("request_changes");
+
+    const second = await open();
+    expect(second.prOf(key)).toEqual({ label: "octo/repo#1", headSha: B });
+    expect(second.posted(key)).toEqual(posted);
+    expect(second.newestFor("octo/repo#1")).toEqual({
+      reviewKey: key,
+      headSha: B,
+      posted: "request_changes",
+    });
+    await second.delete(key);
+    expect(second.prOf(key)).toBeUndefined();
+    expect(second.posted(key)).toBeNull();
+  });
+
   test("delete forgets every copy in memory, also one being read from disk", async () => {
     const dir = cacheDir();
     const { review, source } = await loadFixtureReview();

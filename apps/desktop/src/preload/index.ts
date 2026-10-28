@@ -23,6 +23,8 @@ const bridge: DesktopBridge = {
     clones: () => ipcRenderer.invoke(IPC.clones),
     deleteClone: (repo) => ipcRenderer.invoke(IPC.deleteClone, repo),
     deleteAllClones: () => ipcRenderer.invoke(IPC.deleteAllClones),
+    post: (reviewKey, request) => ipcRenderer.invoke(IPC.postReview, reviewKey, request),
+    posted: (reviewKey) => ipcRenderer.invoke(IPC.postedReview, reviewKey),
     onJobs: (listener) => {
       // The page gets the job list only, never the IPC event.
       const handler = (_event: unknown, jobs: ReviewJobStatus[]) => listener(jobs);

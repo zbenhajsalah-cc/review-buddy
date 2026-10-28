@@ -4,6 +4,7 @@ import type { ClaudeCode } from "./agent/claude-code.ts";
 import type { ReviewJobs } from "./agent/review-job.ts";
 import type { GitHubAuth } from "./github/auth.ts";
 import type { PrClones } from "./github/clones.ts";
+import type { ReviewPosting } from "./github/post-review.ts";
 import type { GitHubPulls } from "./github/pulls.ts";
 import type { GitHubRepos } from "./github/repos.ts";
 import { parseDoneResult, type ReviewStore } from "./reviews.ts";
@@ -27,6 +28,7 @@ export function registerReviewIpc(
   store: ReviewStore,
   jobs: ReviewJobs,
   clones: PrClones,
+  posting: ReviewPosting,
   isTrusted: (url: string) => boolean,
 ): void {
   handle(IPC.getReview, isTrusted, (reviewKey) => store.getReview(reviewKey));
@@ -36,8 +38,8 @@ export function registerReviewIpc(
   handle(IPC.getConfig, isTrusted, () => ({ roundtrip: false }));
   handle(IPC.done, isTrusted, async (reviewKey, result) => {
     const { verdict } = parseDoneResult(result);
-    // Marked finished, and kept with the saved review (US-17). Posting the
-    // review to GitHub is US-20.
+    // Marked finished, and kept with the saved review (US-17). Posting it to
+    // GitHub is a separate, confirmed step (US-20: IPC.postReview).
     await store.markDone(reviewKey); // unknown review → error
     console.log(`[review-buddy] review ${String(reviewKey)} done${verdict ? `: ${verdict}` : ""}`);
   });
@@ -59,6 +61,9 @@ export function registerReviewIpc(
   handle(IPC.clones, isTrusted, () => clones.list());
   handle(IPC.deleteClone, isTrusted, (repo) => clones.delete(repo));
   handle(IPC.deleteAllClones, isTrusted, () => clones.deleteAll());
+  // Posting to GitHub (US-20): only reviews main has, with checked arguments.
+  handle(IPC.postReview, isTrusted, (reviewKey, request) => posting.post(reviewKey, request));
+  handle(IPC.postedReview, isTrusted, (reviewKey) => store.posted(reviewKey));
 }
 
 /**
