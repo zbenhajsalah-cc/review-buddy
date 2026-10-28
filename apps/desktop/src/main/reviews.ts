@@ -14,6 +14,7 @@ import type {
   IpcDoneResult,
   IpcFileContent,
   PostedReview,
+  ReviewEffort,
   SavedReviewInfo,
 } from "../shared/ipc.ts";
 import type { DiffFileInfo } from "./github/api-source.ts";
@@ -33,6 +34,10 @@ export interface PrReview {
   headSha: string;
   baseSha: string;
   files: DiffFileInfo[];
+  /** The model that wrote it, as Claude reported it (US-22). */
+  model?: string;
+  /** The effort the review was asked for (Claude may have lowered it). */
+  effort?: ReviewEffort;
 }
 
 export interface ReviewStoreOptions {
@@ -60,6 +65,8 @@ export class ReviewStore {
   #done = new Map<string, string>();
   /** The PR and head of each PR review of this run, by review key. */
   #prs = new Map<string, { label: string; headSha: string }>();
+  /** What each PR review of this run was made with (US-22), by review key. */
+  #madeWith = new Map<string, { model?: string; effort?: ReviewEffort }>();
   /** The last review posted to GitHub, by review key (US-20). */
   #posted = new Map<string, PostedReview>();
 
@@ -76,6 +83,12 @@ export class ReviewStore {
     this.add(reviewKey, review, source);
     this.#newest.set(pr.label.toLowerCase(), { reviewKey, headSha: pr.headSha });
     this.#prs.set(reviewKey, { label: pr.label, headSha: pr.headSha });
+    if (pr.model || pr.effort) {
+      this.#madeWith.set(reviewKey, {
+        ...(pr.model ? { model: pr.model } : {}),
+        ...(pr.effort ? { effort: pr.effort } : {}),
+      });
+    }
     // Done and the posted review stay with the commit (see ReviewCache.save),
     // whatever the spelling.
     for (const marks of [this.#done, this.#posted] as Map<string, unknown>[]) {
@@ -93,6 +106,8 @@ export class ReviewStore {
         baseSha: pr.baseSha,
         files: pr.files,
         review,
+        ...(pr.model ? { model: pr.model } : {}),
+        ...(pr.effort ? { effort: pr.effort } : {}),
       });
     } catch (e) {
       this.options.log?.(`could not save ${reviewKey}: ${e instanceof Error ? e.message : e}`);
@@ -110,6 +125,8 @@ export class ReviewStore {
         headSha: string;
         doneAt?: string;
         posted?: PostedReview["verdict"];
+        model?: string;
+        effort?: ReviewEffort;
       }
     | undefined {
     const saved = this.options.cache?.newestFor(label);
@@ -120,11 +137,17 @@ export class ReviewStore {
     const same = saved?.reviewKey.toLowerCase() === reviewKey.toLowerCase();
     const doneAt = this.#done.get(reviewKey) ?? (same ? saved.doneAt : undefined);
     const posted = (this.#posted.get(reviewKey) ?? (same ? saved.posted : undefined))?.verdict;
+    // What it was reviewed with: this run's, or kept with the saved review.
+    const madeWith =
+      this.#madeWith.get(reviewKey) ??
+      (same ? { model: saved.model, effort: saved.effort } : undefined);
     return {
       reviewKey,
       headSha,
       ...(doneAt ? { doneAt } : {}),
       ...(posted ? { posted } : {}),
+      ...(madeWith?.model ? { model: madeWith.model } : {}),
+      ...(madeWith?.effort ? { effort: madeWith.effort } : {}),
     };
   }
 
@@ -220,7 +243,10 @@ export class ReviewStore {
     // typed): the disk keeps one of them, memory may have both.
     const same = (key: string) => key.toLowerCase() === reviewKey.toLowerCase();
     for (const key of [...this.#reviews.keys()]) if (same(key)) this.#reviews.delete(key);
-    for (const marks of [this.#done, this.#prs, this.#posted] as Map<string, unknown>[]) {
+    for (const marks of [this.#done, this.#prs, this.#posted, this.#madeWith] as Map<
+      string,
+      unknown
+    >[]) {
       for (const key of [...marks.keys()]) if (same(key)) marks.delete(key);
     }
     for (const [label, newest] of this.#newest) {

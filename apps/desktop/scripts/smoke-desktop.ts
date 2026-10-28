@@ -19,7 +19,7 @@
 // (page.evaluate callbacks run in the renderer: DOM types and window.reviewBuddy.)
 
 import { execFileSync } from "node:child_process";
-import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -168,6 +168,34 @@ try {
   writeFileSync(fakeClaudeVersion, "99.0.0 (Claude Code)\n"); // `claude update`
   await page.getByRole("button", { name: "Check again" }).click();
   await claudeStatus.getByText("✓ Claude Code 99.0.0").waitFor();
+
+  // The model and the effort (US-22). The fake `claude` cannot list models,
+  // so the pickers show the fallback names and say why.
+  const modelSelect = page.getByLabel("Model", { exact: true });
+  const effortSelect = page.getByLabel("Thinking effort");
+  await modelSelect.waitFor();
+  check(
+    (await modelSelect.inputValue()) === "" && (await effortSelect.inputValue()) === "",
+    "the default model and effort are Claude Code's own",
+  );
+  await modelSelect.selectOption("haiku");
+  // Haiku has no effort levels in the fallback list, so Thinking stays open;
+  // what matters is that the choice reaches main and is kept.
+  await effortSelect.selectOption("high");
+  await page.waitForTimeout(200);
+  check(
+    JSON.stringify(await page.evaluate(async () => await window.reviewBuddy.claude.choice())) ===
+      JSON.stringify({ model: "haiku", effort: "high" }),
+    "the chosen model and effort reach main",
+  );
+  await modelSelect.selectOption("");
+  await effortSelect.selectOption("");
+  await page.waitForTimeout(200);
+  check(
+    JSON.stringify(await page.evaluate(async () => await window.reviewBuddy.claude.choice())) ===
+      "{}",
+    "back to Claude Code's default",
+  );
   await page.getByRole("button", { name: "Back", exact: true }).click();
   check(
     (await banner.count()) === 0 && (await barReview.isEnabled()),
@@ -224,7 +252,11 @@ try {
   // GitHub settings (US-10). The result depends on the machine: signed in
   // through a logged-in gh, or not connected.
   const userData = await app.evaluate(({ app }) => app.getPath("userData"));
-  check(userData === userDataDir, "the app uses the smoke test's own profile");
+  // Real paths: on macOS the temp folder is /var/… here and /private/var/… there.
+  check(
+    realpathSync(userData) === realpathSync(userDataDir),
+    "the app uses the smoke test's own profile",
+  );
   await page.getByRole("button", { name: /^(GitHub: @|Connect GitHub)/ }).click();
   await page.getByText("Settings").first().waitFor();
   await page.getByText(/^(Signed in as|Not connected)/).waitFor();
@@ -789,7 +821,7 @@ try {
   check(inPage.noNode, "no Node globals in the renderer");
   check(
     inPage.bridge.join() ===
-      "claude.check,claude.choose,claude.search,claude.status,github.markRepoUsed,github.pulls,github.repos,github.signInWithToken,github.signOut,github.status,github.useGh,review.clones,review.deleteAllClones,review.deleteAllSaved,review.deleteClone,review.deleteSaved,review.done,review.getConfig,review.getFileContent,review.getReview,review.jobs,review.onJobs,review.post,review.posted,review.saved,review.start,review.stop",
+      "claude.check,claude.choice,claude.choose,claude.models,claude.search,claude.setChoice,claude.status,github.markRepoUsed,github.pulls,github.repos,github.signInWithToken,github.signOut,github.status,github.useGh,review.clones,review.deleteAllClones,review.deleteAllSaved,review.deleteClone,review.deleteSaved,review.done,review.getConfig,review.getFileContent,review.getReview,review.jobs,review.onJobs,review.onOpenJob,review.post,review.posted,review.saved,review.start,review.stop",
     `preload exposes only the review, GitHub and Claude Code calls (${inPage.bridge.join()})`,
   );
   check(inPage.inlineBlocked, "CSP blocks inline scripts");

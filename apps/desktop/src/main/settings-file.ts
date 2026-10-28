@@ -2,6 +2,7 @@
  * Small app settings (never secrets), as JSON in Electron's userData folder.
  */
 import { readFile, rename, writeFile } from "node:fs/promises";
+import type { ReviewEffort } from "../shared/ipc.ts";
 
 export interface Settings {
   /** The user signed out of the GitHub CLI login in the app. */
@@ -10,6 +11,14 @@ export interface Settings {
   recentRepos?: string[];
   /** The `claude` binary chosen in Settings (US-21); none: the app searches. */
   claudePath?: string;
+  /**
+   * The model reviews run on, as picked in Settings: an alias ("opus") or a
+   * full id. None means Claude Code's own default. Checked before use
+   * (main/agent/models.ts): a settings file is editable by hand.
+   */
+  model?: string;
+  /** The effort level picked in Settings; none means Claude Code's default. */
+  effort?: ReviewEffort;
 }
 
 export class SettingsFile {

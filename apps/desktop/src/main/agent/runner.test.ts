@@ -10,7 +10,7 @@ import { PrTooLargeError } from "../github/api-source.ts";
 import type { QueryFn } from "./check.ts";
 import { connectMcp } from "./mcp-test-client.ts";
 import { ALLOWED_TOOLS } from "./review-tools.ts";
-import { chapterTitles, runReview } from "./runner.ts";
+import { chapterTitles, DEFAULT_TIMEOUT_MS, runReview, timeoutFor } from "./runner.ts";
 
 type Call = (name: string, args?: Record<string, unknown>) => Promise<string>;
 
@@ -293,6 +293,38 @@ describe("runReview", () => {
     });
     expect(result).toMatchObject({ ok: false, error: "stopped", errorKind: "stopped" });
   });
+
+  test("the model and the effort of this review are passed to Claude (US-22)", async () => {
+    const { query, seen } = fakeQuery(async () => {});
+    await runReview(query, {
+      ...base,
+      source: fixtureSource(),
+      choice: { model: "opus", effort: "max" },
+    });
+    expect(seen.options).toMatchObject({ model: "opus", effort: "max" });
+  });
+
+  test("no choice: Claude Code's own default (neither option is sent)", async () => {
+    const { query, seen } = fakeQuery(async () => {});
+    await runReview(query, { ...base, source: fixtureSource(), choice: { effort: "low" } });
+    expect(seen.options).not.toHaveProperty("model");
+    expect(seen.options).toMatchObject({ effort: "low" });
+    const plain = fakeQuery(async () => {});
+    await runReview(plain.query, { ...base, source: fixtureSource() });
+    expect(plain.seen.options).not.toHaveProperty("model");
+    expect(plain.seen.options).not.toHaveProperty("effort");
+  });
+});
+
+test("more thinking gets more time", () => {
+  expect(timeoutFor(undefined)).toBe(DEFAULT_TIMEOUT_MS);
+  expect(timeoutFor("low")).toBe(DEFAULT_TIMEOUT_MS);
+  expect(timeoutFor("medium")).toBe(DEFAULT_TIMEOUT_MS);
+  expect(timeoutFor("high")).toBe(DEFAULT_TIMEOUT_MS * 1.5);
+  expect(timeoutFor("xhigh")).toBe(DEFAULT_TIMEOUT_MS * 2);
+  expect(timeoutFor("max")).toBe(DEFAULT_TIMEOUT_MS * 2);
+  // A base the caller gave (the tests' short limits) is scaled the same way.
+  expect(timeoutFor("max", 1000)).toBe(2000);
 });
 
 test("chapterTitles reads the titles complete so far", () => {

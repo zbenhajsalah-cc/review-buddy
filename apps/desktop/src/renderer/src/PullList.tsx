@@ -3,12 +3,15 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type {
   GitHubBridge,
   GitHubListError,
+  ModelChoice,
   PostVerdict,
   PullPage,
   PullSummary,
   RepoSummary,
   ReviewJobStatus,
 } from "../../shared/ipc.ts";
+import { choiceLabel } from "../../shared/models.ts";
+import { ModelChoiceFields, type useModels } from "./ModelPicker.tsx";
 import { postedLabel } from "./PostReview.tsx";
 import { timeAgo } from "./RepoList.tsx";
 import { elapsed, ipcErrorMessage, PHASES, useNow } from "./ReviewRun.tsx";
@@ -90,6 +93,9 @@ export function PullList({
   bridge,
   repo,
   jobs,
+  models,
+  override,
+  onOverride,
   onReview,
   onOpenReview,
   onFollow,
@@ -102,13 +108,27 @@ export function PullList({
   bridge: GitHubBridge;
   repo: RepoSummary;
   jobs: ReviewJobStatus[];
+  /** The models reviews can run on, and the default choice (US-22). */
+  models: ReturnType<typeof useModels>;
+  /**
+   * What the reviews started here run on; empty means the app's default. It
+   * is the app shell's state, so it survives this list being rebuilt.
+   */
+  override: ModelChoice;
+  onOverride: (choice: ModelChoice) => void;
   /** Why no review can run (no usable Claude Code, US-21): Review buttons are off. */
   blocked?: string;
   /**
    * Starts reviews of these PRs (`fresh`: run Claude even if the head has a
-   * saved review); resolves with what went wrong, if anything.
+   * saved review; `choice`: the model and effort for them, instead of the
+   * default); resolves with what went wrong, if anything.
    */
-  onReview: (numbers: number[], follow: boolean, fresh?: boolean) => Promise<string | undefined>;
+  onReview: (
+    numbers: number[],
+    follow: boolean,
+    fresh?: boolean,
+    choice?: ModelChoice,
+  ) => Promise<string | undefined>;
   onOpenReview: (review: {
     reviewKey: string;
     pr: string;
@@ -180,9 +200,14 @@ export function PullList({
   };
 
   const review = async (numbers: number[], follow: boolean, fresh = false) => {
-    setStartError(await onReview(numbers, follow, fresh));
+    setStartError(await onReview(numbers, follow, fresh, override));
     setSelected(new Set());
   };
+
+  const defaultLabel = choiceLabel(models.models, models.choice);
+  // The model list is asked for when this list is first shown (US-22).
+  const { ensure } = models;
+  useEffect(ensure, [ensure]);
 
   const toggle = (n: number) =>
     setSelected((s) => {
@@ -223,6 +248,21 @@ export function PullList({
           {selected.size > 0 ? `Review selected (${selected.size})` : "Review selected"}
         </Button>
       </div>
+      {/* The model and effort the reviews started here run on (US-22). */}
+      <div className="mb-5 flex flex-wrap items-center gap-x-4 gap-y-2 text-xs">
+        <span className="text-muted-foreground">Review with</span>
+        <ModelChoiceFields
+          labels={false}
+          models={models.models}
+          value={override}
+          onChange={onOverride}
+          disabled={models.loading}
+          defaultModelLabel={defaultLabel ? `Default (${defaultLabel})` : "Claude Code's default"}
+          defaultEffortLabel={
+            models.choice.effort ? `Default (${models.choice.effort})` : "Default"
+          }
+        />
+      </div>
       {startError ? (
         <p role="alert" className="mb-3 whitespace-pre-wrap text-sm text-destructive">
           {startError}
@@ -257,6 +297,7 @@ export function PullList({
                 selected={selected.has(pull.number)}
                 onToggle={() => toggle(pull.number)}
                 onReview={(fresh) => void review([pull.number], true, fresh)}
+                madeWith={choiceLabel(models.models, pull.review)}
                 blocked={blocked}
                 onOpenReview={onOpenReview}
                 onFollow={onFollow}
@@ -296,6 +337,7 @@ function PullRow({
   onFollow,
   onStop,
   blocked,
+  madeWith,
 }: {
   pull: PullSummary;
   row: PullRowState;
@@ -303,6 +345,8 @@ function PullRow({
   selected: boolean;
   onToggle: () => void;
   onReview: (fresh: boolean) => void;
+  /** "Opus · high": what the saved review was made with (US-22). */
+  madeWith?: string;
   onOpenReview: (review: {
     reviewKey: string;
     pr: string;
@@ -400,6 +444,14 @@ function PullRow({
           </>
         ) : (
           <>
+            {review && madeWith ? (
+              <span
+                className="text-[0.7rem] text-muted-foreground"
+                title="What this review was made with. Pick another above and run it again."
+              >
+                {madeWith}
+              </span>
+            ) : null}
             {review ? (
               <>
                 {review.current && review.posted ? (

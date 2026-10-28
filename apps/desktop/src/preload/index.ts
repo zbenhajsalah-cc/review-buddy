@@ -55,6 +55,9 @@ const bridge: DesktopBridge = {
     check: () => ipcRenderer.invoke(IPC.claudeCheck),
     choose: () => ipcRenderer.invoke(IPC.claudeChoose),
     search: () => ipcRenderer.invoke(IPC.claudeSearch),
+    models: (refresh) => ipcRenderer.invoke(IPC.claudeModels, refresh),
+    choice: () => ipcRenderer.invoke(IPC.claudeChoice),
+    setChoice: (choice) => ipcRenderer.invoke(IPC.claudeSetChoice, choice),
   },
 };
 

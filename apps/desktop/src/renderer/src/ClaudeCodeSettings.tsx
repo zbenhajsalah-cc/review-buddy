@@ -6,12 +6,13 @@ import {
   CardHeader,
   CardTitle,
 } from "@review-buddy/viewer/ui";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   CLAUDE_CODE_INSTALL_URL,
   type ClaudeBridge,
   type ClaudeCodeStatus,
 } from "../../shared/ipc.ts";
+import { ModelChoiceFields, type useModels } from "./ModelPicker.tsx";
 import { ipcErrorMessage } from "./ReviewRun.tsx";
 
 /**
@@ -45,13 +46,19 @@ export function ClaudeCodeSettings({
   bridge,
   status,
   onStatus,
+  models,
 }: {
   bridge: ClaudeBridge;
   status: ClaudeCodeStatus | null;
   onStatus: (status: ClaudeCodeStatus) => void;
+  /** The model list and the default choice (US-22), loaded by the app shell. */
+  models: ReturnType<typeof useModels>;
 }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | undefined>();
+  // The model list is asked for when this card is first shown (US-22).
+  const { ensure } = models;
+  useEffect(ensure, [ensure]);
 
   const run = async (step: () => Promise<ClaudeCodeStatus>) => {
     setBusy(true);
@@ -132,6 +139,45 @@ export function ClaudeCodeSettings({
             {error}
           </p>
         ) : null}
+        <div className="space-y-3 border-t pt-4">
+          <div>
+            <p className="font-medium">Model and thinking</p>
+            <p className="text-muted-foreground">
+              What reviews run on, unless a review is started with another choice. "Claude Code's
+              default" is Claude Code's own, not what you set in the CLI: reviews read none of your
+              settings files.
+            </p>
+          </div>
+          <ModelChoiceFields
+            models={models.models}
+            value={models.choice}
+            onChange={models.setChoice}
+            disabled={models.loading}
+            defaultModelLabel={
+              models.defaultModel
+                ? `Claude Code's default (${models.defaultModel.displayName})`
+                : "Claude Code's default"
+            }
+          />
+          <div className="flex flex-wrap items-center gap-3">
+            <Button
+              variant="ghost"
+              size="sm"
+              disabled={models.busy}
+              onClick={models.reload}
+              title="Ask your Claude Code which models this account can use"
+            >
+              {models.busy ? "Asking Claude…" : "Refresh models"}
+            </Button>
+            {models.fallback && !models.busy ? (
+              <span className="min-w-0 text-muted-foreground">
+                Claude Code could not list the models
+                {models.fallbackError ? `: ${models.fallbackError}` : "."} These are the usual
+                names; a model this account does not have fails when a review starts.
+              </span>
+            ) : null}
+          </div>
+        </div>
       </CardContent>
     </Card>
   );
