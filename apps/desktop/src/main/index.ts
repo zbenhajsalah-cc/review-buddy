@@ -66,6 +66,9 @@ import { SettingsFile } from "./settings-file.ts";
 const devServerUrl = app.isPackaged ? undefined : process.env.ELECTRON_RENDERER_URL;
 const rendererDir = join(import.meta.dirname, "../renderer");
 
+// Keep in step with `appId` in electron-builder.yml.
+const APP_ID = "dev.review-buddy.desktop";
+
 // The Vite build emits only these (the viewer's icons are inline SVG; its
 // self-hosted woff2 faces are emitted as files, being over the inline limit).
 const MIME: Record<string, string> = {
@@ -145,9 +148,10 @@ function createWindow(openJob?: number): BrowserWindow {
     height: 860,
     show: false,
     title: "Review Buddy",
-    // macOS takes the window icon from the bundle, Windows from the .exe;
-    // on Linux it is the window's own.
-    ...(process.platform === "linux" ? { icon: appIcon } : {}),
+    // macOS takes the window icon from the bundle; Windows and Linux take it
+    // from the window itself (`dev` would otherwise fall back to the icon in
+    // Electron's own electron.exe).
+    ...(process.platform === "darwin" ? {} : { icon: appIcon }),
     webPreferences: {
       preload: join(import.meta.dirname, "../preload/index.cjs"),
       contextIsolation: true,
@@ -480,6 +484,9 @@ app.whenReady().then(async () => {
   // `dev` runs Electron's own bundle, whose Info.plist icon is Electron's; a
   // packaged app has its icon.icns, so only dev needs this.
   if (process.platform === "darwin" && !app.isPackaged) app.dock?.setIcon(appIcon);
+  // Windows groups and labels a window on the taskbar by its AppUserModelID,
+  // and names toast notifications by it; without this it is Electron's.
+  if (process.platform === "win32") app.setAppUserModelId(APP_ID);
 
   const settings = appSettings();
   const github = createGitHubAuth(settings);
