@@ -91,7 +91,10 @@ Define the `submit_review` MCP tool's `inputSchema` = `packages/core/schemas/rev
 
 ## Client-side state (source D)
 
-Display settings (theme, layout, granularity, wrap, line numbers, backgrounds, minimize) and — in the persistence phase — viewed flags live in the browser (cookies/localStorage), because the server runs on an ephemeral port per review (Plannotator pattern).
+Display settings (color mode + a light and a dark syntax theme, code font / size / ligatures, layout, granularity, wrap, line numbers, backgrounds, minimize) and — in the persistence phase — viewed flags live in the browser (cookies/localStorage), because the server runs on an ephemeral port per review (Plannotator pattern).
+
+- **Syntax themes** come from `@pierre/diffs` (every Shiki bundled theme + its Pierre themes; catalog in `packages/viewer/src/appearance.ts`, GitHub by default). While the worker pool is working it highlights with the POOL's theme, not the card's, so `useDisplaySettings` sends the pair to the pool (`setRenderOptions`) and the pool is created on the saved pair, so there is no flash of the default.
+- **Code fonts** are self-hosted like the design's faces (`VIEWER_CSP` is `font-src 'self'`): latin `woff2` in `packages/viewer/src/fonts/`, declared in `theme.css`; a face is downloaded only when picked. The choice is applied as `--diffs-font-family` / `--diffs-font-size` / `--diffs-line-height` / `--diffs-font-features` on the diff pane, which inherit into the diff shadow DOM; the UI's `--font-mono` is left alone. Ligatures default off, so `!==` reads as the characters it is.
 
 ## Performance (large PRs)
 

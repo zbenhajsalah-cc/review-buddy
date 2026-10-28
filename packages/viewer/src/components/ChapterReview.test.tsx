@@ -258,3 +258,55 @@ test('Done with afterDone "keep": the state stays and the review stays open', as
   const button = screen.getByRole("button", { name: "Done ✓" }) as HTMLButtonElement;
   expect(button.disabled).toBe(true);
 });
+
+// Behavior checks only: in a real browser React re-renders between Radix's
+// capture listener and ours, which happy-dom doesn't reproduce. The regression
+// guard for that timing is the preventDefault test in lib/shortcuts.test.tsx.
+test("Esc closes the shortcuts dialog without leaving the chapter", () => {
+  const onExit = mock(() => {});
+  renderWithApi(
+    <ChapterReview
+      review={fakeResolvedReview}
+      position={0}
+      onNavigate={() => {}}
+      onExit={onExit}
+    />,
+  );
+
+  act(() => {
+    fireEvent.keyDown(document, { key: "?" });
+  });
+  act(() => {
+    fireEvent.keyDown(document.activeElement ?? document, { key: "Escape" });
+  });
+  expect(screen.queryByText("Keyboard shortcuts")).toBeNull();
+  expect(onExit).toHaveBeenCalledTimes(0);
+
+  act(() => {
+    fireEvent.keyDown(document, { key: "Escape" });
+  });
+  expect(onExit).toHaveBeenCalledTimes(1);
+});
+
+test("Esc closes the theme & font popover without leaving the chapter", async () => {
+  const onExit = mock(() => {});
+  renderWithApi(
+    <ChapterReview
+      review={fakeResolvedReview}
+      position={0}
+      onNavigate={() => {}}
+      onExit={onExit}
+    />,
+  );
+
+  await act(async () => {
+    fireEvent.click(screen.getByRole("button", { name: "Theme & font" }));
+  });
+  expect(screen.queryByLabelText("Font")).not.toBeNull();
+
+  act(() => {
+    fireEvent.keyDown(document.activeElement ?? document, { key: "Escape" });
+  });
+  expect(screen.queryByLabelText("Font")).toBeNull();
+  expect(onExit).toHaveBeenCalledTimes(0);
+});

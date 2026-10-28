@@ -107,7 +107,10 @@ current chapter as Markdown (narrative + file inventory only — the reference-n
 rule applies to the clipboard too); "Begin review" continues at the first chapter not
 complete; file headers are sticky; the plugin keeps the chapter in the URL hash
 (`<ReviewViewer urlHash />`; off in desktop, where one window shows many reviews) and asks
-before the tab closes without Done; and **resolution notes now travel back to the agent**
+before the tab closes without Done; a "Theme & font" popover picks the light/dark syntax
+themes (any `@pierre/diffs`/Shiki theme) and the code font, size and ligatures
+(`packages/viewer/src/appearance.ts`; fonts self-hosted in `src/fonts/`); and
+**resolution notes now travel back to the agent**
 (hook `additionalContext` on Claude Code, tool-result text standalone) so a review whose
 anchors missed can be corrected next time.
 
