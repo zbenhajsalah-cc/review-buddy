@@ -37,9 +37,13 @@ export function postBody(summary: string, chapters: string | null): string {
   return [summary.trim(), chapters ?? ""].filter((part) => part !== "").join("\n\n");
 }
 
-/** Why this post cannot be sent as it is, or undefined. */
+/**
+ * Why this post cannot be sent as it is, or undefined. Request changes and
+ * Comment need the reviewer's own summary: the chapter list alone is not it.
+ */
 export function postProblem(
   verdict: PostVerdict,
+  summary: string,
   body: string,
   author: string | undefined,
   login: string | undefined,
@@ -47,7 +51,7 @@ export function postProblem(
   if (verdict !== "comment" && author && login && author.toLowerCase() === login.toLowerCase()) {
     return "This is your own PR: GitHub lets you only comment on it.";
   }
-  if (verdict !== "approve" && body.trim() === "") {
+  if (verdict !== "approve" && summary.trim() === "") {
     return verdict === "comment" ? "Write a comment first." : "Write what should change first.";
   }
   if (body.length > MAX_BODY) return `The text is too long for GitHub (${MAX_BODY} characters).`;
@@ -65,6 +69,7 @@ export function DoneBar({
   doneAt,
   github,
   onPosted,
+  onSignedOut,
 }: {
   bridge: ReviewBridge;
   reviewKey: string;
@@ -74,6 +79,8 @@ export function DoneBar({
   github: GitHubStatus | null;
   /** A review was posted (the PR list shows it). */
   onPosted?: () => void;
+  /** A post found no usable login (main signed out): read the GitHub status again. */
+  onSignedOut?: () => void;
 }) {
   const [posted, setPosted] = useState<PostedReview | null>(null);
   const [open, setOpen] = useState(false);
@@ -120,6 +127,7 @@ export function DoneBar({
           pr={pr}
           login={github?.login}
           onClose={() => setOpen(false)}
+          onSignedOut={onSignedOut}
           onPosted={(p) => {
             setPosted(p);
             setOpen(false);
@@ -143,6 +151,7 @@ export function PostDialog({
   login,
   onClose,
   onPosted,
+  onSignedOut,
 }: {
   bridge: ReviewBridge;
   reviewKey: string;
@@ -150,6 +159,7 @@ export function PostDialog({
   login: string | undefined;
   onClose: () => void;
   onPosted: (posted: PostedReview) => void;
+  onSignedOut?: () => void;
 }) {
   const titleId = useId();
   const [review, setReview] = useState<ResolvedReview | null>(null);
@@ -174,7 +184,7 @@ export function PostDialog({
   }, [own]);
 
   const body = postBody(summary, withChapters && review ? chapterList(review) : null);
-  const problem = postProblem(verdict, body, author, login);
+  const problem = postProblem(verdict, summary, body, author, login);
   const headSha = /@([0-9a-f]+)$/.exec(reviewKey)?.[1]?.slice(0, 7);
 
   const post = async () => {
@@ -182,8 +192,13 @@ export function PostDialog({
     setError(undefined);
     try {
       const result = await bridge.post(reviewKey, { verdict, body });
-      if (result.ok) onPosted(result.posted);
-      else setError(result.error);
+      if (result.ok) {
+        onPosted(result.posted);
+      } else {
+        setError(result.error);
+        // The token expired or was revoked (main signed out), or there is none.
+        if (result.reason === "token-rejected" || result.reason === "signed-out") onSignedOut?.();
+      }
     } catch (e) {
       setError(ipcErrorMessage(e));
     } finally {

@@ -32,15 +32,24 @@ test("postBody: exactly the summary, then the chapters; nothing else", () => {
   expect(postBody("Fix the retry.", "**Chapters**")).toBe("Fix the retry.\n\n**Chapters**");
 });
 
-test("postProblem: a text where GitHub needs one, own PRs, the size limit", () => {
-  expect(postProblem("approve", "", "mona", "octocat")).toBeUndefined();
-  expect(postProblem("request_changes", " ", "mona", "octocat")).toBe(
+test("postProblem: a summary where GitHub needs a text, own PRs, the size limit", () => {
+  expect(postProblem("approve", "", "", "mona", "octocat")).toBeUndefined();
+  expect(postProblem("request_changes", " ", " ", "mona", "octocat")).toBe(
     "Write what should change first.",
   );
-  expect(postProblem("comment", "", "mona", "octocat")).toBe("Write a comment first.");
-  expect(postProblem("approve", "", "OctoCat", "octocat")).toBe(
+  expect(postProblem("comment", "", "", "mona", "octocat")).toBe("Write a comment first.");
+  // The chapter list alone is not a summary.
+  expect(postProblem("request_changes", "", "**Chapters**", "mona", "octocat")).toBe(
+    "Write what should change first.",
+  );
+  expect(postProblem("comment", "", "**Chapters**", "mona", "octocat")).toBe(
+    "Write a comment first.",
+  );
+  expect(postProblem("approve", "", "**Chapters**", "mona", "octocat")).toBeUndefined();
+  expect(postProblem("approve", "", "", "OctoCat", "octocat")).toBe(
     "This is your own PR: GitHub lets you only comment on it.",
   );
-  expect(postProblem("comment", "Thanks", "octocat", "octocat")).toBeUndefined();
-  expect(postProblem("approve", "x".repeat(65_537), "mona", undefined)).toContain("too long");
+  expect(postProblem("comment", "Thanks", "Thanks", "octocat", "octocat")).toBeUndefined();
+  const long = "x".repeat(65_537);
+  expect(postProblem("approve", long, long, "mona", undefined)).toContain("too long");
 });

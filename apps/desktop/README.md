@@ -353,8 +353,9 @@ window with two steps, and nothing is posted before the second:
 
 1. **Write:** the verdict (**Approve**, **Request changes**, or **Comment**:
    only your text), a summary (Markdown; needed for Request changes and
-   Comment, as GitHub wants), and, if you like, **the list of chapters**
-   (title, risk and size of each; never diff lines).
+   Comment, as GitHub wants; the chapter list alone does not count), and, if
+   you like, **the list of chapters** (title, risk and size of each; never
+   diff lines).
 2. **Check and post:** the PR, the verdict, the login it posts as, the commit,
    and **the exact text** that is posted. **Post to GitHub** sends it; **Back**
    goes back to editing.
@@ -373,7 +374,8 @@ What main does (`src/main/github/post-review.ts`):
   cannot write (403/404) gets what it needs: a fine-grained token
   "Pull requests: Read and write", a classic token the `repo` scope
   (`public_repo` for a public repository). A 401 signs the app out, as
-  everywhere. If the connection breaks during the POST, it says the review
+  everywhere, and the window reads the GitHub status again, so the app shows
+  it is signed out and posting is off. If the connection breaks during the POST, it says the review
   may have been posted, and to look at the PR before posting again.
 - One post per review at a time (a double click cannot post twice).
 - **Kept:** the last post (verdict, time, login, link) is saved with the
@@ -389,10 +391,13 @@ github.com, one post at a time, no record after a failure);
 `review-cache.test.ts` and `reviews.test.ts` (the record is kept, carried to a
 new review of the same commit, and dropped with the review);
 `PostReview.test.ts` (the text, the chapter list, the checks). The smoke test
-posts a review against the fake GitHub: Request changes needs a text, the
-confirm step shows the exact text and nothing is posted before it, a refused
-post shows GitHub's answer, and the posted payload is exactly the text shown,
-on the reviewed commit; then the bar and the PR list say so.
+posts a review against the fake GitHub: Request changes needs a summary (the
+chapter list is not one), the confirm step shows the exact text and nothing is
+posted before it, a refused post shows GitHub's answer, a token that expires
+during a post signs the app out and turns posting off, and the posted payload
+is exactly the text shown, on the reviewed commit; then the bar and the PR
+list say so. After a page reload, a saved review that a job reopens still has
+its Done bar and **Post again…** (Done is read from the saved reviews).
 
 ## Reading a PR (`GitHubApiSource`)
 

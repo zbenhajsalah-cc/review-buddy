@@ -470,19 +470,25 @@ try {
 
   // Post it to GitHub (US-20): write, check, confirm; nothing before the confirm.
   await page.getByRole("button", { name: "Open the review of #12" }).click();
-  await page.getByRole("button", { name: "Post to GitHub…" }).click();
   const dialog = page.getByRole("dialog", { name: "Post your review of octo-org/widgets#12" });
-  await dialog.waitFor();
-  await dialog.getByLabel("Request changes").check();
-  check(
-    await dialog.getByRole("button", { name: "Next: check and post" }).isDisabled(),
-    "Request changes needs a text before it can go on",
-  );
-  await dialog.getByLabel(/^Summary/).fill("Please add a test for the jitter.");
-  await dialog.getByLabel("Add the list of chapters (titles, risk and size)").check();
-  await dialog.getByRole("button", { name: "Next: check and post" }).click();
   const confirm = page.getByRole("dialog", { name: "Post this review to octo-org/widgets#12?" });
-  await confirm.waitFor();
+  /** Opens the window and writes the review, up to the confirm step. */
+  const writeReview = async (firstTime = false) => {
+    await page.getByRole("button", { name: "Post to GitHub…" }).click();
+    await dialog.waitFor();
+    await dialog.getByLabel("Request changes").check();
+    await dialog.getByLabel("Add the list of chapters (titles, risk and size)").check();
+    if (firstTime) {
+      check(
+        await dialog.getByRole("button", { name: "Next: check and post" }).isDisabled(),
+        "Request changes needs a summary before it can go on (the chapter list is not one)",
+      );
+    }
+    await dialog.getByLabel(/^Summary/).fill("Please add a test for the jitter.");
+    await dialog.getByRole("button", { name: "Next: check and post" }).click();
+    await confirm.waitFor();
+  };
+  await writeReview(true);
   const shown = await confirm
     .getByRole("region", { name: "Text to post" })
     .locator("pre")
@@ -507,7 +513,28 @@ try {
   );
   await app.evaluate(() => {
     (globalThis as Record<string, unknown>).__postRefused = false;
+    (globalThis as Record<string, unknown>).__expired = true;
   });
+  await confirm.getByRole("button", { name: "Post to GitHub" }).click();
+  await confirm
+    .getByRole("alert")
+    .getByText(/^GitHub rejected the token/)
+    .waitFor();
+  await page.getByRole("button", { name: "Connect GitHub" }).waitFor();
+  await page.keyboard.press("Escape");
+  await confirm.waitFor({ state: "detached" });
+  check(
+    await page.getByRole("button", { name: "Post to GitHub…" }).isDisabled(),
+    "a token that expired during a post: the app shows it is signed out, and posting is off",
+  );
+  await app.evaluate(() => {
+    (globalThis as Record<string, unknown>).__expired = false;
+  });
+  await page.getByRole("button", { name: "Connect GitHub" }).click();
+  await signInWith("ghp_smoke");
+  await page.getByText(/^Signed in as @octocat/).waitFor();
+  await page.getByRole("button", { name: "Back", exact: true }).click();
+  await writeReview();
   await confirm.getByRole("button", { name: "Post to GitHub" }).click();
   await confirm.waitFor({ state: "detached" });
   await page.getByText(/Changes requested on GitHub .* as @octocat/).waitFor();
@@ -541,7 +568,21 @@ try {
     reopened.state === "done" && reopened.steps.join() === "Opened the saved review of this commit",
     "reviewing a PR head that has a saved review opens it without a run",
   );
-  await page.getByRole("button", { name: "octo-org/widgets", exact: true }).click();
+  // A reload forgets what the page knew: Done (and Post again) come from the saved review.
+  await page.reload();
+  await page.getByText(/^You marked this review done/).waitFor();
+  check(
+    await page.getByRole("button", { name: "Post again…" }).isEnabled(),
+    "a saved review reopened by a job keeps its Done bar and Post again, after a reload",
+  );
+  await page.getByRole("button", { name: "Repositories", exact: true }).click();
+  // (Listed twice: recently used, and in its page; not the review's tab.)
+  await page
+    .getByRole("button", { name: /^octo-org\/widgets(?!#)/ })
+    .first()
+    .click();
+  await page.getByRole("button", { name: "Load more" }).click();
+  await pullRow(5).waitFor();
 
   await page.getByLabel("Select #11").check();
   await page.getByLabel("Select #5").check();

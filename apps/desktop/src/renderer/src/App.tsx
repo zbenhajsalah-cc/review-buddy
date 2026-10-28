@@ -108,7 +108,26 @@ export function App({ bridge }: { bridge: DesktopBridge }) {
       },
     };
   }, [bridge, reviewKey]);
-  const doneAt = doneNow[reviewKey] ?? (view.kind === "review" ? view.doneAt : undefined);
+  // A job's review may be a saved one that was done before (also before a
+  // restart): Done is read from the saved reviews.
+  const [savedDone, setSavedDone] = useState<{ reviewKey: string; doneAt?: string }>();
+  useEffect(() => {
+    if (view.kind !== "job" || reviewKey === FIXTURE_REVIEW_KEY) return;
+    bridge.review.saved().then(
+      (list) => {
+        const found = list.find((i) => i.reviewKey.toLowerCase() === reviewKey.toLowerCase());
+        setSavedDone({ reviewKey, doneAt: found?.doneAt });
+      },
+      () => {},
+    );
+  }, [bridge, reviewKey, view.kind]);
+  const doneAt =
+    doneNow[reviewKey] ??
+    (view.kind === "review"
+      ? view.doneAt
+      : savedDone?.reviewKey === reviewKey
+        ? savedDone.doneAt
+        : undefined);
   const reviewTab = view.kind === "review" ? view.pr : (job?.pr ?? "Sample review");
 
   /**
@@ -311,6 +330,7 @@ export function App({ bridge }: { bridge: DesktopBridge }) {
                 doneAt={doneAt}
                 github={github}
                 onPosted={() => setSavedChanges((n) => n + 1)}
+                onSignedOut={refreshGitHub}
               />
             ) : null}
             <div className="min-h-0 flex-1">
