@@ -4,8 +4,8 @@ import type { DisplaySettings, ResolvedFile } from "@review-buddy/core/types";
 import { memo, useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import {
   type CommentSide,
-  changeBlocks,
-  fullDiffChangeBlocks,
+  chapterDiffSpans,
+  fullDiffSpans,
   type LineComment,
   type LineRange,
   positionKey,
@@ -108,18 +108,17 @@ export const FileDiffCard = memo(function FileDiffCard({
   // lines, and a selection would pin the "+" to them: the reviewer could not
   // open a comment on another line. So that selection is dropped.
   const dropSelection = useRef(false);
-  // The change blocks of the diff shown, to order a range across sides: the
-  // chapter's hunks, or in the full-file view the whole file's changes (also
-  // the ones other chapters show). A ref, so the diff options stay the same.
-  const blocks = useMemo(
-    () =>
-      expanded && expandedDiff ? fullDiffChangeBlocks(expandedDiff) : changeBlocks(file.hunks),
+  // The diff shown, to order a range across sides: the chapter's hunks, or in
+  // the full-file view the whole file's changes (also the ones other chapters
+  // show). A ref, so the diff options stay the same.
+  const spans = useMemo(
+    () => (expanded && expandedDiff ? fullDiffSpans(expandedDiff) : chapterDiffSpans(file.hunks)),
     [expanded, expandedDiff, file.hunks],
   );
-  const blocksRef = useRef(blocks);
-  blocksRef.current = blocks;
+  const spansRef = useRef(spans);
+  spansRef.current = spans;
   const openDraft = useCallback((picked: SelectedLineRange) => {
-    const range = rangeFromSelection(picked, blocksRef.current);
+    const range = rangeFromSelection(picked, spansRef.current);
     const key = positionKey(range);
     setDrafts((prev) => ({ ...prev, [key]: { range, text: prev[key]?.text ?? "" } }));
     setSelection(null);

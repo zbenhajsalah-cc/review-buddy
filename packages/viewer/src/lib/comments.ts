@@ -62,13 +62,29 @@ export interface ChangeBlock {
   additions: number;
 }
 
-/** The change blocks of resolved hunks (the diff a chapter shows), in order. */
-export function changeBlocks(hunks: readonly ResolvedHunk[]): ChangeBlock[] {
-  const blocks: ChangeBlock[] = [];
-  for (const hunk of hunks) {
+/**
+ * A stretch of the diff shown that hides no change: a hunk of the chapter's
+ * diff (changes between hunks are not shown: other chapters', or outside the
+ * hunks' context), or the whole file in the full-file view.
+ */
+export interface DiffSpan {
+  /** Its first old and new line numbers. */
+  oldStart: number;
+  newStart: number;
+  /** One past its last old line. */
+  oldEnd: number;
+  blocks: ChangeBlock[];
+}
+
+/** The spans of a chapter's diff: one per hunk. */
+export function chapterDiffSpans(hunks: readonly ResolvedHunk[]): DiffSpan[] {
+  return hunks.map((hunk) => {
     // A side with no lines in the hunk names the line before it.
-    let oldNo = hunk.old_lines === 0 ? hunk.old_start + 1 : hunk.old_start;
-    let newNo = hunk.new_lines === 0 ? hunk.new_start + 1 : hunk.new_start;
+    const oldStart = hunk.old_lines === 0 ? hunk.old_start + 1 : hunk.old_start;
+    const newStart = hunk.new_lines === 0 ? hunk.new_start + 1 : hunk.new_start;
+    const blocks: ChangeBlock[] = [];
+    let oldNo = oldStart;
+    let newNo = newStart;
     let block: ChangeBlock | null = null;
     for (const line of hunk.lines) {
       if (line.startsWith("-") || line.startsWith("+")) {
@@ -88,17 +104,17 @@ export function changeBlocks(hunks: readonly ResolvedHunk[]): ChangeBlock[] {
       }
     }
     if (block) blocks.push(block);
-  }
-  return blocks;
+    return { oldStart, newStart, oldEnd: oldStart + hunk.old_lines, blocks };
+  });
 }
 
 /**
- * The change blocks of a whole-file diff (the full-file view), which also
- * has the file's changes that other chapters show. Its line indexes are into
- * the whole old and new file.
+ * The full-file view's diff as one span: the whole file, with all its
+ * changes (also the ones other chapters show). The diff's line indexes are
+ * into the whole old and new file.
  */
-export function fullDiffChangeBlocks(diff: FileDiffMetadata): ChangeBlock[] {
-  return diff.hunks.flatMap((hunk) =>
+export function fullDiffSpans(diff: FileDiffMetadata): DiffSpan[] {
+  const blocks = diff.hunks.flatMap((hunk) =>
     hunk.hunkContent.flatMap((c) =>
       c.type === "change"
         ? [
@@ -112,16 +128,16 @@ export function fullDiffChangeBlocks(diff: FileDiffMetadata): ChangeBlock[] {
         : [],
     ),
   );
+  return [{ oldStart: 1, newStart: 1, oldEnd: Number.POSITIVE_INFINITY, blocks }];
 }
 
 /**
  * A line selection from @pierre/diffs (dragged either way) as a LineRange,
- * ending at the range's lowest line in the diff shown, whose change blocks
- * are `blocks`.
+ * ending at the range's lowest line in the diff shown (`spans`).
  */
 export function rangeFromSelection(
   selection: SelectedLineRange,
-  blocks: readonly ChangeBlock[],
+  spans: readonly DiffSpan[],
 ): LineRange {
   const a = { side: fromAnnotationSide(selection.side), line: selection.start };
   const b = {
@@ -129,13 +145,13 @@ export function rangeFromSelection(
     line: selection.end,
   };
   // On one side, the bigger number is lower in the diff. Across sides, the
-  // change blocks tell where the old line is.
+  // diff tells where the old line is.
   const aFirst =
     a.side === b.side
       ? a.line <= b.line
       : a.side === "old"
-        ? oldLineFirst(blocks, a.line, b.line)
-        : !oldLineFirst(blocks, b.line, a.line);
+        ? oldLineFirst(spans, a.line, b.line)
+        : !oldLineFirst(spans, b.line, a.line);
   const [first, last] = aFirst ? [a, b] : [b, a];
   if (first.side === last.side && first.line === last.line) return last;
   return { ...last, startSide: first.side, startLine: first.line };
@@ -145,11 +161,14 @@ export function rangeFromSelection(
  * Whether old line `oldLine` comes before new line `newLine` in the unified
  * diff: a deleted line sits just before its block's added lines (a change
  * shows its deleted lines first), an unchanged line on the row of its new
- * number.
+ * number. Its span says that number: changes the span does not show may
+ * come before it.
  */
-function oldLineFirst(blocks: readonly ChangeBlock[], oldLine: number, newLine: number): boolean {
-  let shift = 0; // new number − old number of the unchanged lines so far
-  for (const block of blocks) {
+function oldLineFirst(spans: readonly DiffSpan[], oldLine: number, newLine: number): boolean {
+  const span = spans.find((s) => oldLine < s.oldEnd);
+  if (!span) return oldLine < newLine; // not in the diff shown
+  let shift = span.newStart - span.oldStart; // new − old number of its unchanged lines so far
+  for (const block of span.blocks) {
     if (oldLine < block.oldFrom) break;
     if (oldLine < block.oldFrom + block.deletions) return block.newFrom <= newLine;
     shift = block.newFrom + block.additions - (block.oldFrom + block.deletions);

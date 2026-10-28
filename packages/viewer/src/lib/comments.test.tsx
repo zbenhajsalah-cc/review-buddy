@@ -8,10 +8,10 @@ import { ReviewApiProvider } from "../review-api.tsx";
 import { fakeReviewApi } from "../stories/fixtures.ts";
 import { clearReviewFileState } from "./chapterFileSet.ts";
 import {
-  changeBlocks,
+  chapterDiffSpans,
   commentsToMarkdown,
   describeLines,
-  fullDiffChangeBlocks,
+  fullDiffSpans,
   type LineComment,
   type LineRange,
   rangeFromSelection,
@@ -65,80 +65,83 @@ const CHANGE: ResolvedHunk = {
   lines: [" a", "-b", "-c", "+B", "+C", " d"],
 };
 
+test("chapterDiffSpans: one span per hunk, with its runs of changed lines", () => {
+  expect(chapterDiffSpans([CHANGE])).toEqual([
+    {
+      oldStart: 8,
+      newStart: 8,
+      oldEnd: 12,
+      blocks: [{ oldFrom: 9, deletions: 2, newFrom: 9, additions: 2 }],
+    },
+  ]);
+  // Only added lines: the hunk names the old line before them.
+  const insert: ResolvedHunk = {
+    old_start: 5,
+    old_lines: 0,
+    new_start: 6,
+    new_lines: 2,
+    header: "@@ -5,0 +6,2 @@",
+    lines: ["+x", "+y"],
+  };
+  expect(chapterDiffSpans([insert])).toEqual([
+    {
+      oldStart: 6,
+      newStart: 6,
+      oldEnd: 6,
+      blocks: [{ oldFrom: 6, deletions: 0, newFrom: 6, additions: 2 }],
+    },
+  ]);
+});
+
 test("rangeFromSelection: across sides, the range ends at its lowest line, dragged either way", () => {
+  const spans = chapterDiffSpans([CHANGE]);
   const deletedToAdded: LineRange = { side: "new", line: 10, startSide: "old", startLine: 9 };
   expect(
-    rangeFromSelection(
-      { start: 9, side: "deletions", end: 10, endSide: "additions" },
-      changeBlocks([CHANGE]),
-    ),
+    rangeFromSelection({ start: 9, side: "deletions", end: 10, endSide: "additions" }, spans),
   ).toEqual(deletedToAdded);
   expect(
-    rangeFromSelection(
-      { start: 10, side: "additions", end: 9, endSide: "deletions" },
-      changeBlocks([CHANGE]),
-    ),
+    rangeFromSelection({ start: 10, side: "additions", end: 9, endSide: "deletions" }, spans),
   ).toEqual(deletedToAdded);
 
   // A deleted line under an unchanged one: the deleted line is last.
   expect(
-    rangeFromSelection(
-      { start: 10, side: "deletions", end: 8, endSide: "additions" },
-      changeBlocks([CHANGE]),
-    ),
+    rangeFromSelection({ start: 10, side: "deletions", end: 8, endSide: "additions" }, spans),
   ).toEqual({ side: "old", line: 10, startSide: "new", startLine: 8 });
   // The unchanged line after the change is lower than its deleted lines.
   expect(
-    rangeFromSelection(
-      { start: 11, side: "additions", end: 9, endSide: "deletions" },
-      changeBlocks([CHANGE]),
-    ),
+    rangeFromSelection({ start: 11, side: "additions", end: 9, endSide: "deletions" }, spans),
   ).toEqual({ side: "new", line: 11, startSide: "old", startLine: 9 });
 });
 
-test("rangeFromSelection: across sides outside the hunks (full-file view)", () => {
-  // Two lines added after old line 5: old 5 is new 5, old 6 is new 8.
-  const insert: ResolvedHunk = {
-    old_start: 5,
-    old_lines: 0,
-    new_start: 6,
-    new_lines: 2,
-    header: "@@ -5,0 +6,2 @@",
-    lines: ["+x", "+y"],
-  };
+test("rangeFromSelection: changes hidden before a hunk shift its unchanged lines", () => {
+  // Between these hunks, changes the chapter does not show remove 5 lines:
+  // x is old 20 but new 15, so it is above Y (new 16).
+  const spans = chapterDiffSpans([
+    {
+      old_start: 1,
+      old_lines: 3,
+      new_start: 1,
+      new_lines: 3,
+      header: "@@ -1,3 +1,3 @@",
+      lines: [" a", "-b", "+B", " c"],
+    },
+    {
+      old_start: 20,
+      old_lines: 3,
+      new_start: 15,
+      new_lines: 3,
+      header: "@@ -20,3 +15,3 @@",
+      lines: [" x", "-y", "+Y", " z"],
+    },
+  ]);
+  // Dragged up from Y to x (its old number, in split view's left column).
   expect(
-    rangeFromSelection(
-      { start: 6, side: "additions", end: 5, endSide: "deletions" },
-      changeBlocks([insert]),
-    ),
-  ).toEqual({ side: "new", line: 6, startSide: "old", startLine: 5 });
+    rangeFromSelection({ start: 16, side: "additions", end: 20, endSide: "deletions" }, spans),
+  ).toEqual({ side: "new", line: 16, startSide: "old", startLine: 20 });
+  // c ends the first hunk: it is above x.
   expect(
-    rangeFromSelection(
-      { start: 6, side: "deletions", end: 7, endSide: "additions" },
-      changeBlocks([insert]),
-    ),
-  ).toEqual({ side: "old", line: 6, startSide: "new", startLine: 7 });
-  // After CHANGE (same size), old and new numbers match again.
-  expect(
-    rangeFromSelection(
-      { start: 20, side: "deletions", end: 15, endSide: "additions" },
-      changeBlocks([CHANGE]),
-    ),
-  ).toEqual({ side: "old", line: 20, startSide: "new", startLine: 15 });
-});
-
-test("changeBlocks: each run of deleted and added lines, with where it starts", () => {
-  expect(changeBlocks([CHANGE])).toEqual([{ oldFrom: 9, deletions: 2, newFrom: 9, additions: 2 }]);
-  // Only added lines: the block starts before old line 6.
-  const insert: ResolvedHunk = {
-    old_start: 5,
-    old_lines: 0,
-    new_start: 6,
-    new_lines: 2,
-    header: "@@ -5,0 +6,2 @@",
-    lines: ["+x", "+y"],
-  };
-  expect(changeBlocks([insert])).toEqual([{ oldFrom: 6, deletions: 0, newFrom: 6, additions: 2 }]);
+    rangeFromSelection({ start: 15, side: "additions", end: 3, endSide: "deletions" }, spans),
+  ).toEqual({ side: "new", line: 15, startSide: "old", startLine: 3 });
 });
 
 // The whole file: other chapters' changes are in this diff too.
@@ -149,24 +152,32 @@ const FULL = parseDiffFromFile(
   { name: "f.ts", contents: `${NEW.join("\n")}\n` },
 );
 
-test("fullDiffChangeBlocks: the blocks of a whole-file diff, in file line numbers", () => {
-  expect(fullDiffChangeBlocks(FULL)).toEqual([
-    { oldFrom: 2, deletions: 1, newFrom: 2, additions: 1 }, // b → B
-    { oldFrom: 7, deletions: 0, newFrom: 7, additions: 2 }, // + x y
-    { oldFrom: 9, deletions: 2, newFrom: 11, additions: 0 }, // - i j
-    { oldFrom: 13, deletions: 0, newFrom: 13, additions: 1 }, // + m
+test("fullDiffSpans: the whole file as one span, its changes in file line numbers", () => {
+  expect(fullDiffSpans(FULL)).toEqual([
+    {
+      oldStart: 1,
+      newStart: 1,
+      oldEnd: Number.POSITIVE_INFINITY,
+      blocks: [
+        { oldFrom: 2, deletions: 1, newFrom: 2, additions: 1 }, // b → B
+        { oldFrom: 7, deletions: 0, newFrom: 7, additions: 2 }, // + x y
+        { oldFrom: 9, deletions: 2, newFrom: 11, additions: 0 }, // - i j
+        { oldFrom: 13, deletions: 0, newFrom: 13, additions: 1 }, // + m
+      ],
+    },
   ]);
 });
 
 test("rangeFromSelection: in the full-file view, the whole file's changes order the range", () => {
-  // Dragged up from k (new 11) to the deleted j (old 10). The two added lines
-  // above (another chapter's) shift the numbers: j is above k.
+  const spans = fullDiffSpans(FULL);
+  // Dragged up from k (new 11) to the deleted j (old 10): j is above k.
   expect(
-    rangeFromSelection(
-      { start: 11, side: "additions", end: 10, endSide: "deletions" },
-      fullDiffChangeBlocks(FULL),
-    ),
+    rangeFromSelection({ start: 11, side: "additions", end: 10, endSide: "deletions" }, spans),
   ).toEqual({ side: "new", line: 11, startSide: "old", startLine: 10 });
+  // g (old 7) is new 9, below the added y (new 8).
+  expect(
+    rangeFromSelection({ start: 7, side: "deletions", end: 8, endSide: "additions" }, spans),
+  ).toEqual({ side: "old", line: 7, startSide: "new", startLine: 8 });
 });
 
 test("describeLines names the lines and their side", () => {
