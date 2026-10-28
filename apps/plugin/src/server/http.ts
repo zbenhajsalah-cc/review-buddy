@@ -153,14 +153,18 @@ export function startServer(ctx: ServerContext): RunningServer {
       if (pathname === "/api/done" && req.method === "POST") {
         const len = Number(req.headers.get("content-length") ?? "0");
         if (len > MAX_DONE_BODY) return json({ error: "body too large" }, 413);
-        let raw: unknown = {};
-        try {
-          raw = await req.json();
-        } catch {
-          /* empty body is fine */
-        }
         // A malformed body is refused, not guessed at: the viewer shows the
-        // error and the reviewer can try again, and no comment is lost.
+        // error and the reviewer can try again, and no comment is lost. Only
+        // an empty body is a plain Done.
+        const text = await req.text();
+        let raw: unknown = {};
+        if (text.trim() !== "") {
+          try {
+            raw = JSON.parse(text);
+          } catch {
+            return json({ error: "body is not valid JSON" }, 400);
+          }
+        }
         const parsed = parseDoneResult(raw);
         if (!parsed.ok) return json({ error: parsed.error }, 400);
         const body: DoneResult = parsed.value;
