@@ -15,7 +15,7 @@ import {
   fileContent,
   resolveBase,
 } from "./git.ts";
-import { makeTempRepo } from "./test-repo.ts";
+import { makeTempRepo, testGit } from "./test-repo.ts";
 
 test("assertSafeRef rejects flag-smuggling refs, accepts real refs", () => {
   expect(() => assertSafeRef("-O/tmp/x")).toThrow();
@@ -88,6 +88,19 @@ test("captureDiff folds in multiple untracked files (concurrent, none dropped)",
   expect(diff).toContain("+++ b/u2.txt");
   expect(diff).toContain("+one");
   expect(diff).toContain("+two");
+  rmSync(repo, { recursive: true, force: true });
+});
+
+test("captureDiff against HEAD includes staged changes (the prompts' `git diff HEAD`)", async () => {
+  // The review prompts tell the agent to run `git diff HEAD` so its anchors match
+  // this capture. Plain `git diff` (index vs worktree) would miss a staged edit.
+  const repo = makeTempRepo("rb-staged-");
+  testGit(repo, "add", "app.ts"); // stage the whole pending edit
+  expect(testGit(repo, "diff")).toBe("");
+  const diff = await captureDiff(repo, "HEAD");
+  expect(diff).toContain("+++ b/app.ts");
+  expect(diff).toContain("+let y = 20;");
+  expect(diff).toContain("+let z = 3;");
   rmSync(repo, { recursive: true, force: true });
 });
 
