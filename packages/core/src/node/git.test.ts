@@ -11,6 +11,7 @@ import {
   captureDiff,
   capturePr,
   capturePrDiff,
+  EMPTY_TREE,
   ensureCommit,
   fileContent,
   resolveBase,
@@ -110,15 +111,20 @@ test("captureDiff vs HEAD is `git diff HEAD`: staged and unstaged changes", asyn
 });
 
 test("captureDiff with no commits yet is the diff against the empty tree", async () => {
+  // The prompts name the empty tree for this case: `git diff --cached` would show
+  // the staged bytes and miss an edit made after `git add`.
   const dir = mkdtempSync(join(tmpdir(), "rb-nohead-"));
   try {
     testGit(dir, "init", "-q");
-    writeFileSync(join(dir, "a.ts"), "one\n");
+    writeFileSync(join(dir, "a.ts"), "staged\n");
     testGit(dir, "add", "a.ts");
-    const emptyTree = testGit(dir, "hash-object", "-t", "tree", "/dev/null").trim();
+    writeFileSync(join(dir, "a.ts"), "edited\n");
+    expect(resolveBase(dir)).toBe(EMPTY_TREE);
+    expect(testGit(dir, "hash-object", "-t", "tree", "/dev/null").trim()).toBe(EMPTY_TREE);
     const diff = await captureDiff(dir, resolveBase(dir));
-    expect(diff).toBe(testGit(dir, "diff", "--no-color", emptyTree));
-    expect(diff).toContain("+one");
+    expect(diff).toBe(testGit(dir, "diff", "--no-color", EMPTY_TREE));
+    expect(diff).toContain("+edited");
+    expect(diff).not.toContain("+staged");
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
