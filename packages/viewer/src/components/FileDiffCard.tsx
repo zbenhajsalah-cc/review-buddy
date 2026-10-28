@@ -120,7 +120,7 @@ export const FileDiffCard = memo(function FileDiffCard({
       )}
     >
       {/* File header */}
-      <header className="flex items-center justify-between gap-3 border-b border-border bg-card px-3 py-2">
+      <header className="flex items-center justify-between gap-3 border-b border-border bg-secondary px-3 py-2">
         <div className="flex min-w-0 items-center gap-2">
           <Button
             variant="ghost"
@@ -132,12 +132,12 @@ export const FileDiffCard = memo(function FileDiffCard({
           >
             {collapsed ? "▸" : "▾"}
           </Button>
-          <span className="truncate font-mono text-sm" title={file.path}>
+          <span className="truncate font-mono text-[0.78rem]" title={file.path}>
             {file.old_path ? `${file.old_path} → ${file.path}` : file.path}
           </span>
           <Badge
             variant="outline"
-            className="shrink-0 rounded px-1.5 py-0.5 text-[0.62rem] uppercase"
+            className="shrink-0 rounded px-1.5 py-0.5 font-mono text-[0.6rem] uppercase tracking-[0.06em]"
           >
             {CHANGE_LABEL[file.change_type]}
           </Badge>

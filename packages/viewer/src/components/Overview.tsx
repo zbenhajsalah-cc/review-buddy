@@ -66,9 +66,15 @@ export function Overview({
   return (
     <div className="mx-auto max-w-3xl px-6 py-10">
       {/* PR header */}
-      <header className="mb-6">
+      <header className="mb-7">
+        <div className="mb-3 flex items-center gap-3 font-mono text-[0.66rem] uppercase tracking-[0.09em] text-muted-foreground">
+          <span>Prologue</span>
+          <span aria-hidden className="h-px flex-1 bg-border" />
+        </div>
         <div className="flex items-start justify-between gap-3">
-          <h1 className="text-2xl font-semibold tracking-tight">{pr.title || "Untitled review"}</h1>
+          <h1 className="font-serif text-[2.6rem] font-normal leading-[1.08] tracking-[-0.015em]">
+            {pr.title || "Untitled review"}
+          </h1>
           <div className="flex shrink-0 items-center gap-0.5">
             <CopyMarkdownButton
               ref={copyRef}
@@ -90,7 +96,7 @@ export function Overview({
             </Button>
           </div>
         </div>
-        <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-muted-foreground">
+        <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1 text-[0.82rem] text-muted-foreground">
           <span>{pr.author || "unknown"}</span>
           <span aria-hidden>·</span>
           <span className="font-mono text-xs">
@@ -115,7 +121,7 @@ export function Overview({
       </header>
 
       {warnings.length > 0 && (
-        <div className="mb-6 rounded-lg border border-border border-l-[3px] border-l-risk-medium p-3">
+        <div className="mb-6 rounded-xl border border-rb-focus-border border-l-[3px] border-l-risk-medium bg-rb-focus-bg p-3 text-rb-focus-fg">
           <button
             type="button"
             onClick={() => setWarningsOpen((o) => !o)}
@@ -170,14 +176,19 @@ export function Overview({
               ))}
             </ul>
           </Block>
-          <Block heading="Review focus">
-            <p>
+          {/* The one thing to read first: the warm counterweight to the
+              otherwise pine-and-grey page, with a pine spine. */}
+          <div className="rounded-xl border border-rb-focus-border border-l-[3px] border-l-primary bg-rb-focus-bg px-4 py-3.5">
+            <h3 className="mb-1.5 font-mono text-[0.66rem] font-medium uppercase tracking-[0.09em] text-rb-focus-label">
+              Review focus
+            </h3>
+            <p className="text-[0.95rem] leading-relaxed text-rb-focus-fg">
               <Markdown value={prologue.review_focus.summary} variant="inline" className="inline" />{" "}
-              <code className="rounded bg-muted px-1.5 py-0.5 font-mono text-xs">
+              <code className="mt-1.5 block font-mono text-xs text-rb-focus-fg/80">
                 {prologue.review_focus.file}
               </code>
             </p>
-          </Block>
+          </div>
         </section>
       ) : (
         <section>
@@ -190,11 +201,14 @@ export function Overview({
       )}
 
       {/* Chapter list */}
-      <h2 className="mt-10 mb-3 text-sm font-semibold uppercase tracking-wide text-muted-foreground">
-        {chapters.length} chapter{chapters.length === 1 ? "" : "s"}
-        {completedCount > 0 && ` · ${completedCount} of ${chapters.length} complete`}
+      <h2 className="mt-10 mb-3 flex items-center gap-3 font-mono text-[0.66rem] font-medium uppercase tracking-[0.09em] text-muted-foreground">
+        <span>
+          {chapters.length} chapter{chapters.length === 1 ? "" : "s"}
+          {completedCount > 0 && ` · ${completedCount} of ${chapters.length} complete`}
+        </span>
+        <span aria-hidden className="h-px flex-1 bg-border" />
       </h2>
-      <ol className="space-y-2.5">
+      <ol className="space-y-3">
         {chapters.map((ch, i) => {
           const { viewedCount, complete } = chapterProgress[i] ?? {
             viewedCount: 0,
@@ -205,18 +219,23 @@ export function Overview({
               <button
                 type="button"
                 onClick={() => onBeginReview(i)}
-                className="w-full rounded-xl border border-border bg-card p-4 text-left transition hover:shadow-sm"
+                className="w-full rounded-xl border border-border bg-card p-4 pb-3.5 text-left transition hover:border-primary/40 hover:shadow-sm"
               >
                 <div className="flex items-center justify-between gap-3">
                   <div className="flex items-center gap-2.5">
-                    <span className="font-mono text-xs text-muted-foreground">
-                      {String(ch.index).padStart(2, "0")}
+                    {/* The chapter numeral is the editorial anchor: serif, in
+                        the accent, dimmed once the chapter is complete. */}
+                    <span
+                      aria-hidden
+                      className={cn(
+                        "font-serif text-2xl leading-none",
+                        complete ? "text-muted-foreground" : "text-primary",
+                      )}
+                    >
+                      {ch.index}
                     </span>
                     <RiskBadge risk={ch.risk} />
                     {complete && <span aria-hidden>✓</span>}
-                    <span className={cn("font-medium", complete && "text-muted-foreground")}>
-                      {ch.title}
-                    </span>
                   </div>
                   <div className="flex items-center gap-3 whitespace-nowrap">
                     <DiffStat additions={ch.additions} deletions={ch.deletions} />
@@ -230,7 +249,17 @@ export function Overview({
                     )}
                   </div>
                 </div>
-                <p className="mt-2 line-clamp-2 text-sm text-muted-foreground">
+                {/* A span, not a heading: the card is a <button>, whose content
+                    model is phrasing only. */}
+                <span
+                  className={cn(
+                    "mt-2.5 block font-serif text-[1.4rem] font-normal leading-tight tracking-[-0.01em]",
+                    complete && "text-muted-foreground",
+                  )}
+                >
+                  {ch.title}
+                </span>
+                <p className="mt-1.5 line-clamp-2 text-sm text-muted-foreground">
                   <Markdown value={ch.description} variant="inline" className="inline" />
                 </p>
                 {viewedCount > 0 && ch.fileCount > 0 && (
@@ -282,8 +311,10 @@ function TabButton({
       type="button"
       onClick={onClick}
       className={cn(
-        "-mb-px border-b-2 px-3 py-2 text-sm font-medium transition",
-        active ? "border-primary text-foreground" : "border-transparent text-muted-foreground",
+        "-mb-px border-b-2 px-3 py-2 font-mono text-[0.7rem] uppercase tracking-[0.08em] transition",
+        active
+          ? "border-primary text-foreground"
+          : "border-transparent text-muted-foreground hover:text-foreground",
       )}
     >
       {children}
@@ -294,10 +325,10 @@ function TabButton({
 function Block({ heading, children }: { heading: string; children: React.ReactNode }) {
   return (
     <div>
-      <h3 className="mb-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+      <h3 className="mb-1.5 font-mono text-[0.66rem] font-medium uppercase tracking-[0.09em] text-muted-foreground">
         {heading}
       </h3>
-      <div className="text-[0.95rem] leading-relaxed">{children}</div>
+      <div className="text-[0.98rem] leading-[1.6]">{children}</div>
     </div>
   );
 }
