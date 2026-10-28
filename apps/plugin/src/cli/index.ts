@@ -5,20 +5,29 @@
  *   open-review (default)  Spawned by the PreToolUse hook. Reads the hook event
  *                          from stdin, captures the diff + PR (sources B/C),
  *                          resolves the agent review (A), serves it, opens the
- *                          browser, and BLOCKS until the reviewer clicks Done.
- *                          Returns permissionDecision "allow" (Phase 1); with
- *                          REVIEW_BUDDY_ROUNDTRIP set, a "request changes"
- *                          verdict returns "deny" + the reviewer's note (Phase 2 spike).
+ *                          browser, and BLOCKS until the reviewer finishes.
+ *                          "Request changes" returns permissionDecision "deny"
+ *                          with the reviewer's note and line comments as the
+ *                          reason; Done (approve) returns "allow", with any
+ *                          comments in additionalContext.
+ *                          REVIEW_BUDDY_ROUNDTRIP=0 turns this off: plain Done,
+ *                          always "allow" (Phase 1).
  *   dev --review <file>    Load an agent review JSON from a file and run the
  *                          same viewer against the current repo — for testing
- *                          the UI without going through the agent/hook.
+ *                          the UI without going through the agent/hook. Prints
+ *                          what the agent would get.
  */
 import { readFileSync } from "node:fs";
-import { requestChangesMessage, resolutionNotesMessage } from "@review-buddy/core/messages";
+import {
+  approvalMessage,
+  joinMessages,
+  requestChangesMessage,
+  resolutionNotesMessage,
+} from "@review-buddy/core/messages";
 import type { AgentReview } from "@review-buddy/core/types";
 import { validateAgentReview } from "@review-buddy/core/validate";
 import type { DoneResult } from "../server/http.ts";
-import { openReviewSession } from "../server/session.ts";
+import { openReviewSession, roundtripEnabled, type SessionOptions } from "../server/session.ts";
 
 interface HookEvent {
   tool_name?: string;
@@ -59,14 +68,18 @@ function respond(
 function allow(reason: string, additionalContext?: string): never {
   respond("allow", reason, additionalContext);
 }
-/** Block the tool call and hand the reason back to the agent (Phase 2 spike). */
+/** Block the tool call and hand the reason back to the agent ("request changes"). */
 function deny(reason: string, additionalContext?: string): never {
   respond("deny", reason, additionalContext);
 }
 
 /** Open a session (capture/resolve/serve/browser) and block until Done. */
-async function serveAndBlock(agent: AgentReview, cwd: string): Promise<ServeResult> {
-  const server = await openReviewSession(agent, cwd);
+async function serveAndBlock(
+  agent: AgentReview,
+  cwd: string,
+  opts: SessionOptions,
+): Promise<ServeResult> {
+  const server = await openReviewSession(agent, cwd, opts);
   const done = await server.done;
   const { warnings } = server;
   server.stop();
@@ -91,18 +104,20 @@ async function runOpenReview(): Promise<never> {
     allow("Review Buddy received no valid review payload; proceeding.");
   }
 
+  const roundtrip = roundtripEnabled();
   let result: ServeResult;
   try {
-    result = await serveAndBlock(agent as AgentReview, cwd);
+    result = await serveAndBlock(agent as AgentReview, cwd, { roundtrip });
   } catch (err) {
     console.error(`[review-buddy] Viewer error: ${String(err)}`);
     allow("Review Buddy hit an error rendering the review; proceeding.");
   }
   const notes = resolutionNotesMessage(result.warnings);
-  if (process.env.REVIEW_BUDDY_ROUNDTRIP && result.done.verdict === "request_changes") {
-    deny(requestChangesMessage(result.done.summary), notes);
-  }
-  allow("Review viewed by the human.", notes);
+  if (!roundtrip) allow("Review viewed by the human.", notes);
+  const { verdict, summary, comments } = result.done;
+  if (verdict === "request_changes") deny(requestChangesMessage(summary, comments), notes);
+  // An approval's reason only reaches the debug log; additionalContext reaches the agent.
+  allow("Review approved by the human.", joinMessages(approvalMessage(summary, comments), notes));
 }
 
 async function runDev(args: string[]): Promise<void> {
@@ -114,8 +129,16 @@ async function runDev(args: string[]): Promise<void> {
   const agent = JSON.parse(readFileSync(args[i + 1]!, "utf8")) as AgentReview;
   const cwdIdx = args.indexOf("--cwd");
   const cwd = cwdIdx !== -1 && args[cwdIdx + 1] ? args[cwdIdx + 1]! : process.cwd();
-  await serveAndBlock(agent, cwd);
-  console.error("[review-buddy] Done.");
+  const roundtrip = roundtripEnabled();
+  const { done } = await serveAndBlock(agent, cwd, { roundtrip });
+  const feedback = !roundtrip
+    ? undefined
+    : done.verdict === "request_changes"
+      ? requestChangesMessage(done.summary, done.comments)
+      : approvalMessage(done.summary, done.comments);
+  console.error(
+    feedback ? `[review-buddy] Done. The agent would get:\n\n${feedback}` : "[review-buddy] Done.",
+  );
   process.exit(0);
 }
 

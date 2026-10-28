@@ -29,11 +29,21 @@ function uiDir(): string | undefined {
   return existsSync(join(dir, "index.html")) ? dir : undefined;
 }
 
+/**
+ * Whether the reviewer's verdict and comments go back to the agent: on unless
+ * REVIEW_BUDDY_ROUNDTRIP is "0", "false", "off" or "no".
+ */
+export function roundtripEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
+  const value = env.REVIEW_BUDDY_ROUNDTRIP?.trim().toLowerCase();
+  return !(value && ["0", "false", "off", "no"].includes(value));
+}
+
 export interface SessionOptions {
   /**
-   * Show the verdict (approve / request changes) UI. Default: the
-   * REVIEW_BUDDY_ROUNDTRIP env flag. Standalone blocking mode forces it on —
-   * its whole point is returning the verdict to the agent.
+   * Show the verdict (approve / request changes) UI. Default:
+   * `roundtripEnabled()`. Standalone mode decides itself: blocking forces it
+   * on (its whole point is returning the verdict), detached forces it off
+   * (nothing can carry a verdict back).
    */
   roundtrip?: boolean;
 }
@@ -69,7 +79,7 @@ export async function openReviewSession(
     cwd,
     source,
     uiDir: uiDir(),
-    roundtrip: opts.roundtrip ?? !!process.env.REVIEW_BUDDY_ROUNDTRIP,
+    roundtrip: opts.roundtrip ?? roundtripEnabled(),
   });
   console.error(`[review-buddy] Review ready at ${server.url}`);
   if (process.env.REVIEW_BUDDY_NO_OPEN) {

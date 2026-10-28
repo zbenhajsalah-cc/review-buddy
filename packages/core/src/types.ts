@@ -175,6 +175,41 @@ export interface ResolvedReview {
 }
 
 /* ------------------------------------------------------------------ */
+/* Reviewer → agent (POST /api/done): the verdict and line comments     */
+/* ------------------------------------------------------------------ */
+
+/** Which side of the diff a line number counts on: base ("old") or changed ("new"). */
+export type CommentSide = "old" | "new";
+
+/**
+ * A reviewer's comment on diff lines. `side` + `line` is its last line;
+ * `startSide` + `startLine` its first, only when it covers more than one line.
+ * Lines are references into the real diff (source B), never their text.
+ */
+export interface ReviewComment {
+  /** The chapter's stable `index`: a file can be in two chapters. */
+  chapterIndex: number;
+  path: string;
+  side: CommentSide;
+  line: number;
+  startSide?: CommentSide;
+  startLine?: number;
+  /** Markdown. */
+  body: string;
+}
+
+export type ReviewVerdict = "approve" | "request_changes";
+
+/** What the viewer sends when the reviewer finishes. Empty = Done with no round-trip. */
+export interface DoneResult {
+  verdict?: ReviewVerdict;
+  /** The reviewer's overall note (Markdown), with "request changes". */
+  summary?: string;
+  /** Line comments, sent with the verdict when round-trip is on. */
+  comments?: ReviewComment[];
+}
+
+/* ------------------------------------------------------------------ */
 /* Client-only view state (source D — cookies/localStorage)            */
 /* ------------------------------------------------------------------ */
 

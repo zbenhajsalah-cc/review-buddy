@@ -221,17 +221,32 @@ describe("HTTP server", () => {
     expect(res.headers.get("x-content-type-options")).toBe("nosniff");
   });
 
+  test("POST /api/done refuses a malformed body and keeps waiting", async () => {
+    const res = await authed("api/done", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ verdict: "approve", comments: [{ path: "app.ts" }] }),
+    });
+    expect(res.status).toBe(400);
+    expect(((await res.json()) as { error: string }).error).toContain("comments.0");
+    const settled = await Promise.race([
+      server.done.then(() => true),
+      Bun.sleep(100).then(() => false),
+    ]);
+    expect(settled).toBe(false);
+  });
+
   test("POST /api/done unblocks the hook", async () => {
     const res = await (
       await authed("api/done", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ verdict: "approve" }),
+        // A client cannot claim the server stopped: unknown keys are dropped.
+        body: JSON.stringify({ verdict: "approve", superseded: true }),
       })
     ).json();
     expect(res.ok).toBe(true);
-    const done = await server.done;
-    expect(done.verdict).toBe("approve");
+    expect(await server.done).toEqual({ verdict: "approve" });
   });
 
   test("POST /api/done rejects an oversized body (content-length guard)", async () => {
