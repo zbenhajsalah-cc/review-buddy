@@ -170,6 +170,34 @@ describe("ReviewCache", () => {
     expect(cache.newestFor("octo/repo#12")!.doneAt).toBeUndefined();
   });
 
+  test("the posted review is kept in the index, with the commit (US-20)", async () => {
+    const { save, cache, reopen, dir } = await setup();
+    const key = await save("octo/repo#12", B);
+    const posted = {
+      verdict: "approve" as const,
+      postedAt: "2026-10-27T12:00:00.000Z",
+      url: "https://github.com/octo/repo/pull/12#pullrequestreview-1",
+      login: "octocat",
+    };
+    expect(await cache.markPosted(key, posted)).toBe(true);
+    expect(await cache.markPosted("nope", posted)).toBe(false);
+    const again = await reopen();
+    expect(again.info(key)?.posted).toEqual(posted);
+    expect(again.newestFor("octo/repo#12")?.posted).toEqual(posted);
+    // A new review of the same head keeps it; another commit has none.
+    await save("Octo/Repo#12", B);
+    expect(cache.list()[0]!.posted).toEqual(posted);
+    await save("octo/repo#12", A);
+    expect(cache.newestFor("octo/repo#12")!.posted).toBeUndefined();
+    // A damaged record on disk is dropped, the review stays.
+    const index = JSON.parse(readFileSync(join(dir, "index.json"), "utf8"));
+    for (const entry of index) entry.posted = { ...posted, url: "https://evil.example/" };
+    writeFileSync(join(dir, "index.json"), JSON.stringify(index));
+    const third = await reopen();
+    expect(third.list()).toHaveLength(2);
+    expect(third.list().every((info) => info.posted === undefined)).toBe(true);
+  });
+
   test("a review deleted while it is read is not returned", async () => {
     const { save, cache } = await setup();
     const key = await save("octo/repo#12", B);

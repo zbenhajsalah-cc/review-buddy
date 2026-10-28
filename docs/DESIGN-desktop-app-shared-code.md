@@ -117,7 +117,7 @@ not optional, because the desktop renderer talks to main over **IPC**, not
 | `session.ts` | Reads `?token=` from the URL | Only used by `httpReviewApi` |
 | `lib/chapterFileSet.ts` | localStorage key = `rb.viewed.<token>` | Key by `reviewKey` from context (token in the plugin; `owner/repo#n@sha` in desktop) |
 | `FileDiffCard.tsx` | Imports `fetchFileContent` | Read it from context |
-| `ChapterReview.tsx` | Imports `fetchConfig` / `postDone` | Read them from context. In desktop, "Done" marks the review finished (later: post a GitHub review) |
+| `ChapterReview.tsx` | Imports `fetchConfig` / `postDone` | Read them from context. In desktop, "Done" marks the review finished; posting it as a GitHub review is the app's own step from the Done bar (US-20), not in the viewer |
 | `App.tsx` | Loads one review on mount | Becomes `<ReviewViewer api />`; each app has its own shell |
 
 ```ts

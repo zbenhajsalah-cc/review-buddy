@@ -25,7 +25,7 @@ type Size = NonNullable<PullSummary["size"]>;
 
 export interface GitHubPullsDeps extends ListCallDeps {
   /** The newest review the app has for `owner/repo#123`. */
-  reviewOf(label: string): { reviewKey: string; headSha: string } | undefined;
+  reviewOf(label: string): PullSummary["review"];
   /** How long one size read may take (tests shorten it). */
   sizeTimeoutMs?: number;
 }

@@ -123,7 +123,8 @@ export function GitHubSettings({
                   >
                     Create a fine-grained token
                   </a>{" "}
-                  with read access to Contents, Pull requests and Metadata.{" "}
+                  with read access to Contents, Pull requests and Metadata (Pull requests: read and
+                  write, to post your reviews).{" "}
                   {status.tokenStorage === "encrypted"
                     ? "It is saved encrypted by your OS keychain."
                     : "No OS keychain is available, so it is kept for this run only."}

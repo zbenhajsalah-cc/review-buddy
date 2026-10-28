@@ -15,7 +15,9 @@ and can try again after a failure. The "Sample review" tab shows a fixed review
 (`src/main/fixture/review.json`) until you follow a review. The settings view
 connects GitHub (see "GitHub login"). Finished reviews are saved, so a PR
 reviewed before opens at once, also after a restart; your viewed files and
-**Done** are kept too (see "Saved reviews").
+**Done** are kept too (see "Saved reviews"). From **Done**, you can post your
+verdict and notes to the PR as a GitHub review, after a confirm step (see
+"Posting a review").
 
 ## Run it
 
@@ -172,7 +174,9 @@ Open it with the button at the top right ("Connect GitHub", or
 
 1. **A token you pasted** in the settings. Create a
    [fine-grained token](https://github.com/settings/personal-access-tokens/new)
-   with read access to Contents, Pull requests and Metadata.
+   with read access to Contents, Pull requests and Metadata. To post your
+   reviews to GitHub (see "Posting a review"), Pull requests needs **Read and
+   write**.
 2. **The GitHub CLI**, if `gh` is installed and logged in (`gh auth token`).
    Nothing to set up. A packaged app does not get your shell's PATH, so the app
    also looks in `/opt/homebrew/bin`, `/usr/local/bin` and the other usual
@@ -341,6 +345,59 @@ Outdated, Open review, the banner, the no-run reopen, Delete and Delete all.
 `review-e2e` marks a file viewed and presses **Done**, restarts the app, and
 checks the PR is still done, the review opens with the file still viewed,
 "expand full file" works, and no agent ran.
+
+## Posting a review (US-20)
+
+Once a review is marked **Done**, its bar has **Post to GitHub…**. It opens a
+window with two steps, and nothing is posted before the second:
+
+1. **Write:** the verdict (**Approve**, **Request changes**, or **Comment**:
+   only your text), a summary (Markdown; needed for Request changes and
+   Comment, as GitHub wants; the chapter list alone does not count), and, if
+   you like, **the list of chapters** (title, risk and size of each; never
+   diff lines).
+2. **Check and post:** the PR, the verdict, the login it posts as, the commit,
+   and **the exact text** that is posted. **Post to GitHub** sends it; **Back**
+   goes back to editing.
+
+What main does (`src/main/github/post-review.ts`):
+
+- It posts only a review it has (the renderer names it by its key) and only
+  the text the confirm step showed: `POST /repos/{o}/{r}/pulls/{n}/reviews`
+  with `commit_id` = the commit the app reviewed, `event` = `APPROVE`,
+  `REQUEST_CHANGES` or `COMMENT`, and `body`. Nothing is added to the text.
+- **Outdated:** first it reads the PR. If its head is no longer that commit,
+  it posts nothing and says so ("… has new commits since this review").
+- **Your own PR:** GitHub lets its author only comment, so the window offers
+  only **Comment** when the PR's author is your login.
+- **Errors** are said in words, and say that nothing was posted. A token that
+  cannot write (403/404) gets what it needs: a fine-grained token
+  "Pull requests: Read and write", a classic token the `repo` scope
+  (`public_repo` for a public repository). A 401 signs the app out, as
+  everywhere, and the window reads the GitHub status again, so the app shows
+  it is signed out and posting is off. If the connection breaks during the POST, it says the review
+  may have been posted, and to look at the PR before posting again.
+- One post per review at a time (a double click cannot post twice).
+- **Kept:** the last post (verdict, time, login, link) is saved with the
+  review (`posted` in the index) and belongs to the commit, like Done. The bar
+  then says "Approved on GitHub … as @you: view it", and the button becomes
+  **Post again…**. The PR list shows **Approved on GitHub** (or Changes
+  requested, Commented) instead of **Done ✓**; Settings → Saved reviews too.
+
+**Tests:** `post-review.test.ts` (each verdict and its payload, an approval
+with no text, outdated, signed out, a rejected token, GitHub's 422 reason, a
+read-only token, the rate limit, a broken connection, a link not on
+github.com, one post at a time, no record after a failure);
+`review-cache.test.ts` and `reviews.test.ts` (the record is kept, carried to a
+new review of the same commit, and dropped with the review);
+`PostReview.test.ts` (the text, the chapter list, the checks). The smoke test
+posts a review against the fake GitHub: Request changes needs a summary (the
+chapter list is not one), the confirm step shows the exact text and nothing is
+posted before it, a refused post shows GitHub's answer, a token that expires
+during a post signs the app out and turns posting off, and the posted payload
+is exactly the text shown, on the reviewed commit; then the bar and the PR
+list say so. After a page reload, a saved review that a job reopens still has
+its Done bar and **Post again…** (Done is read from the saved reviews).
 
 ## Reading a PR (`GitHubApiSource`)
 

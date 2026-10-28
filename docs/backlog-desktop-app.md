@@ -650,3 +650,26 @@ Acceptance criteria:
 - From "Done", the user can approve or request changes with a summary, posted
   as a GitHub PR review.
 - Nothing is posted without a clear confirmation step.
+- Decisions made while building it:
+  - The window is the desktop app's own (`PostReview.tsx`), opened from the
+    Done bar above the review: the viewer package and the plugin are not
+    changed. The viewer's own verdict buttons stay off in the app
+    (`roundtrip: false`).
+  - A third verdict, **Comment** (GitHub's `COMMENT`): GitHub lets a PR's
+    author only comment, so for your own PR it is the only choice.
+  - Two steps: write, then check. The check shows the PR, the verdict, the
+    login, the commit and the exact text; main posts exactly that text
+    (nothing added, no footer). An optional list of the chapters (title,
+    risk, size; never diff lines) can be added to the text.
+  - The review goes on the commit the app reviewed (`commit_id`). Main reads
+    the PR first and posts nothing if its head moved.
+  - Failures are answers that say "Nothing was posted", except a connection
+    that broke during the POST, which says the review may be on GitHub. A
+    token that cannot write gets what it needs (fine-grained: "Pull requests:
+    Read and write"; classic: `repo` / `public_repo`). The token help in
+    Settings and the README says so.
+  - The last post is saved with the review (`posted`: verdict, time, login,
+    link) and belongs to the commit, like Done. The bar, the PR list and the
+    saved reviews list show it; posting again is allowed (**Post again…**).
+  - Checked with unit tests and the smoke test against a fake GitHub. Not
+    checked against the real GitHub from here (it would post on a real PR).

@@ -22,6 +22,8 @@ export const IPC = {
   clones: "review:clones",
   deleteClone: "review:delete-clone",
   deleteAllClones: "review:delete-all-clones",
+  postReview: "review:post",
+  postedReview: "review:posted",
   /** Main → renderer: the job list changed (an event, not a call). */
   reviewJobsChanged: "review:jobs-changed",
   githubStatus: "github:status",
@@ -54,6 +56,40 @@ export interface IpcDoneResult {
   verdict?: "approve" | "request_changes";
   summary?: string;
 }
+
+/**
+ * A review posted to GitHub (US-20): "approve" and "request_changes" are a
+ * verdict, "comment" only adds the text. GitHub does not let a PR's author
+ * approve it or request changes on it.
+ */
+export type PostVerdict = "approve" | "request_changes" | "comment";
+
+/** What the reviewer posts: exactly this text, with this verdict. */
+export interface PostReviewRequest {
+  verdict: PostVerdict;
+  /** Markdown; may be empty only to approve. */
+  body: string;
+}
+
+/** A review the app posted to GitHub (the last one, kept with the saved review). */
+export interface PostedReview {
+  verdict: PostVerdict;
+  /** ISO time. */
+  postedAt: string;
+  /** The review on GitHub. */
+  url: string;
+  /** The GitHub login that posted it. */
+  login: string;
+}
+
+/**
+ * The answer to a post. Failures are answers, not rejections: "outdated" (the
+ * PR has new commits since the review), "signed-out", "token-rejected"
+ * (main has signed out), "failed" (anything else; `error` says what).
+ */
+export type PostReviewResult =
+  | { ok: true; posted: PostedReview }
+  | { ok: false; reason: "outdated" | "signed-out" | "token-rejected" | "failed"; error: string };
 
 /**
  * Where a review is (US-15), in order: reading the PR from GitHub, Claude
@@ -112,6 +148,8 @@ export interface SavedReviewInfo {
   bytes: number;
   /** When the reviewer pressed Done (US-17). */
   doneAt?: string;
+  /** The last review posted to GitHub for this commit (US-20). */
+  posted?: PostedReview;
 }
 
 /**
@@ -159,6 +197,14 @@ export interface ReviewBridge {
   deleteClone(repo: string): Promise<CloneInfo[]>;
   /** Deletes every copy no review is using. */
   deleteAllClones(): Promise<CloneInfo[]>;
+  /**
+   * Posts a review of this PR head to GitHub (US-20), as the app's GitHub
+   * login, after the user confirmed it. Main refuses it if the PR has new
+   * commits since: the review is about the commit it was made for.
+   */
+  post(reviewKey: string, request: PostReviewRequest): Promise<PostReviewResult>;
+  /** The last review posted for this one, if any. */
+  posted(reviewKey: string): Promise<PostedReview | null>;
 }
 
 /**
@@ -215,7 +261,7 @@ export interface PullSummary {
   /** From the PR itself (the list has no sizes); missing if that read failed. */
   size?: { additions: number; deletions: number; changedFiles: number };
   /** The newest review made in the app for this PR, at whatever head it had. */
-  review?: { reviewKey: string; headSha: string; doneAt?: string };
+  review?: { reviewKey: string; headSha: string; doneAt?: string; posted?: PostVerdict };
 }
 
 /** One page of a repository's open PRs, most recently updated first. */
