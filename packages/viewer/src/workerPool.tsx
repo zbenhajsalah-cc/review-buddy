@@ -4,8 +4,8 @@ import { WorkerPoolContextProvider } from "@pierre/diffs/react";
 // compatible with the viewer CSP (default-src 'self'; blob:/data: workers blocked).
 // @ts-expect-error Vite ?worker virtual module (no ambient types in this package)
 import DiffsWorker from "@pierre/diffs/worker/worker.js?worker";
-import type { ReactNode } from "react";
-import { DEFAULT_SETTINGS, granularityToLineDiffType, THEME } from "./settings.ts";
+import { type ReactNode, useState } from "react";
+import { diffThemes, granularityToLineDiffType, readDisplaySettings } from "./settings.ts";
 
 const poolOptions: WorkerPoolOptions = {
   poolSize: Math.min(Math.max(1, (globalThis.navigator?.hardwareConcurrency ?? 2) - 1), 3),
@@ -13,31 +13,41 @@ const poolOptions: WorkerPoolOptions = {
   workerFactory: () => new DiffsWorker() as Worker,
 };
 
-const highlighterOptions: WorkerInitializationRenderOptions = {
-  preferredHighlighter: "shiki-js",
-  // Must match toDiffOptions' theme: while the pool is working, @pierre/diffs
-  // highlights with the POOL's render options, not the card's. Leaving it unset
-  // defaults the pool to pierre-dark/pierre-light, so worker-highlighted diffs
-  // came out in different colors than the main-thread fallback's GitHub themes.
-  theme: THEME,
-  lineDiffType: granularityToLineDiffType(DEFAULT_SETTINGS.granularity),
-  langs: [
-    "typescript",
-    "tsx",
-    "javascript",
-    "json",
-    "css",
-    "html",
-    "python",
-    "go",
-    "rust",
-    "sh",
-    "yaml",
-    "markdown",
-  ],
-};
+const LANGS: WorkerInitializationRenderOptions["langs"] = [
+  "typescript",
+  "tsx",
+  "javascript",
+  "json",
+  "css",
+  "html",
+  "python",
+  "go",
+  "rust",
+  "sh",
+  "yaml",
+  "markdown",
+];
+
+/**
+ * Start the pool on the reviewer's saved theme + granularity. The theme must
+ * match toDiffOptions': while the pool is working, @pierre/diffs highlights
+ * with the POOL's render options, not the card's (left unset, the pool fell
+ * back to pierre-dark/pierre-light while the main-thread fallback used the
+ * cards' theme). useDisplaySettings keeps the pool in step after that.
+ */
+function initialHighlighterOptions(): WorkerInitializationRenderOptions {
+  const settings = readDisplaySettings();
+  return {
+    preferredHighlighter: "shiki-js",
+    theme: diffThemes(settings),
+    lineDiffType: granularityToLineDiffType(settings.granularity),
+    langs: LANGS,
+  };
+}
 
 export function ReviewWorkerPoolProvider({ children }: { children: ReactNode }) {
+  // The provider reads its options once, on first render.
+  const [highlighterOptions] = useState(initialHighlighterOptions);
   return (
     <WorkerPoolContextProvider poolOptions={poolOptions} highlighterOptions={highlighterOptions}>
       {children}

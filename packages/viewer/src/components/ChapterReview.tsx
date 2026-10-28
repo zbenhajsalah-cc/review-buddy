@@ -1,5 +1,6 @@
 import type { ResolvedChapter, ResolvedReview } from "@review-buddy/core/types";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { codeFontStyle } from "../appearance.ts";
 import { clearReviewFileState, useCollapsedFiles, useViewedFiles } from "../lib/chapterFileSet.ts";
 import { chapterToMarkdown } from "../lib/reviewMarkdown.ts";
 import { useChapterShortcuts } from "../lib/useChapterShortcuts.ts";
@@ -101,6 +102,9 @@ function ChapterReviewBody({
   const api = useReviewApi();
   const [filter, setFilter] = useState("");
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
+  // Like the shortcuts dialog, the theme & font popover pauses shortcuts while
+  // open, so keys pressed in it don't also act on files or chapters.
+  const [appearanceOpen, setAppearanceOpen] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [submitted, setSubmitted] = useState(false);
   // afterDone "keep": done, but the review stays open (desktop).
@@ -120,7 +124,12 @@ function ChapterReviewBody({
   const { focusedPath, focusedPathRef, focus, move } = useFileFocus(filePaths);
   const prev = chapters[position - 1];
   const next = chapters[position + 1];
-  const shortcutsActive = !submitted && !shortcutsOpen;
+  const shortcutsActive = !submitted && !shortcutsOpen && !appearanceOpen;
+  const { font, fontSize, ligatures } = settings;
+  const fontStyle = useMemo(
+    () => codeFontStyle({ font, fontSize, ligatures }),
+    [font, fontSize, ligatures],
+  );
 
   // Verdict UI is gated by REVIEW_BUDDY_ROUNDTRIP; the server exposes it via /api/config.
   useEffect(() => {
@@ -339,8 +348,13 @@ function ChapterReviewBody({
         </aside>
 
         {/* Right diff pane */}
-        <div className="flex min-w-0 flex-1 flex-col">
-          <DisplaySettingsBar settings={settings} update={updateSettings} />
+        <div className="flex min-w-0 flex-1 flex-col" style={fontStyle}>
+          <DisplaySettingsBar
+            settings={settings}
+            update={updateSettings}
+            appearanceOpen={appearanceOpen}
+            onAppearanceOpenChange={setAppearanceOpen}
+          />
           {/* Padding on the inner list, not the scroller: a sticky file header
               sticks inside the scroller's padding, so diff lines would show
               in the gap above it. */}

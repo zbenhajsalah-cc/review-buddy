@@ -138,8 +138,10 @@ export type ShortcutHandler = {
 /**
  * Register a single document-level keydown listener for a table of bindings
  * keyed by catalog id. Resolves each id to `SHORTCUTS[id].keys` so call sites
- * never restate keys. Ignores modifier combos and typing targets so
- * filter/verdict inputs keep their normal key behavior. Bindings are kept in
+ * never restate keys. Ignores modifier combos, typing targets (so
+ * filter/verdict inputs keep their normal key behavior) and keys another
+ * handler already claimed with preventDefault — e.g. Esc closing a Radix
+ * dialog/popover must not also leave the chapter. Bindings are kept in
  * a ref so callers can pass an inline record (and unmemoized handlers) without
  * re-registering. Catalog ids own disjoint key sets; first match wins;
  * nothing matched ⇒ no preventDefault. Entries with `enabled: false` are skipped.
@@ -155,6 +157,7 @@ export function useShortcuts(
     if (!enabled) return;
 
     const onKeyDown = (event: KeyboardEvent) => {
+      if (event.defaultPrevented) return;
       if (event.ctrlKey || event.metaKey || event.altKey) return;
       if (isTypingTarget(event.target)) return;
       if ((event.key === "Enter" || event.key === " ") && isNativeActivationTarget(event.target)) {

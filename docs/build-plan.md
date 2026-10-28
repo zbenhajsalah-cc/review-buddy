@@ -72,6 +72,15 @@ narrative + inventory only, never hunk bytes); and the **agent feedback loop** �
 through the hook's `hookSpecificOutput.additionalContext` (Claude Code) or the tool-result
 text (standalone), capped so it can't flood the agent's context.
 
+**Theme & font picker ✅ shipped** (post-Phase 1): the toolbar's Theme toggle became a
+"Theme & font" popover — color mode, a light and a dark syntax theme (all 69 themes
+`@pierre/diffs` can render; catalog in `packages/viewer/src/appearance.ts`), and the code
+font (JetBrains Mono by default, 7 more free OFL fonts self-hosted in
+`packages/viewer/src/fonts/`, or the system monospace) with size + ligature controls and a
+live preview; GitHub themes and JetBrains Mono stay the defaults. Keyboard shortcuts now
+skip keys a dialog/popover already handled (`preventDefault`), so Esc closes the overlay
+without also leaving the chapter.
+
 ## Phase 2 — Progress & round-trip
 
 - Persist viewed state (files/chapters) → `POST /api/file-viewed`; reflect in
