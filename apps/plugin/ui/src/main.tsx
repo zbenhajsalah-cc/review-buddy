@@ -1,15 +1,14 @@
 import { ReviewViewer, ReviewWorkerPoolProvider } from "@review-buddy/viewer";
-import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import "./index.css";
 import { httpReviewApi } from "./http-review-api.ts";
 
+// No <StrictMode>, and the pool provider at the root — see the note in
+// apps/desktop/src/renderer/src/main.tsx. The shipped viewer is a production
+// build, where StrictMode is inert, but `pnpm dev` here would hit the same
+// silently-unhighlighted diffs.
 createRoot(document.getElementById("root")!).render(
-  <StrictMode>
-    {/* Keeps the @pierre/diffs worker pool alive for the page's lifetime —
-        see the note in apps/desktop/src/renderer/src/main.tsx. */}
-    <ReviewWorkerPoolProvider>
-      <ReviewViewer api={httpReviewApi} />
-    </ReviewWorkerPoolProvider>
-  </StrictMode>,
+  <ReviewWorkerPoolProvider>
+    <ReviewViewer api={httpReviewApi} />
+  </ReviewWorkerPoolProvider>,
 );
