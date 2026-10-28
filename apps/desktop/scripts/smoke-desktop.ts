@@ -241,6 +241,9 @@ try {
   // and the review stays open (US-17).
   await page.getByRole("switch", { name: "viewed" }).first().click();
   await page.getByRole("button", { name: /^done/i }).first().click();
+  // Not every file is marked viewed, so the viewer asks first.
+  await page.getByText(/Viewed \d+ of \d+ files?\. Finish anyway\?/).waitFor();
+  await page.getByRole("button", { name: "Finish anyway" }).click();
   await page.getByRole("button", { name: "Done ✓" }).waitFor();
   await page.waitForTimeout(300);
   check(mainLog.join("").includes("review fixture done"), "Done reaches main over IPC");
@@ -494,6 +497,8 @@ try {
   await page.getByText("Retry backoff with jitter").first().click();
   await page.getByRole("switch", { name: "viewed" }).first().click();
   await page.getByRole("button", { name: "Done", exact: true }).click();
+  // Not every file is marked viewed, so the viewer asks first.
+  await page.getByRole("button", { name: "Finish anyway" }).click();
   await page.getByRole("button", { name: "Done ✓" }).waitFor();
   await page.getByText(/^You marked this review done/).waitFor();
   await page.getByRole("button", { name: "octo-org/widgets", exact: true }).click();
