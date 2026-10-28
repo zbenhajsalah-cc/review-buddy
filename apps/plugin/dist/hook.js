@@ -15165,10 +15165,15 @@ function startServer(ctx) {
         const len = Number(req.headers.get("content-length") ?? "0");
         if (len > MAX_DONE_BODY)
           return json2({ error: "body too large" }, 413);
+        const text = await req.text();
         let raw = {};
-        try {
-          raw = await req.json();
-        } catch {}
+        if (text.trim() !== "") {
+          try {
+            raw = JSON.parse(text);
+          } catch {
+            return json2({ error: "body is not valid JSON" }, 400);
+          }
+        }
         const parsed = parseDoneResult(raw);
         if (!parsed.ok)
           return json2({ error: parsed.error }, 400);
