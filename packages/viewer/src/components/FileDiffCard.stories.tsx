@@ -16,6 +16,9 @@ const meta = {
     collapsed: false,
     onViewedChange: () => {},
     onSetCollapsed: () => {},
+    onAddComment: () => {},
+    onEditComment: () => {},
+    onDeleteComment: () => {},
   },
 } satisfies Meta<typeof FileDiffCard>;
 
@@ -34,5 +37,30 @@ export const Viewed: Story = {
 export const Binary: Story = {
   args: {
     file: { ...fakeResolvedFile, binary: true, hunks: [] },
+  },
+};
+
+export const WithComments: Story = {
+  args: {
+    comments: [
+      {
+        id: "c1",
+        chapterIndex: 1,
+        path: fakeResolvedFile.path,
+        side: "new",
+        line: 11,
+        body: "Is the comma on purpose? The **tests** still expect `hello`.",
+      },
+      {
+        id: "c2",
+        chapterIndex: 1,
+        path: fakeResolvedFile.path,
+        side: "new",
+        line: 13,
+        startSide: "new",
+        startLine: 10,
+        body: "This function could take the name as a parameter.",
+      },
+    ],
   },
 };

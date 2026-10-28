@@ -107,7 +107,11 @@ current chapter as Markdown (narrative + file inventory only — the reference-n
 rule applies to the clipboard too); "Begin review" continues at the first chapter not
 complete; file headers are sticky; the review-focus file opens its chapter at that file; the
 chapter's file list shows folders and has Collapse all / Hide viewed files; Done asks first
-while files are not marked viewed; the plugin keeps the chapter in the URL hash and names
+while files are not marked viewed; **line comments** (Phase 2's first part: the gutter "+"
+of `@pierre/diffs` opens one on a line or a dragged range; shown under the line as an
+annotation, edit/delete, listed in the sidebar, counted on the overview, included in the
+copied Markdown; kept in localStorage per review like viewed state, `lib/comments.ts`;
+not sent to the agent yet, so the plugin's Done offers to copy them first); the plugin keeps the chapter in the URL hash and names
 the tab after it (`<ReviewViewer urlHash tabTitle />`; both off in desktop, where one window
 shows many reviews) and asks before the tab closes without Done; a "Theme & font" popover
 picks the light/dark syntax themes (any `@pierre/diffs`/Shiki theme) and the code font, size

@@ -2,6 +2,7 @@
 import { afterEach, expect, mock, test } from "bun:test";
 import { act, cleanup, fireEvent, screen } from "@testing-library/react";
 import { renderWithApi } from "../../test/render.tsx";
+import { commentsToMarkdown, type LineComment } from "../lib/comments.ts";
 import { fakeResolvedReview, fakeReviewApi } from "../stories/fixtures.ts";
 
 mock.module("@pierre/diffs/react", () => ({
@@ -14,11 +15,13 @@ const { ChapterReview } = await import("./ChapterReview.tsx");
 // fakeReviewApi()'s reviewKey is "fake-review".
 const VIEWED_KEY = "rb.viewed.fake-review";
 const COLLAPSED_KEY = "rb.collapsed.fake-review";
+const COMMENTS_KEY = "rb.comments.fake-review";
 
 afterEach(() => {
   cleanup();
   localStorage.removeItem(VIEWED_KEY);
   localStorage.removeItem(COLLAPSED_KEY);
+  localStorage.removeItem(COMMENTS_KEY);
   // biome-ignore lint/suspicious/noDocumentCookie: drop the "hide viewed" preference
   document.cookie = "rb.hideViewed=; path=/; max-age=0";
 });
@@ -433,4 +436,99 @@ test("Esc closes the theme & font popover without leaving the chapter", async ()
   });
   expect(screen.queryByLabelText("Font")).toBeNull();
   expect(onExit).toHaveBeenCalledTimes(0);
+});
+
+const ALL_VIEWED = ["1:src/example.ts", `2:${MIDDLEWARE}`, `2:${SESSION}`, "3:src/jobs/backoff.ts"];
+const COMMENTS: LineComment[] = [
+  { id: "a", chapterIndex: 2, path: SESSION, side: "new", line: 9, body: "Expiry in seconds?" },
+  { id: "b", chapterIndex: 2, path: MIDDLEWARE, side: "old", line: 3, body: "Why drop this?" },
+  {
+    id: "c",
+    chapterIndex: 1,
+    path: "src/example.ts",
+    side: "new",
+    line: 11,
+    body: "Other chapter",
+  },
+];
+
+test("the sidebar lists this chapter's comments, in file order", () => {
+  localStorage.setItem(COMMENTS_KEY, JSON.stringify(COMMENTS));
+  renderChapter2();
+  expect(screen.getByText("2 comments")).toBeDefined();
+  const items = [...document.querySelectorAll("aside li button[title*=', line']")].map(
+    (b) => b.textContent,
+  );
+  expect(items).toEqual(["middleware.ts:3Why drop this?", "session.ts:9Expiry in seconds?"]);
+  expect(screen.queryByText("Other chapter")).toBeNull();
+});
+
+test("opening a comment from the list shows, opens and focuses its file", () => {
+  localStorage.setItem(COMMENTS_KEY, JSON.stringify(COMMENTS));
+  localStorage.setItem(VIEWED_KEY, JSON.stringify([`2:${SESSION}`]));
+  localStorage.setItem(COLLAPSED_KEY, JSON.stringify([`2:${SESSION}`]));
+  renderChapter2();
+  fireEvent.click(screen.getByRole("switch", { name: "Hide viewed files" }));
+  fireEvent.change(screen.getByPlaceholderText("Filter files…"), {
+    target: { value: "middleware" },
+  });
+  expect(card(SESSION)).toBeNull();
+
+  fireEvent.click(screen.getByText("Expiry in seconds?"));
+  expect(inCard(SESSION, "[data-focused]")).not.toBeNull();
+  expect(inCard(SESSION, "[hidden]")).toBeNull(); // opened
+  expect((screen.getByPlaceholderText("Filter files…") as HTMLInputElement).value).toBe("");
+});
+
+test("Done with comments asks first, as they are not sent, and offers to copy them", async () => {
+  localStorage.setItem(VIEWED_KEY, JSON.stringify(ALL_VIEWED));
+  localStorage.setItem(COMMENTS_KEY, JSON.stringify(COMMENTS));
+  const writeText = mock(() => Promise.resolve());
+  Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText } });
+  const done = mock(async () => {});
+  renderWithApi(
+    <ChapterReview
+      review={fakeResolvedReview}
+      position={0}
+      onNavigate={() => {}}
+      onExit={() => {}}
+    />,
+    fakeReviewApi({ overrides: { done } }),
+  );
+  fireEvent.click(screen.getByRole("button", { name: "Done" }));
+  expect(
+    screen.getByText("Done does not send your 3 comments, and clears them. Finish anyway?"),
+  ).toBeDefined();
+
+  await act(async () => {
+    fireEvent.click(screen.getByRole("button", { name: "Copy all comments as Markdown" }));
+  });
+  expect(writeText).toHaveBeenCalledWith(commentsToMarkdown(COMMENTS));
+  expect(done).not.toHaveBeenCalled();
+
+  await act(async () => {
+    fireEvent.click(screen.getByRole("button", { name: "Finish anyway" }));
+  });
+  expect(done).toHaveBeenCalledTimes(1);
+  expect(localStorage.getItem(COMMENTS_KEY)).toBeNull();
+});
+
+test('Done with afterDone "keep" does not ask about comments: they stay', async () => {
+  localStorage.setItem(VIEWED_KEY, JSON.stringify(ALL_VIEWED));
+  localStorage.setItem(COMMENTS_KEY, JSON.stringify(COMMENTS));
+  const done = mock(async () => {});
+  renderWithApi(
+    <ChapterReview
+      review={fakeResolvedReview}
+      position={0}
+      onNavigate={() => {}}
+      onExit={() => {}}
+    />,
+    fakeReviewApi({ overrides: { done, afterDone: "keep" } }),
+  );
+  await act(async () => {
+    fireEvent.click(screen.getByRole("button", { name: "Done" }));
+  });
+  expect(done).toHaveBeenCalledTimes(1);
+  expect(JSON.parse(localStorage.getItem(COMMENTS_KEY)!)).toHaveLength(3);
 });

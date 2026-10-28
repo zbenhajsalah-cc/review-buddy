@@ -1,6 +1,7 @@
 import type { ResolvedReview } from "@review-buddy/core/types";
 import { useMemo, useRef, useState } from "react";
 import { readViewedEntries } from "../lib/chapterFileSet.ts";
+import { readComments } from "../lib/comments.ts";
 import { progressByChapter } from "../lib/progress.ts";
 import { reviewToMarkdown } from "../lib/reviewMarkdown.ts";
 import { useShortcuts } from "../lib/shortcuts.ts";
@@ -30,6 +31,7 @@ export function Overview({
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
   const { reviewKey } = useReviewApi();
   const [viewedEntries] = useState(() => readViewedEntries(reviewKey));
+  const [comments] = useState(() => readComments(reviewKey));
   const copyRef = useRef<CopyMarkdownHandle>(null);
 
   const chapterProgress = useMemo(
@@ -73,7 +75,7 @@ export function Overview({
           <div className="flex shrink-0 items-center gap-0.5">
             <CopyMarkdownButton
               ref={copyRef}
-              text={() => reviewToMarkdown(review)}
+              text={() => reviewToMarkdown(review, readComments(reviewKey))}
               aria-label="Copy review as Markdown"
               title="Copy review as Markdown (c)"
               label="copy"
@@ -220,6 +222,7 @@ export function Overview({
             viewedCount: 0,
             complete: false,
           };
+          const commentCount = comments.filter((c) => c.chapterIndex === ch.index).length;
           return (
             <li key={ch.index}>
               <button
@@ -250,6 +253,11 @@ export function Overview({
                     {viewedCount > 0 && ch.fileCount > 0 && (
                       <span className="text-xs text-muted-foreground">
                         {viewedCount}/{ch.fileCount} viewed
+                      </span>
+                    )}
+                    {commentCount > 0 && (
+                      <span className="text-xs text-muted-foreground">
+                        {commentCount} comment{commentCount === 1 ? "" : "s"}
                       </span>
                     )}
                   </div>

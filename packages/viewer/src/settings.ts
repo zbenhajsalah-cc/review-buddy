@@ -87,7 +87,7 @@ export function useDisplaySettings() {
 }
 
 /** Translate our DisplaySettings into @pierre/diffs render options. */
-export function toDiffOptions(s: DisplaySettings): FileDiffOptions<undefined> {
+export function toDiffOptions<T = undefined>(s: DisplaySettings): FileDiffOptions<T> {
   return {
     diffStyle: s.layout,
     diffIndicators: s.changeIndicator,

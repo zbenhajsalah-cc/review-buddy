@@ -83,6 +83,17 @@ without also leaving the chapter.
 
 ## Phase 2 — Progress & round-trip
 
+**Line comments ✅ shipped (viewer only):** the gutter "+" of `@pierre/diffs`
+(`enableGutterUtility`) opens a comment on its line, or on the lines dragged over (line
+numbers also select lines, shift-click for a range); comments render under their line as
+`lineAnnotations`, can be edited and deleted, are listed in the chapter sidebar (a click
+scrolls to one) and counted on the overview, and are part of copy-as-Markdown. They are
+kept in localStorage per review (`packages/viewer/src/lib/comments.ts`) and cleared on
+submit like viewed state. Each one is `{ chapterIndex, path, side, line, startSide?,
+startLine?, body }` — the `Annotation` of `DESIGN-roundtrip.md` §2 plus the range start.
+Not sent to the agent yet: the plugin's Done offers to copy them first. Next: send them
+with the verdict (below).
+
 - Persist viewed state (files/chapters) → `POST /api/file-viewed`; reflect in
   the chapter list.
 - Verdict submission: `POST /api/feedback`; hook returns

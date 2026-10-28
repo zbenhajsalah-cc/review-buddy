@@ -234,6 +234,12 @@ verdict enum server-side and log unexpected values.
   5. **Open:** per-chapter verdicts vs one overall verdict. (§4)
   6. **Open:** server-side verdict-enum validation + logging. (§5)
 
+**Update:** the annotation UI (per-line commenting) is built, viewer side only:
+`packages/viewer/src/lib/comments.ts` (`LineComment` = the `Annotation` above, plus an
+`id` and an optional range start `startSide` / `startLine`; the comment shows under its
+last line). Comments are not in `DoneResult` yet. The rest of this paragraph is still the
+plan.
+
 The annotation UI (per-line commenting), viewed-state round-trip
 (`/api/file-viewed`), and any GitHub write (posting the verdict to the PR) are
 explicitly **not** in this spike — they are the real Phase 2 build, for which this

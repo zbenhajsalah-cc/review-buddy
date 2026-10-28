@@ -2,15 +2,19 @@
 import { afterEach, expect, mock, test } from "bun:test";
 import { act, cleanup, fireEvent, screen } from "@testing-library/react";
 import { renderWithApi } from "../../test/render.tsx";
+import type { LineComment } from "../lib/comments.ts";
+import { reviewToMarkdown } from "../lib/reviewMarkdown.ts";
 import { fakeResolvedReview } from "../stories/fixtures.ts";
 import { Overview } from "./Overview.tsx";
 
 // fakeReviewApi()'s reviewKey is "fake-review".
 const VIEWED_KEY = "rb.viewed.fake-review";
+const COMMENTS_KEY = "rb.comments.fake-review";
 
 afterEach(() => {
   cleanup();
   localStorage.removeItem(VIEWED_KEY);
+  localStorage.removeItem(COMMENTS_KEY);
 });
 
 test("no viewed entries → no progress UI and heading has no complete text", () => {
@@ -150,7 +154,6 @@ test("clicking copy control writes the full review as Markdown", async () => {
     value: { writeText },
   });
 
-  const { reviewToMarkdown } = await import("../lib/reviewMarkdown.ts");
   renderWithApi(<Overview review={fakeResolvedReview} onBeginReview={() => {}} />);
 
   await act(async () => {
@@ -204,4 +207,31 @@ test("a focus file named by its old path opens the renamed file", () => {
   renderWithApi(<Overview review={review} onBeginReview={onBeginReview} />);
   fireEvent.click(screen.getByTitle("Open in chapter 3"));
   expect(onBeginReview).toHaveBeenCalledWith(2, "src/jobs/backoff.ts");
+});
+
+const comment = (id: string, chapterIndex: number): LineComment => ({
+  id,
+  chapterIndex,
+  path: "src/example.ts",
+  side: "new",
+  line: 11,
+  body: `Note ${id}`,
+});
+
+test("a chapter card counts its comments, and the copy includes them", async () => {
+  const comments = [comment("a", 2), comment("b", 2), comment("c", 3)];
+  localStorage.setItem(COMMENTS_KEY, JSON.stringify(comments));
+  const writeText = mock(() => Promise.resolve());
+  Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText } });
+  renderWithApi(<Overview review={fakeResolvedReview} onBeginReview={() => {}} />);
+
+  const card = (title: string) => screen.getByText(title).closest("li")?.textContent;
+  expect(card("Update greeting copy")).not.toContain("comment");
+  expect(card("Refactor auth middleware")).toContain("2 comments");
+  expect(card("Adjust retry backoff")).toContain("1 comment");
+
+  await act(async () => {
+    fireEvent.click(screen.getByRole("button", { name: "Copy review as Markdown" }));
+  });
+  expect(writeText).toHaveBeenCalledWith(reviewToMarkdown(fakeResolvedReview, comments));
 });

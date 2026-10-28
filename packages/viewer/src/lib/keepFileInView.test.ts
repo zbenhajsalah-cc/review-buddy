@@ -1,5 +1,5 @@
 import { afterEach, expect, mock, test } from "bun:test";
-import { keepFileInView } from "./keepFileInView.ts";
+import { keepFileInView, keepInView } from "./keepFileInView.ts";
 
 // happy-dom has no layout, so the test drives the resize callback itself.
 const RealResizeObserver = globalThis.ResizeObserver;
@@ -52,4 +52,13 @@ test("stops by itself after maxMs", async () => {
   keepFileInView(scroller, "b.ts", 10);
   await new Promise((resolve) => setTimeout(resolve, 30));
   expect(disconnect).toHaveBeenCalledTimes(1);
+});
+
+test("keepInView: any element, scrolled to where asked", () => {
+  const { scroller, scrollIntoView } = pane();
+  const stop = keepInView(scroller, '[data-file-path="b.ts"]', "center");
+  expect(scrollIntoView).toHaveBeenCalledWith({ block: "center" });
+  onResize();
+  expect(scrollIntoView).toHaveBeenCalledTimes(2);
+  stop();
 });

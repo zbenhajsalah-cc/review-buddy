@@ -2,6 +2,7 @@
 import { expect, test } from "bun:test";
 import type { ResolvedChapter, ResolvedReview } from "@review-buddy/core/types";
 import { fakeResolvedReview } from "../stories/fixtures.ts";
+import type { LineComment } from "./comments.ts";
 import { chapterToMarkdown, reviewToMarkdown } from "./reviewMarkdown.ts";
 
 const DIFF_MARKER = "UNIQUE_DIFF_LINE_MARKER_9f3a";
@@ -128,4 +129,37 @@ test("untitled review falls back like Overview", () => {
     chapters: [],
   };
   expect(reviewToMarkdown(review).startsWith("# Untitled review\n")).toBe(true);
+});
+
+const note = (chapterIndex: number, path: string, line: number, body: string): LineComment => ({
+  id: `${chapterIndex}-${line}`,
+  chapterIndex,
+  path,
+  side: "new",
+  line,
+  body,
+});
+
+test("a chapter's comments come after its files; none, no heading", () => {
+  const chapter = chapterWithRenameAndBinary();
+  const md = chapterToMarkdown(chapter, 2, [note(2, "src/new-name.ts", 3, "Keep the old export?")]);
+  expect(
+    md.endsWith("**Comments**\n\n- `src/new-name.ts` line 3 (new): Keep the old export?"),
+  ).toBe(true);
+  expect(chapterToMarkdown(chapter)).not.toContain("**Comments**");
+});
+
+test("the full review puts each comment under its own chapter", () => {
+  const md = reviewToMarkdown(fakeResolvedReview, [
+    note(3, "src/retry.ts", 8, "Cap the backoff."),
+    note(1, "src/example.ts", 11, "Is the comma on purpose?"),
+  ]);
+  const ch1 = md.indexOf("### 01");
+  const ch2 = md.indexOf("### 02");
+  const ch3 = md.indexOf("### 03");
+  const first = md.indexOf("Is the comma on purpose?");
+  const second = md.indexOf("Cap the backoff.");
+  expect(ch1 < first && first < ch2).toBe(true);
+  expect(ch3 < second).toBe(true);
+  expect(md.match(/\*\*Comments\*\*/g)?.length).toBe(2);
 });

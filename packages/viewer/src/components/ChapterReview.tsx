@@ -7,7 +7,15 @@ import {
   useCollapsedFiles,
   useViewedFiles,
 } from "../lib/chapterFileSet.ts";
-import { keepFileInView } from "../lib/keepFileInView.ts";
+import {
+  commentsToMarkdown,
+  describeLines,
+  type LineComment,
+  type LineRange,
+  sortComments,
+  useComments,
+} from "../lib/comments.ts";
+import { keepFileInView, keepInView } from "../lib/keepFileInView.ts";
 import { reviewProgress } from "../lib/progress.ts";
 import { chapterToMarkdown } from "../lib/reviewMarkdown.ts";
 import { useChapterShortcuts } from "../lib/useChapterShortcuts.ts";
@@ -130,21 +138,52 @@ function ChapterReviewBody({
   const [roundtrip, setRoundtrip] = useState(false);
   const [requesting, setRequesting] = useState(false); // textarea open
   const [summary, setSummary] = useState("");
-  // Done with files not marked viewed: how many, while the check is shown.
-  const [unfinished, setUnfinished] = useState<{ viewed: number; total: number } | null>(null);
+  // Done with files not marked viewed, or with comments it would drop: the
+  // counts, while the check is shown.
+  const [unfinished, setUnfinished] = useState<{
+    viewed: number;
+    total: number;
+    comments: number;
+  } | null>(null);
   // A preference, so a cookie: the plugin serves each review on a new port,
   // and localStorage is per port while cookies are per host.
   const [hideViewed, setHideViewed] = usePersistedState("rb.hideViewed", false, "cookie");
   const hideViewedId = useId();
+  const {
+    comments: allComments,
+    add: addComment,
+    edit: editComment,
+    remove: removeComment,
+  } = useComments();
+  const chapterComments = useMemo(
+    () => sortComments(allComments.filter((c) => c.chapterIndex === chapterIndex)),
+    [allComments, chapterIndex],
+  );
+  const commentsByPath = useMemo(() => {
+    const byPath = new Map<string, LineComment[]>();
+    for (const c of chapterComments) byPath.set(c.path, [...(byPath.get(c.path) ?? []), c]);
+    return byPath;
+  }, [chapterComments]);
+  const handleAddComment = useCallback(
+    (path: string, range: LineRange, body: string) =>
+      addComment({ ...range, chapterIndex, path, body }),
+    [addComment, chapterIndex],
+  );
+  // The comment last opened from the list (a new object each time, so the
+  // same one opens again).
+  const [openedComment, setOpenedComment] = useState<{ comment: LineComment } | null>(null);
   const diffScrollRef = useRef<HTMLDivElement>(null);
   const copyRef = useRef<CopyMarkdownHandle>(null);
 
   const matching = filter
     ? chapter.files.filter((f) => f.path.toLowerCase().includes(filter.toLowerCase()))
     : chapter.files;
-  // The file the focus link opened stays shown, viewed or not.
+  // The file the focus link opened stays shown, viewed or not; so does the
+  // file of the comment opened from the list.
   const files = hideViewed
-    ? matching.filter((f) => !viewed.has(f.path) || f.path === openFile)
+    ? matching.filter(
+        (f) => !viewed.has(f.path) || f.path === openFile || f.path === openedComment?.comment.path,
+      )
     : matching;
   const filePaths = files.map((f) => f.path);
   const { focusedPath, focusedPathRef, focus, move } = useFileFocus(
@@ -172,6 +211,7 @@ function ChapterReviewBody({
   useEffect(() => {
     diffScrollRef.current?.scrollTo({ top: 0 });
     setFilter("");
+    setOpenedComment(null);
   }, [chapterIndex]);
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: reset focus when chapter or filter changes
@@ -193,6 +233,22 @@ function ChapterReviewBody({
     setCollapsed(openFile, false); // also when viewed: the link is there to show its diff
     return keepFileInView(scroller, openFile);
   }, [chapterIndex, openFile]);
+
+  const openComment = (comment: LineComment) => {
+    if (!matching.some((f) => f.path === comment.path)) setFilter("");
+    setOpenedComment({ comment });
+  };
+  // After the filter reset above (its effect clears the focus), so the
+  // comment's file keeps it.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: only when a comment is opened from the list
+  useEffect(() => {
+    const scroller = diffScrollRef.current;
+    if (!openedComment || !scroller) return;
+    const { path, id } = openedComment.comment;
+    focus(path);
+    setCollapsed(path, false);
+    return keepInView(scroller, `[data-comment-id="${CSS.escape(id)}"]`, "center");
+  }, [openedComment]);
 
   // Collapse all files of the chapter (also ones the filter hides), or expand
   // all when none is open.
@@ -245,12 +301,15 @@ function ChapterReviewBody({
     setUnfinished(null);
     void submit(roundtrip ? { verdict: "approve" } : undefined);
   };
-  // Done asks first while files are not marked viewed (over the whole review).
+  // Done asks first while files are not marked viewed (over the whole review),
+  // and when it would drop comments: in the plugin, Done ends the review and
+  // clears them, and it does not send them to the agent yet.
   const done = () => {
     const progress = reviewProgress(chapters, readViewedEntries(api.reviewKey));
-    if (progress.viewed >= progress.total) return finish();
+    const comments = api.afterDone === "keep" ? 0 : allComments.length;
+    if (progress.viewed >= progress.total && comments === 0) return finish();
     setRequesting(false);
-    setUnfinished(progress);
+    setUnfinished({ ...progress, comments });
   };
   const requestChanges = () => submit({ verdict: "request_changes", summary });
 
@@ -290,7 +349,7 @@ function ChapterReviewBody({
           <div className="flex items-center gap-2">
             <CopyMarkdownButton
               ref={copyRef}
-              text={() => chapterToMarkdown(chapter)}
+              text={() => chapterToMarkdown(chapter, 2, chapterComments)}
               aria-label="Copy chapter as Markdown"
               title="Copy chapter as Markdown (c)"
               label="copy"
@@ -327,10 +386,24 @@ function ChapterReviewBody({
           {unfinished && (
             <div className="absolute top-full right-0 z-20 mt-1.5 flex w-72 flex-col gap-2 rounded-md border border-border bg-card p-2.5 text-sm shadow-md">
               <p>
-                Viewed {unfinished.viewed} of {unfinished.total} file
-                {unfinished.total === 1 ? "" : "s"}. Finish anyway?
+                {unfinished.viewed < unfinished.total &&
+                  `Viewed ${unfinished.viewed} of ${unfinished.total} file${unfinished.total === 1 ? "" : "s"}. `}
+                {unfinished.comments === 1 && "Done does not send your comment, and clears it. "}
+                {unfinished.comments > 1 &&
+                  `Done does not send your ${unfinished.comments} comments, and clears them. `}
+                Finish anyway?
               </p>
-              <div className="flex justify-end gap-2">
+              <div className="flex flex-wrap justify-end gap-2">
+                {unfinished.comments > 0 && (
+                  <CopyMarkdownButton
+                    text={() => commentsToMarkdown(allComments)}
+                    aria-label="Copy all comments as Markdown"
+                    label={unfinished.comments === 1 ? "Copy comment" : "Copy comments"}
+                    variant="outline"
+                    size="sm"
+                    className="mr-auto"
+                  />
+                )}
                 <Button size="sm" variant="ghost" onClick={() => setUnfinished(null)}>
                   Keep reviewing
                 </Button>
@@ -463,6 +536,31 @@ function ChapterReviewBody({
               );
             })}
           </ul>
+
+          {chapterComments.length > 0 && (
+            <>
+              <h2 className="mt-6 mb-2 font-mono text-[0.66rem] font-medium uppercase tracking-[0.09em] text-muted-foreground">
+                {chapterComments.length} comment{chapterComments.length === 1 ? "" : "s"}
+              </h2>
+              <ul className="space-y-0.5">
+                {chapterComments.map((c) => (
+                  <li key={c.id}>
+                    <button
+                      type="button"
+                      onClick={() => openComment(c)}
+                      title={`${c.path}, ${describeLines(c)}`}
+                      className="w-full rounded-md px-2 py-1.5 text-left text-xs transition-colors hover:bg-background"
+                    >
+                      <span className="block truncate font-mono">
+                        {c.path.slice(c.path.lastIndexOf("/") + 1)}:{c.line}
+                      </span>
+                      <span className="block truncate text-muted-foreground">{c.body}</span>
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            </>
+          )}
         </aside>
 
         {/* Right diff pane */}
@@ -492,6 +590,10 @@ function ChapterReviewBody({
                     // The card supplies the path.
                     onViewedChange={handleViewedChange}
                     onSetCollapsed={setCollapsed}
+                    comments={commentsByPath.get(f.path)}
+                    onAddComment={handleAddComment}
+                    onEditComment={editComment}
+                    onDeleteComment={removeComment}
                   />
                 </div>
               ))}
