@@ -15,7 +15,7 @@ import {
   fileContent,
   resolveBase,
 } from "./git.ts";
-import { makeTempRepo } from "./test-repo.ts";
+import { makeTempRepo, testGit } from "./test-repo.ts";
 
 test("assertSafeRef rejects flag-smuggling refs, accepts real refs", () => {
   expect(() => assertSafeRef("-O/tmp/x")).toThrow();
@@ -89,6 +89,39 @@ test("captureDiff folds in multiple untracked files (concurrent, none dropped)",
   expect(diff).toContain("+one");
   expect(diff).toContain("+two");
   rmSync(repo, { recursive: true, force: true });
+});
+
+// The review prompts tell the agent to run `git diff HEAD` for a worktree
+// review; these pin that it is the diff the tool captures, so anchors line up.
+test("captureDiff vs HEAD is `git diff HEAD`: staged and unstaged changes", async () => {
+  const repo = makeTempRepo("rb-staged-");
+  try {
+    testGit(repo, "add", "app.ts"); // staged: y = 20, z = 3
+    writeFileSync(join(repo, "app.ts"), "let x = 10;\nlet y = 20;\nlet z = 3;\n"); // unstaged: x = 10
+    const diff = await captureDiff(repo, resolveBase(repo));
+    expect(diff).toBe(testGit(repo, "diff", "--no-color", "HEAD"));
+    expect(diff).toContain("+let x = 10;");
+    expect(diff).toContain("+let y = 20;");
+    // Plain `git diff` (index vs working tree) leaves out the staged lines.
+    expect(testGit(repo, "diff", "--no-color")).not.toContain("+let y = 20;");
+  } finally {
+    rmSync(repo, { recursive: true, force: true });
+  }
+});
+
+test("captureDiff with no commits yet is the diff against the empty tree", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "rb-nohead-"));
+  try {
+    testGit(dir, "init", "-q");
+    writeFileSync(join(dir, "a.ts"), "one\n");
+    testGit(dir, "add", "a.ts");
+    const emptyTree = testGit(dir, "hash-object", "-t", "tree", "/dev/null").trim();
+    const diff = await captureDiff(dir, resolveBase(dir));
+    expect(diff).toBe(testGit(dir, "diff", "--no-color", emptyTree));
+    expect(diff).toContain("+one");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });
 
 test("fileContent (worktree head) refuses a symlink escaping the repo", () => {
