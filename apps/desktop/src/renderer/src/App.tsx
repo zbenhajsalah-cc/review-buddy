@@ -80,6 +80,16 @@ export function App({ bridge }: { bridge: DesktopBridge }) {
   // Main sends the job list on every change (US-15): no polling.
   useEffect(() => bridge.review.onJobs(setJobs), [bridge]);
 
+  // A click on the notification that a review ended shows that review.
+  useEffect(
+    () =>
+      bridge.review.onOpenJob((id) => {
+        setView({ kind: "job", id });
+        setScreen("review");
+      }),
+    [bridge],
+  );
+
   // Main checks Claude Code at start and before each review: a review that
   // failed for Claude reads the newest check.
   const claudeFailures = jobs.filter((j) => j.errorKind === "claude").length;

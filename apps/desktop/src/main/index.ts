@@ -10,8 +10,18 @@
 import { readFile } from "node:fs/promises";
 import { extname, join } from "node:path";
 import desktopPrompt from "@review-buddy/core/prompts/review-desktop.md?raw";
-import { app, BrowserWindow, dialog, net, protocol, safeStorage, session, shell } from "electron";
-import { FIXTURE_REVIEW_KEY, IPC } from "../shared/ipc.ts";
+import {
+  app,
+  BrowserWindow,
+  dialog,
+  Notification,
+  net,
+  protocol,
+  safeStorage,
+  session,
+  shell,
+} from "electron";
+import { FIXTURE_REVIEW_KEY, IPC, type ReviewJobStatus } from "../shared/ipc.ts";
 import { type AgentCheckResult, runAgentCheck } from "./agent/check.ts";
 import { ClaudeCode } from "./agent/claude-code.ts";
 import { ReviewJobs } from "./agent/review-job.ts";
@@ -26,6 +36,7 @@ import { GitHubPulls } from "./github/pulls.ts";
 import { GitHubRepos } from "./github/repos.ts";
 import { TokenStore } from "./github/token-store.ts";
 import { registerClaudeIpc, registerGitHubIpc, registerReviewIpc } from "./ipc.ts";
+import { jobNotice } from "./job-notice.ts";
 import { ReviewCache } from "./review-cache.ts";
 import { ReviewStore } from "./reviews.ts";
 import {
@@ -132,6 +143,36 @@ function createWindow(): BrowserWindow {
   win.once("ready-to-show", () => win.show());
   void win.loadURL(devServerUrl ?? APP_URL);
   return win;
+}
+
+/** Shown notifications, until closed: one garbage-collected early loses its click. */
+const notifications = new Set<Notification>();
+
+/**
+ * A review ended while the app was in the background: say so. A click brings
+ * the window back and shows that review.
+ */
+function notifyJobEnded(status: ReviewJobStatus): void {
+  const notice = jobNotice(status);
+  if (!notice || BrowserWindow.getFocusedWindow() || !Notification.isSupported()) return;
+  const notification = new Notification(notice);
+  notifications.add(notification);
+  notification.on("close", () => notifications.delete(notification));
+  notification.on("click", () => {
+    notifications.delete(notification);
+    const win = BrowserWindow.getAllWindows()[0];
+    // No window (macOS keeps the app open): a new one follows the newest job.
+    if (!win) {
+      createWindow();
+      return;
+    }
+    if (win.isMinimized()) win.restore();
+    win.show();
+    win.focus();
+    const page = win.webContents;
+    if (isTrustedPage(page.getURL())) page.send(IPC.openReviewJob, status.id);
+  });
+  notification.show();
 }
 
 /**
@@ -328,6 +369,7 @@ function createReviewJobs(
       return result;
     },
     log: (line) => console.log(`[review-buddy] review-run ${line}`),
+    onEnded: notifyJobEnded,
     // Progress events (US-15): the whole list, to our own page only, at most
     // every 100 ms (a streamed review makes many small steps).
     onChange: atMostEvery(100, () => {

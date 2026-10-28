@@ -41,6 +41,8 @@ export interface ReviewJobDeps {
   log?(line: string): void;
   /** The job list changed. */
   onChange?(): void;
+  /** A job that ran has ended: done, or failed (also stopped by the user). */
+  onEnded?(status: ReviewJobStatus): void;
   maxRunning?: number;
   now?: () => number;
 }
@@ -247,6 +249,7 @@ export class ReviewJobs {
     this.#prune();
     const { review: _review, ...summary } = result;
     this.deps.log?.(JSON.stringify({ pr: label, ...summary, warnings: result.warnings.length }));
+    this.deps.onEnded?.(structuredClone(job.status));
   }
 }
 

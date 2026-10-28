@@ -417,4 +417,30 @@ describe("ReviewJobs", () => {
     await jobs.whenIdle();
     expect(jobs.jobs()[0]!.steps).toEqual(["Reading the diff"]);
   });
+
+  test("onEnded hears each run that ends, not a job taken out of the queue", async () => {
+    const ended: string[] = [];
+    const held = heldRuns();
+    const { jobs } = await setup(held.run, {
+      onEnded: (s) => ended.push(`${s.pr} ${s.state} ${s.errorKind}`),
+    });
+    jobs.start("octocat/hello-world#1");
+    jobs.start("octocat/hello-world#2");
+    jobs.start("octocat/hello-world#3");
+    jobs.stop(3); // queued: it never ran
+    await held.release("octocat/hello-world#1");
+    await held.whenStarted("octocat/hello-world#2");
+    jobs.stop(2);
+    await jobs.whenIdle();
+    expect(ended).toEqual([
+      "octocat/hello-world#1 failed agent",
+      "octocat/hello-world#2 failed stopped",
+    ]);
+
+    const done: string[] = [];
+    const ok = await setup(undefined, { onEnded: (s) => done.push(`${s.pr} ${s.state}`) });
+    ok.jobs.start("octocat/hello-world#4");
+    await ok.jobs.whenIdle();
+    expect(done).toEqual(["octocat/hello-world#4 done"]);
+  });
 });
