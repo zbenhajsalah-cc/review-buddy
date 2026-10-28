@@ -124,11 +124,12 @@ export function App({ bridge }: { bridge: DesktopBridge }) {
       },
     };
   }, [bridge, reviewKey]);
-  // A job's review may be a saved one that was done before (also before a
-  // restart): Done is read from the saved reviews.
+  // A review may be a saved one that was done before (also before a restart):
+  // Done is read from the saved reviews. The PR list passes it with the
+  // review; a job's review, or a saved one a notification opens, has only this.
   const [savedDone, setSavedDone] = useState<{ reviewKey: string; doneAt?: string }>();
   useEffect(() => {
-    if (view.kind !== "job" || reviewKey === FIXTURE_REVIEW_KEY) return;
+    if (reviewKey === FIXTURE_REVIEW_KEY) return;
     bridge.review.saved().then(
       (list) => {
         const found = list.find((i) => i.reviewKey.toLowerCase() === reviewKey.toLowerCase());
@@ -136,14 +137,11 @@ export function App({ bridge }: { bridge: DesktopBridge }) {
       },
       () => {},
     );
-  }, [bridge, reviewKey, view.kind]);
+  }, [bridge, reviewKey]);
   const doneAt =
     doneNow[reviewKey] ??
-    (view.kind === "review"
-      ? view.doneAt
-      : savedDone?.reviewKey === reviewKey
-        ? savedDone.doneAt
-        : undefined);
+    (view.kind === "review" ? view.doneAt : undefined) ??
+    (savedDone?.reviewKey === reviewKey ? savedDone.doneAt : undefined);
   const reviewTab = view.kind === "review" ? view.pr : (job?.pr ?? "Sample review");
 
   /**
