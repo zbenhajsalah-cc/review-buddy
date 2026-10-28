@@ -82,8 +82,10 @@ test('afterDone "keep": Done stays marked when the reviewer goes back and opens 
   act(() => {
     fireEvent.keyDown(document.body, { key: "Enter" });
   });
+  fireEvent.click(await screen.findByRole("button", { name: "Done" }));
+  // Not every file is viewed, so Done asks first.
   await act(async () => {
-    fireEvent.click(await screen.findByRole("button", { name: "Done" }));
+    fireEvent.click(screen.getByRole("button", { name: "Finish anyway" }));
   });
   expect(screen.getByRole("button", { name: "Done ✓" })).toBeTruthy();
 
@@ -144,12 +146,42 @@ test("Done (close): Back does not open the review again", async () => {
   act(() => {
     fireEvent.keyDown(document.body, { key: "Enter" });
   });
+  fireEvent.click(await screen.findByRole("button", { name: "Done" }));
+  // Not every file is viewed, so Done asks first.
   await act(async () => {
-    fireEvent.click(await screen.findByRole("button", { name: "Done" }));
+    fireEvent.click(screen.getByRole("button", { name: "Finish anyway" }));
   });
   expect(screen.getByText("Review submitted — you can close this tab.")).toBeTruthy();
 
   goTo("/");
   expect(screen.getByText("Review submitted — you can close this tab.")).toBeTruthy();
   expect(screen.queryByRole("heading", { level: 2 })).toBeNull();
+});
+
+test("the review focus file opens its chapter with that file focused", async () => {
+  render(<ReviewViewer api={fakeReviewApi()} />);
+  fireEvent.click(await screen.findByRole("button", { name: "src/example.ts →" }));
+  expect(screen.getByText(/^Chapter 1 of/)).toBeTruthy();
+  const card = document.querySelector('[data-file-path="src/example.ts"] [data-focused]');
+  expect(card).not.toBeNull();
+});
+
+test("tabTitle: the tab says the review and the chapter, and gets its title back", async () => {
+  document.title = "Review Buddy";
+  const { unmount } = render(<ReviewViewer api={fakeReviewApi()} tabTitle />);
+  await screen.findByRole("heading", { level: 2 });
+  expect(document.title).toBe("Add greeting suffix · Review Buddy");
+  act(() => {
+    fireEvent.keyDown(document.body, { key: "Enter" });
+  });
+  expect(document.title).toBe("Ch 1/3 · Add greeting suffix");
+  unmount();
+  expect(document.title).toBe("Review Buddy");
+});
+
+test("without tabTitle the tab title is not changed", async () => {
+  document.title = "Review Buddy";
+  render(<ReviewViewer api={fakeReviewApi()} />);
+  await screen.findByRole("heading", { level: 2 });
+  expect(document.title).toBe("Review Buddy");
 });

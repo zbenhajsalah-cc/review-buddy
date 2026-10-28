@@ -1,7 +1,7 @@
 import type { ResolvedReview } from "@review-buddy/core/types";
 import { useMemo, useRef, useState } from "react";
 import { readViewedEntries } from "../lib/chapterFileSet.ts";
-import { chapterPathSet } from "../lib/chapterPathSet.ts";
+import { progressByChapter } from "../lib/progress.ts";
 import { reviewToMarkdown } from "../lib/reviewMarkdown.ts";
 import { useShortcuts } from "../lib/shortcuts.ts";
 import { cn } from "../lib/utils.ts";
@@ -21,7 +21,8 @@ export function Overview({
   onBeginReview,
 }: {
   review: ResolvedReview;
-  onBeginReview: (position: number) => void;
+  /** `file`: open the chapter at that file (the review focus). */
+  onBeginReview: (position: number, file?: string) => void;
 }) {
   const [tab, setTab] = useState<Tab>("prologue");
   const { pr, meta, prologue, stats, chapters, warnings } = review;
@@ -32,16 +33,7 @@ export function Overview({
   const copyRef = useRef<CopyMarkdownHandle>(null);
 
   const chapterProgress = useMemo(
-    () =>
-      chapters.map((ch) => {
-        // Intersect with chapter files so stale entries for removed paths don't inflate the count.
-        const viewed = chapterPathSet(viewedEntries, ch.index);
-        const viewedCount = ch.files.filter((f) => viewed.has(f.path)).length;
-        return {
-          viewedCount,
-          complete: ch.fileCount > 0 && viewedCount === ch.fileCount,
-        };
-      }),
+    () => progressByChapter(chapters, viewedEntries),
     [chapters, viewedEntries],
   );
   const completedCount = chapterProgress.filter((p) => p.complete).length;
@@ -51,6 +43,8 @@ export function Overview({
     ? chapters.findIndex((ch, i) => ch.fileCount > 0 && !chapterProgress[i]?.complete)
     : -1;
   const startAt = Math.max(resumeAt, 0);
+  const focusPath = focusFilePath(prologue.review_focus.file);
+  const focusAt = chapters.findIndex((ch) => ch.files.some((f) => f.path === focusPath));
 
   useShortcuts({
     SHOW_SHORTCUTS: {
@@ -186,9 +180,20 @@ export function Overview({
             </h3>
             <p className="text-[0.95rem] leading-relaxed text-rb-focus-fg">
               <Markdown value={prologue.review_focus.summary} variant="inline" className="inline" />{" "}
-              <code className="mt-1.5 block font-mono text-xs text-rb-focus-fg/80">
-                {prologue.review_focus.file}
-              </code>
+              {focusAt >= 0 ? (
+                <button
+                  type="button"
+                  onClick={() => onBeginReview(focusAt, focusPath)}
+                  title={`Open in chapter ${chapters[focusAt]?.index}`}
+                  className="mt-1.5 block text-left font-mono text-xs text-rb-focus-fg/80 underline decoration-rb-focus-fg/30 underline-offset-2 hover:decoration-current"
+                >
+                  {prologue.review_focus.file} →
+                </button>
+              ) : (
+                <code className="mt-1.5 block font-mono text-xs text-rb-focus-fg/80">
+                  {prologue.review_focus.file}
+                </code>
+              )}
             </p>
           </div>
         </section>
@@ -296,6 +301,17 @@ export function Overview({
       <ShortcutsDialog open={shortcutsOpen} onOpenChange={setShortcutsOpen} surface="overview" />
     </div>
   );
+}
+
+/**
+ * The review focus as a diff path: the agent may write `./a.ts` or `a.ts:42`
+ * (a line) for a file the diff calls `a.ts`.
+ */
+export function focusFilePath(file: string): string {
+  return file
+    .trim()
+    .replace(/^\.\//, "")
+    .replace(/:\d+(?:-\d+)?$/, "");
 }
 
 function TabButton({
