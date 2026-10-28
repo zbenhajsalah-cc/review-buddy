@@ -734,12 +734,24 @@ Acceptance criteria:
     pays Opus prices for a review they asked Haiku for.
   - **The cache key does not change.** Reviews are still saved per PR head, so
     reopening one is free; what it was made with (the model Claude reported,
-    and the effort asked for) is saved with it and shown in the PR list next
-    to the review, where **Run again** re-runs with whatever the "Review
-    with" row now says.
+    and the effort it really ran at) is saved with it and shown in the PR
+    list next to the review, where **Run again** re-runs with whatever the
+    "Review with" row now says. Both come back from the run, not from what
+    the job asked: the default from Settings and any clamping apply in
+    between, so a review made at the default effort still says which one that
+    was. A **Run again** that finishes in this run relabels the row from its
+    own job, without re-reading the PR page.
   - **Try again** in the progress view runs on what that job asked for, not
     on the default (that view has no picker). In the PR list, the visible
     "Review with" row governs every button in it, Try again included: what
     the user can see wins over what a failed job happened to use.
   - The progress view shows the model it is running on (from the SDK's `init`
-    message) — the resolved model, not the alias.
+    message) — the resolved model, not the alias, and from the moment Claude
+    says it rather than when the review ends: it travels with the progress
+    step (`ReviewProgress.model`).
+  - In the PR list, the effort levels on offer are the ones the model that
+    will actually run offers: with the model left at "Default", that is the
+    model from Settings, so the review is never clamped behind the user's
+    back.
+  - Choosing another `claude` in Settings asks for the model list again, in
+    main and in the pickers: another Claude Code may offer other models.

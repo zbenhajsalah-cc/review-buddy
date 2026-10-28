@@ -675,9 +675,12 @@ otherwise.
 - **Time.** A review may take 15 minutes; at **High** that becomes 22½, and at
   **Very high** or **Maximum** 30.
 - **What a review was made with** (the model Claude reported, and the effort
-  asked for) is saved with it and shown in the PR list beside the review. It
-  is not part of the review's key: reopening a saved review is still free, and
-  reviewing the same commit on another model is **Run again**.
+  it ran at — after the default from Settings and any clamping) is saved with
+  it and shown in the PR list beside the review. It is not part of the
+  review's key: reopening a saved review is still free, and reviewing the same
+  commit on another model is **Run again**.
+- **While a review runs**, the progress view names the model as soon as Claude
+  reports it.
 
 **What was checked (US-21).** On Linux: unit tests with fake `claude`
 scripts (found, missing, too old, an old one before a new one, another

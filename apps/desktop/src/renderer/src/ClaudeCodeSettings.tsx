@@ -60,11 +60,19 @@ export function ClaudeCodeSettings({
   const { ensure } = models;
   useEffect(ensure, [ensure]);
 
-  const run = async (step: () => Promise<ClaudeCodeStatus>) => {
+  /**
+   * Runs one Claude Code step. `another` says the binary may have changed, so
+   * the model list is asked for again: another Claude Code may offer other
+   * models, and main has already forgotten its own list.
+   */
+  const run = async (step: () => Promise<ClaudeCodeStatus>, another = false) => {
     setBusy(true);
     setError(undefined);
     try {
-      onStatus(await step());
+      const next = await step();
+      onStatus(next);
+      // Only when it really is another binary (Choose… may be cancelled).
+      if (another && next.path !== status?.path) models.reload();
     } catch (e) {
       setError(ipcErrorMessage(e));
     } finally {
@@ -125,11 +133,11 @@ export function ClaudeCodeSettings({
           <Button variant="outline" disabled={busy} onClick={() => run(bridge.check)}>
             Check again
           </Button>
-          <Button variant="outline" disabled={busy} onClick={() => run(bridge.choose)}>
+          <Button variant="outline" disabled={busy} onClick={() => run(bridge.choose, true)}>
             Choose…
           </Button>
           {status?.chosen ? (
-            <Button variant="ghost" disabled={busy} onClick={() => run(bridge.search)}>
+            <Button variant="ghost" disabled={busy} onClick={() => run(bridge.search, true)}>
               Search for it instead
             </Button>
           ) : null}

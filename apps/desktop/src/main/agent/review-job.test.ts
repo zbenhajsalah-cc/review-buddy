@@ -445,8 +445,12 @@ describe("ReviewJobs", () => {
   });
 
   describe("the model and the effort (US-22)", () => {
-    /** Records the choice each run was given, and reports a model. */
-    async function withChoice() {
+    /**
+     * Records the choice each run was given, and reports back what it ran —
+     * as the runner does: the model from Claude, and the effort it really
+     * sent (`ran`, which stands in for the app's default and the clamping).
+     */
+    async function withChoice(ran?: { effort?: "high" | "medium" }) {
       const { review } = await loadFixtureReview();
       const choices: unknown[] = [];
       const made = await setup(async (_source, _label, _onProgress, _signal, choice) => {
@@ -458,6 +462,9 @@ describe("ReviewJobs", () => {
           submissions: 1,
           durationMs: 1,
           model: "claude-opus-5",
+          ...((ran ?? (choice as { effort?: "high" }))?.effort
+            ? { effort: (ran ?? (choice as { effort?: "high" })).effort }
+            : {}),
         };
       });
       return { ...made, choices };
@@ -501,6 +508,29 @@ describe("ReviewJobs", () => {
         model: "claude-opus-5",
         effort: "high",
       });
+    });
+
+    test("the effort kept is the one the run used, not the one it asked for", async () => {
+      // The job asks for nothing (the app's default applies) and the run
+      // reports "medium"; a clamped override reaches the job the same way.
+      const { jobs, store } = await withChoice({ effort: "medium" });
+      jobs.start("octocat/hello-world#1");
+      await jobs.whenIdle();
+      expect(jobs.jobs()[0]!.effort).toBe("medium");
+      expect(store.newestFor("octocat/hello-world#1")).toMatchObject({ effort: "medium" });
+    });
+
+    test("the model shows while the review runs, before it ends", async () => {
+      const { review } = await loadFixtureReview();
+      let seen: string | undefined;
+      const made = await setup(async (_source, _label, onProgress) => {
+        onProgress({ phase: "reading", step: "Claude is reading the PR", model: "claude-opus-5" });
+        seen = made.jobs.jobs()[0]!.model;
+        return { ok: true, review, warnings: [], submissions: 1, durationMs: 1 };
+      });
+      made.jobs.start("octocat/hello-world#1");
+      await made.jobs.whenIdle();
+      expect(seen).toBe("claude-opus-5");
     });
   });
 });

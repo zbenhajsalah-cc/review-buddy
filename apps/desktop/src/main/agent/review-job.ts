@@ -202,9 +202,11 @@ export class ReviewJobs {
     const { ref, abort } = job;
     const { signal } = abort;
     const label = job.status.pr;
-    const onProgress = ({ phase, step }: ReviewProgress) => {
+    const onProgress = ({ phase, step, model }: ReviewProgress) => {
       job.status.phase = phase;
       job.status.steps = [...job.status.steps, step].slice(-MAX_STEPS);
+      // Claude said which model it runs: shown while the review runs (US-22).
+      if (model) job.status.model = model;
       this.#changed();
     };
     let result: ReviewRunResult;
@@ -228,6 +230,9 @@ export class ReviewJobs {
       } else {
         result = await this.deps.run(source, label, onProgress, signal, job.choice);
         if (result.model) job.status.model = result.model;
+        // The effort the run really used: this job's, the app's default, or
+        // one lowered for the model (the runner reports what it sent).
+        if (result.effort) job.status.effort = result.effort;
         const files = result.review ? await source.files() : [];
         // Stopped means stopped, even after a submission: the user asked for no review.
         if (result.review && !signal.aborted) {
@@ -240,9 +245,10 @@ export class ReviewJobs {
             baseSha: source.baseSha,
             files,
             // What it was reviewed with, so the PR list can offer a re-run on
-            // another model (US-22). The model is the one Claude reported.
+            // another model (US-22): both as the run reported them, not as
+            // this job asked (the default and the clamping apply in between).
             ...(result.model ? { model: result.model } : {}),
-            ...(job.choice.effort ? { effort: job.choice.effort } : {}),
+            ...(result.effort ? { effort: result.effort } : {}),
           });
         }
       }

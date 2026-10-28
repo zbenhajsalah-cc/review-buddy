@@ -304,6 +304,32 @@ describe("runReview", () => {
     expect(seen.options).toMatchObject({ model: "opus", effort: "max" });
   });
 
+  test("the review reports the effort it ran at, and its model as it starts", async () => {
+    const steps: { step: string; model?: string }[] = [];
+    const { query } = fakeQuery(async () => {});
+    const result = await runReview(query, {
+      ...base,
+      source: fixtureSource(),
+      choice: { effort: "high" },
+      onProgress: ({ step, model }) => steps.push({ step, model }),
+    });
+    // What was sent to Claude, so the job can keep it with the review.
+    expect(result.effort).toBe("high");
+    // The model travels with the step, while the review is still running.
+    expect(steps.find((s) => s.model)).toMatchObject({ model: "test-model" });
+  });
+
+  test("the effort it ran at is reported even when the review fails", async () => {
+    const { query } = fakeQuery(async () => {}, { subtype: "error_during_execution", errors: [] });
+    const result = await runReview(query, {
+      ...base,
+      source: fixtureSource(),
+      choice: { effort: "max" },
+    });
+    expect(result.ok).toBe(false);
+    expect(result.effort).toBe("max");
+  });
+
   test("no choice: Claude Code's own default (neither option is sent)", async () => {
     const { query, seen } = fakeQuery(async () => {});
     await runReview(query, { ...base, source: fixtureSource(), choice: { effort: "low" } });

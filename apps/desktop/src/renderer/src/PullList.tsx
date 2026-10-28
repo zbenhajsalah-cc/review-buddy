@@ -1,6 +1,7 @@
 import { Badge, Button } from "@review-buddy/viewer/ui";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type {
+  ClaudeModelOption,
   GitHubBridge,
   GitHubListError,
   ModelChoice,
@@ -8,6 +9,7 @@ import type {
   PullPage,
   PullSummary,
   RepoSummary,
+  ReviewEffort,
   ReviewJobStatus,
 } from "../../shared/ipc.ts";
 import { choiceLabel } from "../../shared/models.ts";
@@ -31,6 +33,9 @@ export interface PullRowState {
     doneAt?: string;
     /** The verdict last posted to GitHub (US-20). */
     posted?: PostVerdict;
+    /** What it was made with (US-22): the model, and the effort it ran at. */
+    model?: string;
+    effort?: ReviewEffort;
   };
   /** The newest job failed (not stopped), and none is in progress. */
   failed?: string;
@@ -45,13 +50,19 @@ export function pullState(repo: string, pull: PullSummary, jobs: ReviewJobStatus
   if (active) state.job = active;
   // Jobs are oldest first, and a finished job is newer than the list's answer.
   const done = mine.filter((j) => j.state === "done" && j.reviewKey && j.headSha).at(-1);
-  const review = done ? { reviewKey: done.reviewKey!, headSha: done.headSha! } : pull.review;
+  // A review this run made knows what it ran on from its own job; the list's
+  // answer is about the review main had when the page was read.
+  const review = done
+    ? { reviewKey: done.reviewKey!, headSha: done.headSha!, model: done.model, effort: done.effort }
+    : pull.review;
   if (review) {
     state.review = {
       reviewKey: review.reviewKey,
       pr: label,
       current: review.headSha === pull.headSha,
     };
+    if (review.model) state.review.model = review.model;
+    if (review.effort) state.review.effort = review.effort;
     // Done and posted are known from the list (main), for that same review.
     if (pull.review?.reviewKey === review.reviewKey) {
       if (pull.review.doneAt) state.review.doneAt = pull.review.doneAt;
@@ -257,6 +268,7 @@ export function PullList({
           value={override}
           onChange={onOverride}
           disabled={models.loading}
+          defaultModel={models.choice.model}
           defaultModelLabel={defaultLabel ? `Default (${defaultLabel})` : "Claude Code's default"}
           defaultEffortLabel={
             models.choice.effort ? `Default (${models.choice.effort})` : "Default"
@@ -297,7 +309,7 @@ export function PullList({
                 selected={selected.has(pull.number)}
                 onToggle={() => toggle(pull.number)}
                 onReview={(fresh) => void review([pull.number], true, fresh)}
-                madeWith={choiceLabel(models.models, pull.review)}
+                models={models.models}
                 blocked={blocked}
                 onOpenReview={onOpenReview}
                 onFollow={onFollow}
@@ -337,7 +349,7 @@ function PullRow({
   onFollow,
   onStop,
   blocked,
-  madeWith,
+  models,
 }: {
   pull: PullSummary;
   row: PullRowState;
@@ -345,8 +357,8 @@ function PullRow({
   selected: boolean;
   onToggle: () => void;
   onReview: (fresh: boolean) => void;
-  /** "Opus · high": what the saved review was made with (US-22). */
-  madeWith?: string;
+  /** The model list, to name what the review was made with (US-22). */
+  models: ClaudeModelOption[];
   onOpenReview: (review: {
     reviewKey: string;
     pr: string;
@@ -358,6 +370,8 @@ function PullRow({
 }) {
   const n = pull.number;
   const { job, review, failed } = row;
+  // What the review shown here was made with (US-22).
+  const madeWith = choiceLabel(models, review);
   const now = useNow(job?.state === "running");
   return (
     <li className="flex flex-wrap items-center gap-3 px-4 py-3">
@@ -444,7 +458,7 @@ function PullRow({
           </>
         ) : (
           <>
-            {review && madeWith ? (
+            {madeWith ? (
               <span
                 className="text-[0.7rem] text-muted-foreground"
                 title="What this review was made with. Pick another above and run it again."

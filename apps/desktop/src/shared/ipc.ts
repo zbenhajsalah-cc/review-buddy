@@ -183,8 +183,10 @@ export interface ReviewJobStatus {
   notes?: string[];
   /** The model and effort this job was started with (absent: the default). */
   requested?: ModelChoice;
-  /** The model Claude actually ran, once it has started. */
+  /** The model Claude actually ran, as soon as it says so. */
   model?: string;
+  /** The effort it really ran at (the default and any clamping applied). */
+  effort?: ReviewEffort;
   error?: string;
   errorKind?: ReviewErrorKind;
 }

@@ -78,6 +78,8 @@ export interface ReviewRunResult {
   /** How many submissions passed validation (the last one is shown). */
   submissions: number;
   model?: string;
+  /** The effort the review actually ran at (what was sent to Claude). */
+  effort?: ReviewEffort;
   turns?: number;
   costUsd?: number;
   durationMs: number;
@@ -129,7 +131,14 @@ export async function runReview(
 ): Promise<ReviewRunResult> {
   const started = Date.now();
   const progress = options.onProgress ?? (() => {});
-  const result: ReviewRunResult = { ok: false, warnings: [], submissions: 0, durationMs: 0 };
+  const result: ReviewRunResult = {
+    ok: false,
+    warnings: [],
+    submissions: 0,
+    durationMs: 0,
+    // What this run asks for, known before it starts (also kept on a failure).
+    ...(options.choice?.effort ? { effort: options.choice.effort } : {}),
+  };
   const abortController = new AbortController();
   const abort = () => abortController.abort();
   options.signal?.addEventListener("abort", abort);
@@ -192,7 +201,13 @@ export async function runReview(
     for await (const message of q as AsyncIterable<SDKMessage>) {
       if (message.type === "system" && message.subtype === "init") {
         result.model = message.model;
-        progress({ phase: "reading", step: `Claude is reading the PR (${message.model})` });
+        // The model travels with the step: the progress view shows it while
+        // the review runs, not only when it ends.
+        progress({
+          phase: "reading",
+          step: `Claude is reading the PR (${message.model})`,
+          model: message.model,
+        });
       } else if (message.type === "stream_event") {
         writing.event(message.event as StreamEvent);
       } else if (message.type === "assistant" && message.error) {

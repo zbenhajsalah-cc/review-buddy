@@ -94,6 +94,7 @@ export function ModelChoiceFields({
   onChange,
   defaultModelLabel = "Claude Code's default",
   defaultEffortLabel = "Default",
+  defaultModel,
   disabled,
   className,
   labels = true,
@@ -103,6 +104,12 @@ export function ModelChoiceFields({
   onChange: (choice: ModelChoice) => void;
   defaultModelLabel?: string;
   defaultEffortLabel?: string;
+  /**
+   * The model that applies when this picker's own model is the default one:
+   * in the PR list, the model from Settings. The effort levels are the ones
+   * that model offers, so the review is not clamped behind the user's back.
+   */
+  defaultModel?: string;
   disabled?: boolean;
   className?: string;
   /** false: the selects name themselves (aria-label only), for a tight row. */
@@ -110,13 +117,18 @@ export function ModelChoiceFields({
 }) {
   const modelId = useId();
   const effortId = useId();
-  const efforts = effortsFor(models, value.model);
+  // The model whose levels apply: this picker's, else the one its default means.
+  const forModel = value.model ?? defaultModel;
+  const efforts = effortsFor(models, forModel);
   // A model with no effort levels: the effort select would do nothing.
   const effortDisabled = disabled || efforts.length === 0;
 
   const pickModel = (model: string) => {
-    // Keep the effort inside what the new model offers.
-    onChange(clampChoice(models, { ...value, model: model === DEFAULT_VALUE ? undefined : model }));
+    const next = { ...value, model: model === DEFAULT_VALUE ? undefined : model };
+    // Keep the effort inside what the new model offers (the default option
+    // means `defaultModel`, so clamp against that one).
+    const clamped = clampChoice(models, { ...next, model: next.model ?? defaultModel });
+    onChange({ ...next, ...(clamped.effort ? { effort: clamped.effort } : {}) });
   };
 
   return (
