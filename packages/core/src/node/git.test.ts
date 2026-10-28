@@ -11,6 +11,7 @@ import {
   captureDiff,
   capturePr,
   capturePrDiff,
+  EMPTY_TREE,
   ensureCommit,
   fileContent,
   resolveBase,
@@ -102,6 +103,24 @@ test("captureDiff against HEAD includes staged changes (the prompts' `git diff H
   expect(diff).toContain("+let y = 20;");
   expect(diff).toContain("+let z = 3;");
   rmSync(repo, { recursive: true, force: true });
+});
+
+test("captureDiff in a repo with no commits diffs the empty tree against the worktree", async () => {
+  // The prompts name EMPTY_TREE for this case: `git diff --cached` would show the
+  // staged bytes and miss an edit made after `git add`.
+  const dir = mkdtempSync(join(tmpdir(), "rb-unborn-"));
+  try {
+    testGit(dir, "init", "-q");
+    writeFileSync(join(dir, "f.txt"), "staged\n");
+    testGit(dir, "add", "f.txt");
+    writeFileSync(join(dir, "f.txt"), "edited\n");
+    expect(resolveBase(dir)).toBe(EMPTY_TREE);
+    const diff = await captureDiff(dir, EMPTY_TREE);
+    expect(diff).toContain("+edited");
+    expect(diff).not.toContain("+staged");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });
 
 test("fileContent (worktree head) refuses a symlink escaping the repo", () => {
