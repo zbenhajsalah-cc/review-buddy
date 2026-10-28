@@ -1,18 +1,41 @@
-import type { FileDiffMetadata } from "@pierre/diffs";
+import type { DiffLineAnnotation, FileDiffMetadata, SelectedLineRange } from "@pierre/diffs";
 import { FileDiff, PatchDiff } from "@pierre/diffs/react";
 import type { DisplaySettings, ResolvedFile } from "@review-buddy/core/types";
-import { memo, useId, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
+import {
+  type CommentSide,
+  type LineComment,
+  type LineRange,
+  positionKey,
+  rangeFromSelection,
+  toAnnotationSide,
+} from "../lib/comments.ts";
 import { buildExpandedDiff, canExpand, requiredSides } from "../lib/expand.ts";
 import { fileToPatch } from "../lib/patch.ts";
 import { cn } from "../lib/utils.ts";
 import { useReviewApi } from "../review-api.tsx";
 import { toDiffOptions } from "../settings.ts";
 import { DiffStat } from "./DiffStat.tsx";
+import { CommentCard, CommentForm, CommentThread } from "./LineComments.tsx";
 import { Badge } from "./ui/badge.tsx";
 import { Button } from "./ui/button.tsx";
 import { Card, CardContent } from "./ui/card.tsx";
 import { Label } from "./ui/label.tsx";
 import { Switch } from "./ui/switch.tsx";
+
+type Draft = { range: LineRange; text: string };
+
+const NO_COMMENTS: readonly LineComment[] = [];
+
+/** The annotation for a positionKey ("new:12"); its metadata is the key. */
+function annotationAt(key: string): DiffLineAnnotation<string> {
+  const [side, line] = key.split(":");
+  return {
+    side: toAnnotationSide(side as CommentSide),
+    lineNumber: Number(line),
+    metadata: key,
+  };
+}
 
 const CHANGE_LABEL: Record<ResolvedFile["change_type"], string> = {
   added: "added",
@@ -27,23 +50,33 @@ const CHANGE_LABEL: Record<ResolvedFile["change_type"], string> = {
 // stay referentially stable — in particular `onViewedChange` and `onSetCollapsed`
 // must be passed as stable callbacks (they take the path so the parent can hand
 // over `handleViewedChange` / `setCollapsed` directly rather than allocating a
-// per-render arrow). Do not re-wrap them in closures.
+// per-render arrow). Do not re-wrap them in closures. The same goes for the
+// comment callbacks.
 export const FileDiffCard = memo(function FileDiffCard({
   file,
   settings,
   viewed,
   collapsed,
   focused = false,
+  comments = NO_COMMENTS,
   onViewedChange,
   onSetCollapsed,
+  onAddComment,
+  onEditComment,
+  onDeleteComment,
 }: {
   file: ResolvedFile;
   settings: DisplaySettings;
   viewed: boolean;
   collapsed: boolean;
   focused?: boolean;
+  /** This file's comments in this chapter. */
+  comments?: readonly LineComment[];
   onViewedChange: (path: string, checked: boolean) => void;
   onSetCollapsed: (path: string, value: boolean) => void;
+  onAddComment: (path: string, range: LineRange, body: string) => void;
+  onEditComment: (id: string, body: string) => void;
+  onDeleteComment: (id: string) => void;
 }) {
   const api = useReviewApi();
   const [copied, setCopied] = useState(false);
@@ -57,9 +90,126 @@ export const FileDiffCard = memo(function FileDiffCard({
   const bodyMounted = useRef(!collapsed);
   if (!collapsed) bodyMounted.current = true;
 
+  // Line comments. The open forms and their text live here, not in the forms:
+  // @pierre/diffs keys the annotation slots by index, so a form remounts when
+  // a comment is added above it.
+  const [selection, setSelection] = useState<SelectedLineRange | null>(null);
+  const [drafts, setDrafts] = useState<Record<string, Draft>>({}); // by positionKey
+  const [edits, setEdits] = useState<Record<string, string>>({}); // by comment id
+  // The form just opened: it takes the focus once.
+  const [focusKey, setFocusKey] = useState<string | null>(null);
+  useEffect(() => {
+    if (focusKey !== null) setFocusKey(null);
+  }, [focusKey]);
+
+  // The gutter "+" reports its lines, then selects them. The form names its
+  // lines, and a selection would pin the "+" to them: the reviewer could not
+  // open a comment on another line. So that selection is dropped.
+  const dropSelection = useRef(false);
+  const openDraft = useCallback((picked: SelectedLineRange) => {
+    const range = rangeFromSelection(picked);
+    const key = positionKey(range);
+    setDrafts((prev) => ({ ...prev, [key]: { range, text: prev[key]?.text ?? "" } }));
+    setSelection(null);
+    dropSelection.current = true;
+    setFocusKey(`draft:${key}`);
+  }, []);
+  const onLineSelected = useCallback((range: SelectedLineRange | null) => {
+    setSelection(dropSelection.current ? null : range);
+    dropSelection.current = false;
+  }, []);
+  const closeDraft = (key: string) => setDrafts(({ [key]: _, ...rest }) => rest);
+  const closeEdit = (id: string) => setEdits(({ [id]: _, ...rest }) => rest);
+
   const patch = useMemo(() => fileToPatch(file), [file]);
-  const options = useMemo(() => toDiffOptions(settings), [settings]);
+  const options = useMemo(
+    () => ({
+      ...toDiffOptions<string>(settings),
+      // The gutter "+" opens a comment on its line, or on the lines dragged
+      // over; line numbers select lines (shift-click: a range) for it.
+      enableGutterUtility: true,
+      enableLineSelection: true,
+      onGutterUtilityClick: openDraft,
+      onLineSelectionStart: setSelection,
+      onLineSelectionChange: setSelection,
+      onLineSelected,
+    }),
+    [settings, openDraft, onLineSelected],
+  );
   const expandedOptions = useMemo(() => ({ ...options, expandUnchanged: true }), [options]);
+
+  const commentsAt = useMemo(() => {
+    const at = new Map<string, LineComment[]>();
+    for (const c of comments) {
+      const key = positionKey(c);
+      at.set(key, [...(at.get(key) ?? []), c]);
+    }
+    return at;
+  }, [comments]);
+  // A new annotation array makes @pierre/diffs render the whole file again, so
+  // it changes only when the lines with something under them change — not
+  // when a comment is edited or a form typed in.
+  const positions = [...new Set([...commentsAt.keys(), ...Object.keys(drafts)])].sort().join(" ");
+  const lineAnnotations = useMemo(
+    () => (positions === "" ? [] : positions.split(" ").map(annotationAt)),
+    [positions],
+  );
+
+  const renderAnnotation = ({ metadata: key }: DiffLineAnnotation<string>) => {
+    const draft = drafts[key];
+    return (
+      // Keyed by line, so a slot that moves to another line gets a new thread.
+      <CommentThread key={key}>
+        {commentsAt.get(key)?.map((c) => {
+          const edit = edits[c.id];
+          return (
+            <div key={c.id} data-comment-id={c.id}>
+              {edit === undefined ? (
+                <CommentCard
+                  comment={c}
+                  onEdit={() => {
+                    setEdits((prev) => ({ ...prev, [c.id]: c.body }));
+                    setFocusKey(`edit:${c.id}`);
+                  }}
+                  onDelete={() => {
+                    onDeleteComment(c.id);
+                    closeEdit(c.id);
+                  }}
+                />
+              ) : (
+                <CommentForm
+                  range={c}
+                  value={edit}
+                  onChange={(text) => setEdits((prev) => ({ ...prev, [c.id]: text }))}
+                  onSave={() => {
+                    onEditComment(c.id, edit.trim());
+                    closeEdit(c.id);
+                  }}
+                  onCancel={() => closeEdit(c.id)}
+                  saveLabel="Save"
+                  autoFocus={focusKey === `edit:${c.id}`}
+                />
+              )}
+            </div>
+          );
+        })}
+        {draft && (
+          <CommentForm
+            range={draft.range}
+            value={draft.text}
+            onChange={(text) => setDrafts((prev) => ({ ...prev, [key]: { ...draft, text } }))}
+            onSave={() => {
+              onAddComment(file.path, draft.range, draft.text.trim());
+              closeDraft(key);
+            }}
+            onCancel={() => closeDraft(key)}
+            saveLabel="Comment"
+            autoFocus={focusKey === `draft:${key}`}
+          />
+        )}
+      </CommentThread>
+    );
+  };
 
   const copyName = async () => {
     try {
@@ -191,9 +341,21 @@ export const FileDiffCard = memo(function FileDiffCard({
               )}
               <div className="overflow-x-auto text-[13px]">
                 {expanded && expandedDiff ? (
-                  <FileDiff fileDiff={expandedDiff} options={expandedOptions} />
+                  <FileDiff
+                    fileDiff={expandedDiff}
+                    options={expandedOptions}
+                    lineAnnotations={lineAnnotations}
+                    renderAnnotation={renderAnnotation}
+                    selectedLines={selection}
+                  />
                 ) : (
-                  <PatchDiff patch={patch} options={options} />
+                  <PatchDiff
+                    patch={patch}
+                    options={options}
+                    lineAnnotations={lineAnnotations}
+                    renderAnnotation={renderAnnotation}
+                    selectedLines={selection}
+                  />
                 )}
               </div>
             </>

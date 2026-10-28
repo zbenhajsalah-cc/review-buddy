@@ -13,14 +13,18 @@ import { parseStored, usePersistedState } from "./usePersistedState.ts";
 
 const PREFIXES = ["viewed", "collapsed"] as const;
 type Prefix = (typeof PREFIXES)[number];
+/** Everything stored per review: the file flags, and the line comments (comments.ts). */
+const STORED = [...PREFIXES, "comments"] as const;
 
-const key = (prefix: Prefix, reviewKey: string) => `rb.${prefix}.${reviewKey || "nokey"}`;
+/** The localStorage key of one kind of state of one review. */
+export const reviewStorageKey = (name: (typeof STORED)[number], reviewKey: string) =>
+  `rb.${name}.${reviewKey || "nokey"}`;
 
 function createChapterFileSet(prefix: Prefix) {
   return function useChapterFileSet(chapterIndex: number) {
     // The key is fixed for the life of a mounted viewer: one ReviewViewer
     // shows one review.
-    const KEY = key(prefix, useReviewApi().reviewKey);
+    const KEY = reviewStorageKey(prefix, useReviewApi().reviewKey);
     const [entries, setEntries] = usePersistedState<string[]>(KEY, [], "local");
     const set = chapterPathSet(entries, chapterIndex);
     const update = useCallback(
@@ -49,23 +53,23 @@ export const useCollapsedFiles = createChapterFileSet("collapsed");
  */
 export function readViewedEntries(reviewKey: string): readonly string[] {
   try {
-    return parseStored(localStorage.getItem(key("viewed", reviewKey)), [] as string[]);
+    return parseStored(localStorage.getItem(reviewStorageKey("viewed", reviewKey)), [] as string[]);
   } catch {
     return [];
   }
 }
 
 /**
- * Drop THIS review's viewed + collapsed state. Called when the review is
+ * Drop THIS review's viewed + collapsed state and its comments. Called when the review is
  * submitted (Done) so a completed review doesn't leave its keys behind. Scoped
  * to this review's keys only — it never touches another review's keys, so it
  * cannot disturb a parallel review (another origin in the plugin, another
  * review in the same desktop window).
  */
 export function clearReviewFileState(reviewKey: string) {
-  for (const prefix of PREFIXES) {
+  for (const name of STORED) {
     try {
-      localStorage.removeItem(key(prefix, reviewKey));
+      localStorage.removeItem(reviewStorageKey(name, reviewKey));
     } catch {
       /* storage unavailable (private mode) — non-fatal */
     }

@@ -9,15 +9,25 @@ const REVIEWER_EVENTS = ["wheel", "touchstart", "pointerdown", "keydown"] as con
  * function.
  */
 export function keepFileInView(scroller: HTMLElement, path: string, maxMs = 5000): () => void {
-  const toFile = () =>
-    scroller
-      .querySelector(`[data-file-path="${CSS.escape(path)}"]`)
-      ?.scrollIntoView({ block: "start" });
-  toFile();
+  return keepInView(scroller, `[data-file-path="${CSS.escape(path)}"]`, "start", maxMs);
+}
+
+/**
+ * The same for any element in the pane, for example a line comment, which
+ * also has no place until its file's diff has rendered.
+ */
+export function keepInView(
+  scroller: HTMLElement,
+  selector: string,
+  block: ScrollLogicalPosition,
+  maxMs = 5000,
+): () => void {
+  const toTarget = () => scroller.querySelector(selector)?.scrollIntoView({ block });
+  toTarget();
   const content = scroller.firstElementChild;
   if (!content) return () => {};
 
-  const observer = new ResizeObserver(toFile);
+  const observer = new ResizeObserver(toTarget);
   observer.observe(content);
   const timer = setTimeout(stop, maxMs);
   for (const type of REVIEWER_EVENTS) {
