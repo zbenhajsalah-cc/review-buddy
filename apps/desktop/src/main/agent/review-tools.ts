@@ -131,6 +131,8 @@ export interface ReviewToolsInput {
 export interface ReviewProgress {
   phase: ReviewPhase;
   step: string;
+  /** Set once, when Claude says which model it is running (US-22). */
+  model?: string;
 }
 
 export interface Submission {

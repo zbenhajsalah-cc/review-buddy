@@ -673,3 +673,85 @@ Acceptance criteria:
     saved reviews list show it; posting again is allowed (**Post again…**).
   - Checked with unit tests and the smoke test against a fake GitHub. Not
     checked against the real GitHub from here (it would post on a real PR).
+
+### US-22: Choose the model and the thinking effort
+
+**As a** desktop user, **I want** to pick which Claude model reviews run on
+and how hard it thinks, **so that** I can spend a big model on the PR that
+deserves it and a fast one on the rest.
+
+Why: until now every review ran on Claude Code's own default. A reviewer
+wants Opus at high effort for a risky migration, and Haiku for a typo fix.
+
+Acceptance criteria:
+- **A default, in Settings.** Under Claude Code: a Model select and a
+  Thinking select. Both are kept in the app settings (`model`, `effort`), and
+  reviews use them unless a run says otherwise. The first option is
+  "Claude Code's default" — Claude Code's own, *not* what the user set in the
+  CLI: reviews read no settings files (`settingSources: []`), so the CLI's
+  `/model` and `/effort` do not reach them. The card says so.
+- **An override, per run.** The PR list has a "Review with" row: the same two
+  selects, whose first option is the default from Settings ("Default (Opus ·
+  high)"). What they show applies to the reviews started from that list
+  (one PR, the selected ones, and Run again). The top bar's PR box always
+  uses the default.
+- **The model list comes from Claude Code, not from this app.** The Agent SDK
+  answers `supportedModels()`, narrowed to what the account may use, so no
+  model names are pinned here. Asking starts a `claude` process and costs no
+  tokens: the prompt is an async iterable that never yields a message, and
+  the session is aborted as soon as the list is in. Measured against a real
+  Claude Code 2.1.x on 2026-10-28: the list came back in about 0.6–0.9 s, and
+  no turn was sent. The answer is remembered; Settings has **Refresh
+  models**, and choosing another `claude` forgets it. It is asked for by the
+  first screen that shows a picker, not at start.
+- **The effort levels follow the model.** Only `supportedEffortLevels` are
+  offered; a model with `supportsEffort: false` has the select disabled.
+  Changing the model lowers an effort the new one does not have to the
+  nearest level below it, or drops it (`clampChoice`).
+- **The alias is what is stored.** `ModelInfo.value` ("opus"), so the choice
+  follows model upgrades; `resolvedModel` matches a full id saved earlier.
+- **Claude Code lists its own default as a model** (`value: "default"`,
+  "Default (recommended)"). It is taken out of the list — the pickers have
+  that option already — and used to name it: "Claude Code's default
+  (Opus 5.5)". A model listed with neither `supportsEffort` nor
+  `supportedEffortLevels` (older ones are) is treated as having no effort
+  levels; one that is not in the list at all keeps every level, since Claude
+  refuses what it cannot do.
+- **More thinking gets more time.** The 15-minute run limit is 1.5× at high
+  and 2× at xhigh and max (`timeoutFor`); `maxTurns` is unchanged (effort
+  makes turns deeper, not more numerous).
+- **Decisions made while building it:**
+  - Everything the renderer sends is checked in main: a model must match an
+    alias-or-id pattern and an effort must be one of the five levels
+    (`parseModelChoice`), so a page cannot pass an argument to Claude Code.
+    The settings file is read through the same check — it is editable by hand.
+    The rules both sides need live in `shared/models.ts` (no SDK, no
+    Electron), so the pickers and main agree by construction.
+  - A failed ask is not an error the user must clear: the pickers fall back to
+    the aliases Opus / Sonnet / Haiku and say why. A model this account does
+    not have fails when the review starts, with the `model_not_found` message
+    the runner already has — no silent fallback to another model, so nobody
+    pays Opus prices for a review they asked Haiku for.
+  - **The cache key does not change.** Reviews are still saved per PR head, so
+    reopening one is free; what it was made with (the model Claude reported,
+    and the effort it really ran at) is saved with it and shown in the PR
+    list next to the review, where **Run again** re-runs with whatever the
+    "Review with" row now says. Both come back from the run, not from what
+    the job asked: the default from Settings and any clamping apply in
+    between, so a review made at the default effort still says which one that
+    was. A **Run again** that finishes in this run relabels the row from its
+    own job, without re-reading the PR page.
+  - **Try again** in the progress view runs on what that job asked for, not
+    on the default (that view has no picker). In the PR list, the visible
+    "Review with" row governs every button in it, Try again included: what
+    the user can see wins over what a failed job happened to use.
+  - The progress view shows the model it is running on (from the SDK's `init`
+    message) — the resolved model, not the alias, and from the moment Claude
+    says it rather than when the review ends: it travels with the progress
+    step (`ReviewProgress.model`).
+  - In the PR list, the effort levels on offer are the ones the model that
+    will actually run offers: with the model left at "Default", that is the
+    model from Settings, so the review is never clamped behind the user's
+    back.
+  - Choosing another `claude` in Settings asks for the model list again, in
+    main and in the pickers: another Claude Code may offer other models.

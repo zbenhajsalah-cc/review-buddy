@@ -644,6 +644,44 @@ The app does not ship Claude Code: it runs the one you installed
   /path/to/claude)".
 - **`--agent-check`** reports `claudePath` and `claudeCodeVersion`.
 
+### Model and thinking effort (US-22)
+
+Reviews run on Claude Code's own default model and effort until you pick
+otherwise.
+
+- **The default.** Settings → **Claude Code** → **Model** and **Thinking**,
+  kept in `settings.json` as `model` (an alias such as `opus`, so the choice
+  follows model upgrades) and `effort` (`low` … `max`).
+  "Claude Code's default" is Claude Code's own: a review reads none of your
+  settings files (`settingSources: []`), so the model and effort you set in
+  the CLI do not reach it.
+- **Per review.** The PR list has a **Review with** row whose first option is
+  the default from Settings. It applies to every review started from that
+  list — one PR, the selected ones, **Run again**, **Try again** — while the
+  top bar's PR box always uses the default. In the progress view, where there
+  is no picker, **Try again** repeats what that review asked for.
+- **Where the list comes from.** Your Claude Code: the Agent SDK's
+  `supportedModels()`, narrowed to what your account may use
+  (`src/main/agent/models.ts`). Asking starts a `claude` process but sends it
+  no prompt, so it costs no tokens; it takes about a second. The first screen
+  that shows a picker asks for it, and the answer is remembered until
+  **Refresh models**, or until you choose another `claude`. If Claude Code
+  cannot answer (not signed in, offline), the pickers offer Opus / Sonnet /
+  Haiku and say why; a model your account does not have fails when the review
+  starts, rather than quietly running on another one.
+- **Effort follows the model.** Only the levels a model offers are listed, and
+  a model with no effort levels disables the select. Switching model lowers an
+  effort the new one does not have, or drops it.
+- **Time.** A review may take 15 minutes; at **High** that becomes 22½, and at
+  **Very high** or **Maximum** 30.
+- **What a review was made with** (the model Claude reported, and the effort
+  it ran at — after the default from Settings and any clamping) is saved with
+  it and shown in the PR list beside the review. It is not part of the
+  review's key: reopening a saved review is still free, and reviewing the same
+  commit on another model is **Run again**.
+- **While a review runs**, the progress view names the model as soon as Claude
+  reports it.
+
 **What was checked (US-21).** On Linux: unit tests with fake `claude`
 scripts (found, missing, too old, an old one before a new one, another
 program, failing, not executable, a chosen one, a chosen one that is gone);

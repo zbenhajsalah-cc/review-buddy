@@ -6,6 +6,7 @@ import {
   type DesktopBridge,
   FIXTURE_REVIEW_KEY,
   type GitHubStatus,
+  type ModelChoice,
   type RepoSummary,
   type ReviewJobStatus,
 } from "../../shared/ipc.ts";
@@ -13,6 +14,7 @@ import { ClaudeCodeSettings, claudeBlocked } from "./ClaudeCodeSettings.tsx";
 import { GitHubSettings } from "./GitHubSettings.tsx";
 import { ipcReviewApi } from "./ipc-review-api.ts";
 import { LocalCopies } from "./LocalCopies.tsx";
+import { useModels } from "./ModelPicker.tsx";
 import { jobToFollow, viewForEndedJob } from "./open-job.ts";
 import { DoneBar } from "./PostReview.tsx";
 import { PullList } from "./PullList.tsx";
@@ -57,6 +59,10 @@ export function App({ bridge }: { bridge: DesktopBridge }) {
   // The installed Claude Code (US-21); null until main's first check is back.
   const [claude, setClaude] = useState<ClaudeCodeStatus | null>(null);
   const blocked = claudeBlocked(claude);
+  // The models reviews can run on, and the default choice (US-22).
+  const models = useModels(bridge.claude);
+  // What the reviews started from the PR list run on; empty: that default.
+  const [override, setOverride] = useState<ModelChoice>({});
 
   const refreshGitHub = useCallback(() => {
     bridge.github.status().then(setGitHub, () => {});
@@ -146,14 +152,24 @@ export function App({ bridge }: { bridge: DesktopBridge }) {
 
   /**
    * Queues reviews; `follow` shows the first one; `fresh` runs Claude even if
-   * a review of the PR's head is saved. Resolves with the errors, if any.
+   * a review of the PR's head is saved; `choice` overrides the default model
+   * and effort for these reviews (US-22). Resolves with the errors, if any.
    */
-  const startReviews = async (prs: string[], follow: boolean, fresh = false) => {
+  const startReviews = async (
+    prs: string[],
+    follow: boolean,
+    fresh = false,
+    choice?: ModelChoice,
+  ) => {
     const errors: string[] = [];
     let first: ReviewJobStatus | undefined;
+    const options = { ...(fresh ? { fresh } : {}), ...choice };
     for (const pr of prs) {
       try {
-        const started = await bridge.review.start(pr, fresh ? { fresh } : undefined);
+        const started = await bridge.review.start(
+          pr,
+          Object.keys(options).length ? options : undefined,
+        );
         first ??= started;
       } catch (e) {
         errors.push(ipcErrorMessage(e));
@@ -282,11 +298,15 @@ export function App({ bridge }: { bridge: DesktopBridge }) {
               repo={repo}
               jobs={jobs}
               blocked={blocked}
-              onReview={(numbers, follow, fresh) =>
+              models={models}
+              override={override}
+              onOverride={setOverride}
+              onReview={(numbers, follow, fresh, choice) =>
                 startReviews(
                   numbers.map((n) => `${repo.fullName}#${n}`),
                   follow,
                   fresh,
+                  choice,
                 )
               }
               onOpenReview={(review) => {
@@ -311,7 +331,12 @@ export function App({ bridge }: { bridge: DesktopBridge }) {
             onStatus={setGitHub}
             onClose={() => setScreen(back)}
           >
-            <ClaudeCodeSettings bridge={bridge.claude} status={claude} onStatus={setClaude} />
+            <ClaudeCodeSettings
+              bridge={bridge.claude}
+              status={claude}
+              onStatus={setClaude}
+              models={models}
+            />
             <SavedReviews bridge={bridge.review} onDeleted={savedDeleted} />
             <LocalCopies bridge={bridge.review} />
           </GitHubSettings>
@@ -320,7 +345,10 @@ export function App({ bridge }: { bridge: DesktopBridge }) {
             status={job}
             ahead={jobs.filter((j) => j.state === "queued" && j.id < job.id).length}
             onStop={() => stopJob(job.id)}
-            onRetry={() => void startReviews([job.pr], true).then(setStartError)}
+            // Again on what it asked for, not on the default (US-22).
+            onRetry={() =>
+              void startReviews([job.pr], true, false, job.requested).then(setStartError)
+            }
             retryBlocked={blocked}
             onDismiss={() => setView({ kind: "sample" })}
           />

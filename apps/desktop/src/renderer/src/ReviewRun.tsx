@@ -1,6 +1,7 @@
 import { Button, Card, CardContent, CardHeader, CardTitle } from "@review-buddy/viewer/ui";
 import { type FormEvent, useEffect, useState } from "react";
 import type { ReviewErrorKind, ReviewJobStatus, ReviewPhase } from "../../shared/ipc.ts";
+import { choiceLabel } from "../../shared/models.ts";
 
 /** The message of a rejected IPC call, without Electron's wrapper text. */
 export function ipcErrorMessage(e: unknown): string {
@@ -132,6 +133,12 @@ export function RunPanel({
   const time =
     status.startedAt !== undefined ? elapsed((status.endedAt ?? now) - status.startedAt) : "";
   const hint = failureHint(status.errorKind);
+  // The model Claude reported once it started, else what was asked for. The
+  // names are not looked up here: an alias ("opus") already reads as one.
+  const ranWith = choiceLabel([], {
+    model: status.model ?? status.requested?.model,
+    effort: status.requested?.effort,
+  });
   return (
     <div className="mx-auto max-w-xl px-6 py-10">
       <Card>
@@ -152,6 +159,8 @@ export function RunPanel({
           </CardTitle>
         </CardHeader>
         <CardContent className="space-y-4 text-sm">
+          {/* What it runs on, when it is not the default (US-22). */}
+          {ranWith ? <p className="text-muted-foreground">Model: {ranWith}</p> : null}
           {state === "running" ? (
             <Phases status={status} />
           ) : state === "queued" ? (

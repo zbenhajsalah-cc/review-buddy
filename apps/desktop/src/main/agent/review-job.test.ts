@@ -443,4 +443,94 @@ describe("ReviewJobs", () => {
     await ok.jobs.whenIdle();
     expect(done).toEqual(["octocat/hello-world#4 done"]);
   });
+
+  describe("the model and the effort (US-22)", () => {
+    /**
+     * Records the choice each run was given, and reports back what it ran —
+     * as the runner does: the model from Claude, and the effort it really
+     * sent (`ran`, which stands in for the app's default and the clamping).
+     */
+    async function withChoice(ran?: { effort?: "high" | "medium" }) {
+      const { review } = await loadFixtureReview();
+      const choices: unknown[] = [];
+      const made = await setup(async (_source, _label, _onProgress, _signal, choice) => {
+        choices.push(choice);
+        return {
+          ok: true,
+          review,
+          warnings: [],
+          submissions: 1,
+          durationMs: 1,
+          model: "claude-opus-5",
+          ...((ran ?? (choice as { effort?: "high" }))?.effort
+            ? { effort: (ran ?? (choice as { effort?: "high" })).effort }
+            : {}),
+        };
+      });
+      return { ...made, choices };
+    }
+
+    test("a run's own choice reaches the run and the job", async () => {
+      const { jobs, choices } = await withChoice();
+      const status = jobs.start("octocat/hello-world#1", { model: "opus", effort: "max" });
+      expect(status.requested).toEqual({ model: "opus", effort: "max" });
+      await jobs.whenIdle();
+      expect(choices).toEqual([{ model: "opus", effort: "max" }]);
+      // The model Claude reported, for the progress view.
+      expect(jobs.jobs()[0]!.model).toBe("claude-opus-5");
+    });
+
+    test("no choice: nothing is asked for, and the app's default applies", async () => {
+      const { jobs, choices } = await withChoice();
+      const status = jobs.start("octocat/hello-world#1");
+      expect(status.requested).toBeUndefined();
+      await jobs.whenIdle();
+      expect(choices).toEqual([{}]);
+    });
+
+    test("a made-up model or effort from the page is dropped", async () => {
+      const { jobs, choices } = await withChoice();
+      const status = jobs.start("octocat/hello-world#1", {
+        model: "opus; rm -rf /",
+        effort: "turbo",
+        fresh: true,
+      });
+      expect(status.requested).toBeUndefined();
+      await jobs.whenIdle();
+      expect(choices).toEqual([{}]);
+    });
+
+    test("what a review was made with is kept with it", async () => {
+      const { jobs, store } = await withChoice();
+      jobs.start("octocat/hello-world#1", { effort: "high" });
+      await jobs.whenIdle();
+      expect(store.newestFor("octocat/hello-world#1")).toMatchObject({
+        model: "claude-opus-5",
+        effort: "high",
+      });
+    });
+
+    test("the effort kept is the one the run used, not the one it asked for", async () => {
+      // The job asks for nothing (the app's default applies) and the run
+      // reports "medium"; a clamped override reaches the job the same way.
+      const { jobs, store } = await withChoice({ effort: "medium" });
+      jobs.start("octocat/hello-world#1");
+      await jobs.whenIdle();
+      expect(jobs.jobs()[0]!.effort).toBe("medium");
+      expect(store.newestFor("octocat/hello-world#1")).toMatchObject({ effort: "medium" });
+    });
+
+    test("the model shows while the review runs, before it ends", async () => {
+      const { review } = await loadFixtureReview();
+      let seen: string | undefined;
+      const made = await setup(async (_source, _label, onProgress) => {
+        onProgress({ phase: "reading", step: "Claude is reading the PR", model: "claude-opus-5" });
+        seen = made.jobs.jobs()[0]!.model;
+        return { ok: true, review, warnings: [], submissions: 1, durationMs: 1 };
+      });
+      made.jobs.start("octocat/hello-world#1");
+      await made.jobs.whenIdle();
+      expect(seen).toBe("claude-opus-5");
+    });
+  });
 });

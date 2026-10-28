@@ -9,7 +9,8 @@
  *
  * No Electron imports: tested with bun.
  */
-import type { ReviewJobStatus } from "../../shared/ipc.ts";
+import type { ModelChoice, ReviewJobStatus } from "../../shared/ipc.ts";
+import { parseModelChoice } from "../../shared/models.ts";
 import { type GitHubApiSource, type PrRef, PrTooLargeError } from "../github/api-source.ts";
 import { parsePrArg } from "../github/pr-check.ts";
 import type { ReviewStore } from "../reviews.ts";
@@ -36,6 +37,8 @@ export interface ReviewJobDeps {
     label: string,
     onProgress: (progress: ReviewProgress) => void,
     signal: AbortSignal,
+    /** The model and effort this job asked for; empty: the app's default. */
+    choice: ModelChoice,
   ): Promise<ReviewRunResult>;
   /** One line per finished run (the app logs it to the console). */
   log?(line: string): void;
@@ -56,6 +59,8 @@ interface Job {
   abort: AbortController;
   /** Run the agent even if a review of this head is saved. */
   fresh: boolean;
+  /** The model and effort asked for (US-22); empty: the app's default. */
+  choice: ModelChoice;
   /** The review is being saved: too late to stop (see `stop`). */
   saving?: boolean;
 }
@@ -74,11 +79,14 @@ export class ReviewJobs {
 
   /**
    * Queues a review of `value` ("owner/repo#123" or a PR URL). It runs as
-   * soon as fewer than `maxRunning` jobs run.
+   * soon as fewer than `maxRunning` jobs run. `options.model` and
+   * `options.effort` override the app's default for this review (US-22);
+   * anything else there is dropped (it comes from the renderer).
    */
   start(value: unknown, options?: unknown): ReviewJobStatus {
     if (typeof value !== "string") throw new Error("Expected a PR reference.");
     const fresh = (options as { fresh?: unknown } | undefined)?.fresh === true;
+    const choice = parseModelChoice(options);
     const ref = parsePrArg(value); // throws a message for the user
     const pr = `${ref.owner}/${ref.repo}#${ref.number}`;
     const same = this.#jobs.find(
@@ -90,10 +98,17 @@ export class ReviewJobs {
       );
     }
     const job: Job = {
-      status: { id: this.#nextId++, pr, state: "queued", steps: [] },
+      status: {
+        id: this.#nextId++,
+        pr,
+        state: "queued",
+        steps: [],
+        ...(choice.model || choice.effort ? { requested: choice } : {}),
+      },
       ref,
       abort: new AbortController(),
       fresh,
+      choice,
     };
     this.#jobs.push(job);
     this.#prune();
@@ -187,9 +202,11 @@ export class ReviewJobs {
     const { ref, abort } = job;
     const { signal } = abort;
     const label = job.status.pr;
-    const onProgress = ({ phase, step }: ReviewProgress) => {
+    const onProgress = ({ phase, step, model }: ReviewProgress) => {
       job.status.phase = phase;
       job.status.steps = [...job.status.steps, step].slice(-MAX_STEPS);
+      // Claude said which model it runs: shown while the review runs (US-22).
+      if (model) job.status.model = model;
       this.#changed();
     };
     let result: ReviewRunResult;
@@ -211,7 +228,11 @@ export class ReviewJobs {
         reviewKey = saved;
         result = { ok: true, warnings: [], submissions: 0, durationMs: 0, cached: true };
       } else {
-        result = await this.deps.run(source, label, onProgress, signal);
+        result = await this.deps.run(source, label, onProgress, signal, job.choice);
+        if (result.model) job.status.model = result.model;
+        // The effort the run really used: this job's, the app's default, or
+        // one lowered for the model (the runner reports what it sent).
+        if (result.effort) job.status.effort = result.effort;
         const files = result.review ? await source.files() : [];
         // Stopped means stopped, even after a submission: the user asked for no review.
         if (result.review && !signal.aborted) {
@@ -223,6 +244,11 @@ export class ReviewJobs {
             headSha: source.headSha,
             baseSha: source.baseSha,
             files,
+            // What it was reviewed with, so the PR list can offer a re-run on
+            // another model (US-22): both as the run reported them, not as
+            // this job asked (the default and the clamping apply in between).
+            ...(result.model ? { model: result.model } : {}),
+            ...(result.effort ? { effort: result.effort } : {}),
           });
         }
       }
