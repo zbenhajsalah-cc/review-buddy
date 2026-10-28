@@ -67,10 +67,6 @@ export function Overview({
     <div className="mx-auto max-w-3xl px-6 py-10">
       {/* PR header */}
       <header className="mb-7">
-        <div className="mb-3 flex items-center gap-3 font-mono text-[0.66rem] uppercase tracking-[0.09em] text-muted-foreground">
-          <span>Prologue</span>
-          <span aria-hidden className="h-px flex-1 bg-border" />
-        </div>
         <div className="flex items-start justify-between gap-3">
           <h1 className="font-serif text-[2.6rem] font-normal leading-[1.08] tracking-[-0.015em]">
             {pr.title || "Untitled review"}
@@ -226,13 +222,12 @@ export function Overview({
                     {/* The chapter numeral is the editorial anchor: serif, in
                         the accent, dimmed once the chapter is complete. */}
                     <span
-                      aria-hidden
                       className={cn(
                         "font-serif text-2xl leading-none",
                         complete ? "text-muted-foreground" : "text-primary",
                       )}
                     >
-                      {ch.index}
+                      {String(ch.index).padStart(2, "0")}
                     </span>
                     <RiskBadge risk={ch.risk} />
                     {complete && <span aria-hidden>✓</span>}

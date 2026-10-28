@@ -197,14 +197,16 @@ export function PullList({
         ← Repositories
       </Button>
       <div className="mb-5 flex flex-wrap items-end gap-3">
-        <div className="min-w-0">
-          <p className="mb-1 font-mono text-[0.66rem] uppercase tracking-[0.09em] text-muted-foreground">
-            {repo.fullName.split("/")[0]}
-          </p>
-          <h1 className="min-w-0 truncate font-serif text-[2rem] font-normal leading-none">
-            {repo.fullName.split("/").slice(1).join("/") || repo.fullName}
-          </h1>
-        </div>
+        {/* One heading, so its accessible name stays the full "owner/name";
+            the owner is only set above the name visually. */}
+        <h1 className="min-w-0">
+          <span className="mb-1 block truncate font-mono text-[0.66rem] uppercase tracking-[0.09em] font-normal text-muted-foreground">
+            {repo.fullName.split("/")[0]}/
+          </span>
+          <span className="block truncate font-serif text-[2rem] font-normal leading-none">
+            {repo.fullName.split("/").slice(1).join("/")}
+          </span>
+        </h1>
         <span className="text-sm text-muted-foreground">Open pull requests</span>
         <Button
           variant="outline"
