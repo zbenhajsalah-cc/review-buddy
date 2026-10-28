@@ -1,6 +1,7 @@
 import { type IpcMainInvokeEvent, ipcMain } from "electron";
-import { IPC } from "../shared/ipc.ts";
+import { IPC, type ModelChoice } from "../shared/ipc.ts";
 import type { ClaudeCode } from "./agent/claude-code.ts";
+import type { ModelCatalog } from "./agent/models.ts";
 import type { ReviewJobs } from "./agent/review-job.ts";
 import type { GitHubAuth } from "./github/auth.ts";
 import type { PrClones } from "./github/clones.ts";
@@ -85,21 +86,40 @@ export function registerGitHubIpc(
   handle(IPC.githubPulls, isTrusted, (fullName, page) => pulls.list(fullName, page));
 }
 
+/** The default model and effort, as Settings reads and writes them (US-22). */
+export interface ModelDefault {
+  catalog: ModelCatalog;
+  get(): Promise<ModelChoice>;
+  /** `choice` comes from the renderer: the setter checks it. */
+  set(choice: unknown): Promise<ModelChoice>;
+}
+
 /**
  * The installed Claude Code (US-21). The renderer never sends a path: the
  * file dialog runs in main (`choosePath`), so a page cannot make main run a
- * program of its choice.
+ * program of its choice. It also picks the model and effort reviews run on
+ * (US-22): the model list comes from that Claude Code, not from the page.
  */
 export function registerClaudeIpc(
   claude: ClaudeCode,
   choosePath: () => Promise<string | undefined>,
+  models: ModelDefault,
   isTrusted: (url: string) => boolean,
 ): void {
+  handle(IPC.claudeModels, isTrusted, (refresh) => models.catalog.list(refresh));
+  handle(IPC.claudeChoice, isTrusted, () => models.get());
+  handle(IPC.claudeSetChoice, isTrusted, (choice) => models.set(choice));
   handle(IPC.claudeStatus, isTrusted, () => claude.status());
   handle(IPC.claudeCheck, isTrusted, () => claude.check());
   handle(IPC.claudeChoose, isTrusted, async () => {
     const path = await choosePath();
-    return path ? claude.choose(path) : claude.status();
+    if (!path) return claude.status();
+    // Another Claude Code may offer other models.
+    models.catalog.forget();
+    return claude.choose(path);
   });
-  handle(IPC.claudeSearch, isTrusted, () => claude.choose(undefined));
+  handle(IPC.claudeSearch, isTrusted, () => {
+    models.catalog.forget();
+    return claude.choose(undefined);
+  });
 }

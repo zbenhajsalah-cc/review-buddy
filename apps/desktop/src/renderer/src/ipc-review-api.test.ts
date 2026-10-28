@@ -17,6 +17,7 @@ test("every call names its review", async () => {
     stop: mock(async () => []),
     jobs: mock(async () => []),
     onJobs: mock(() => () => {}),
+    onOpenJob: mock(() => () => {}),
     saved: mock(async () => []),
     deleteSaved: mock(async () => []),
     deleteAllSaved: mock(async () => []),

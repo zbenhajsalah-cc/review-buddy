@@ -8,15 +8,28 @@
  * the window never navigates away from the app.
  */
 import { readFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { extname, join } from "node:path";
 import desktopPrompt from "@review-buddy/core/prompts/review-desktop.md?raw";
-import { app, BrowserWindow, dialog, net, protocol, safeStorage, session, shell } from "electron";
+import {
+  app,
+  BrowserWindow,
+  dialog,
+  Notification,
+  net,
+  protocol,
+  safeStorage,
+  session,
+  shell,
+} from "electron";
 // `?asset` copies the file into out/ and resolves to its path there, so the
 // icon travels with the `files: out/**` the installers ship.
 import appIcon from "../../build/icon.png?asset";
-import { FIXTURE_REVIEW_KEY, IPC } from "../shared/ipc.ts";
+import { FIXTURE_REVIEW_KEY, IPC, type ReviewJobStatus } from "../shared/ipc.ts";
+import { clampChoice, parseModelChoice } from "../shared/models.ts";
 import { type AgentCheckResult, runAgentCheck } from "./agent/check.ts";
 import { ClaudeCode } from "./agent/claude-code.ts";
+import { fetchSupportedModels, ModelCatalog } from "./agent/models.ts";
 import { ReviewJobs } from "./agent/review-job.ts";
 import { loadFixtureReview } from "./fixture/index.ts";
 import { openGitHubPr, prFileReader } from "./github/api-source.ts";
@@ -28,7 +41,13 @@ import { parsePrArg, runPrCheck } from "./github/pr-check.ts";
 import { GitHubPulls } from "./github/pulls.ts";
 import { GitHubRepos } from "./github/repos.ts";
 import { TokenStore } from "./github/token-store.ts";
-import { registerClaudeIpc, registerGitHubIpc, registerReviewIpc } from "./ipc.ts";
+import {
+  type ModelDefault,
+  registerClaudeIpc,
+  registerGitHubIpc,
+  registerReviewIpc,
+} from "./ipc.ts";
+import { jobNotice, pageUrlForJob } from "./job-notice.ts";
 import { ReviewCache } from "./review-cache.ts";
 import { ReviewStore } from "./reviews.ts";
 import {
@@ -119,7 +138,8 @@ app.on("web-contents-created", (_event, contents) => {
   contents.on("will-attach-webview", (event) => event.preventDefault());
 });
 
-function createWindow(): BrowserWindow {
+/** `openJob`: the page follows that job (see pageUrlForJob), not the newest. */
+function createWindow(openJob?: number): BrowserWindow {
   const win = new BrowserWindow({
     width: 1280,
     height: 860,
@@ -136,8 +156,40 @@ function createWindow(): BrowserWindow {
     },
   });
   win.once("ready-to-show", () => win.show());
-  void win.loadURL(devServerUrl ?? APP_URL);
+  const page = devServerUrl ?? APP_URL;
+  void win.loadURL(openJob === undefined ? page : pageUrlForJob(page, openJob));
   return win;
+}
+
+/** Shown notifications, until closed: one garbage-collected early loses its click. */
+const notifications = new Set<Notification>();
+
+/**
+ * A review ended while the app was in the background: say so. A click brings
+ * the window back and shows that review (the renderer picks the saved review
+ * once the job list has dropped the job).
+ */
+function notifyJobEnded(status: ReviewJobStatus): void {
+  const notice = jobNotice(status);
+  if (!notice || BrowserWindow.getFocusedWindow() || !Notification.isSupported()) return;
+  const notification = new Notification(notice);
+  notifications.add(notification);
+  notification.on("close", () => notifications.delete(notification));
+  notification.on("click", () => {
+    notifications.delete(notification);
+    const win = BrowserWindow.getAllWindows()[0];
+    // No window (macOS keeps the app open): a new one, told which job.
+    if (!win) {
+      createWindow(status.id);
+      return;
+    }
+    if (win.isMinimized()) win.restore();
+    win.show();
+    win.focus();
+    const page = win.webContents;
+    if (isTrustedPage(page.getURL())) page.send(IPC.openReviewJob, status);
+  });
+  notification.show();
 }
 
 /**
@@ -220,6 +272,45 @@ function createClaudeCode(settings: SettingsFile): ClaudeCode {
   });
 }
 
+/**
+ * The models the installed Claude Code offers this account (US-22). Asking it
+ * starts a `claude` process and sends no turn, so it costs no tokens; the
+ * answer is remembered until Settings asks again or the binary changes.
+ */
+function createModelCatalog(claudeCode: ClaudeCode): ModelCatalog {
+  return new ModelCatalog({
+    fetch: async () => {
+      const claude = await claudeCode.ready(); // no usable Claude Code → the fallback list
+      // Loaded here, not at start: the SDK is large.
+      const { query } = await import("@anthropic-ai/claude-agent-sdk");
+      return fetchSupportedModels(query, {
+        pathToClaudeCodeExecutable: claude.path,
+        clientApp: `review-buddy-desktop/${app.getVersion()}`,
+        cwd: tmpdir(),
+      });
+    },
+    log: (line) => console.warn(`[review-buddy] ${line}`),
+  });
+}
+
+/**
+ * The model and effort reviews use unless a run overrides them (US-22), in
+ * the app settings. Both are checked on the way in and on the way out: the
+ * file can be edited by hand, and the renderer sends what the pickers show.
+ */
+function createModelDefault(settings: SettingsFile, catalog: ModelCatalog): ModelDefault {
+  const read = async () => parseModelChoice(await settings.read());
+  return {
+    catalog,
+    get: read,
+    set: async (value) => {
+      const choice = clampChoice(catalog.known(), parseModelChoice(value));
+      await settings.update({ model: choice.model, effort: choice.effort });
+      return choice;
+    },
+  };
+}
+
 /** Settings → Choose…: a file dialog in main (the renderer never sends a path). */
 async function chooseClaudePath(): Promise<string | undefined> {
   const options: Electron.OpenDialogOptions = {
@@ -293,6 +384,8 @@ function createReviewJobs(
   repos: GitHubRepos,
   claudeCode: ClaudeCode,
   clones: PrClones,
+  modelCatalog: ModelCatalog,
+  modelDefault: ModelDefault,
 ): ReviewJobs {
   const jobs: ReviewJobs = new ReviewJobs({
     store,
@@ -311,7 +404,7 @@ function createReviewJobs(
       });
       return source;
     },
-    run: async (source, label, onProgress, signal) => {
+    run: async (source, label, onProgress, signal, choice) => {
       // Checked again before each run: it may have been updated or removed
       // (throws a "claude" error that says what to do).
       const claude = await claudeCode.ready();
@@ -319,6 +412,11 @@ function createReviewJobs(
         import("@anthropic-ai/claude-agent-sdk"),
         import("./agent/runner.ts"),
       ]);
+      // What this run asked for wins over the app's default (US-22).
+      const effective = clampChoice(modelCatalog.known(), {
+        ...(await modelDefault.get()),
+        ...choice,
+      });
       const result = await runReview(query, {
         label,
         source,
@@ -327,6 +425,7 @@ function createReviewJobs(
         clientApp: `review-buddy-desktop/${app.getVersion()}`,
         onProgress,
         signal,
+        choice: effective,
       });
       if (!result.ok && result.error && result.errorKind !== "stopped") {
         result.error += `\n(Claude Code ${claude.version}, ${claude.path})`;
@@ -334,6 +433,7 @@ function createReviewJobs(
       return result;
     },
     log: (line) => console.log(`[review-buddy] review-run ${line}`),
+    onEnded: notifyJobEnded,
     // Progress events (US-15): the whole list, to our own page only, at most
     // every 100 ms (a streamed review makes many small steps).
     onChange: atMostEvery(100, () => {
@@ -394,7 +494,17 @@ app.whenReady().then(async () => {
     console.log(`[review-buddy] claude code: ${status.state}: ${found}`);
   });
   const clones = createPrClones(github);
-  const jobs = createReviewJobs(store, github, repos, claudeCode, clones);
+  const modelCatalog = createModelCatalog(claudeCode);
+  const modelDefault = createModelDefault(settings, modelCatalog);
+  const jobs = createReviewJobs(
+    store,
+    github,
+    repos,
+    claudeCode,
+    clones,
+    modelCatalog,
+    modelDefault,
+  );
   const pulls = new GitHubPulls({
     fetch: (url, init) => net.fetch(url, init),
     auth: github,
@@ -413,7 +523,7 @@ app.whenReady().then(async () => {
   });
   registerReviewIpc(store, jobs, clones, posting, isTrustedPage);
   registerGitHubIpc(github, repos, pulls, isTrustedPage);
-  registerClaudeIpc(claudeCode, chooseClaudePath, isTrustedPage);
+  registerClaudeIpc(claudeCode, chooseClaudePath, modelDefault, isTrustedPage);
   createWindow();
 
   // `--review-pr=<owner/repo#123 | PR URL>`: start reviewing that PR at once.

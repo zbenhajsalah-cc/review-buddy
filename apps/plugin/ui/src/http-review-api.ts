@@ -16,6 +16,13 @@ async function getJSON<T>(path: string): Promise<T> {
   return (await res.json()) as T;
 }
 
+let finished = false;
+
+/** True once the server took Done: the review is over and the tab may close. */
+export function reviewFinished(): boolean {
+  return finished;
+}
+
 export const httpReviewApi: ReviewApi = {
   // One server = one review, and the token is unique per server, so it keys
   // this review's viewed / collapsed state (same keys as before the split).
@@ -37,5 +44,6 @@ export const httpReviewApi: ReviewApi = {
     if (!res.ok) {
       throw new Error(`/api/done → ${res.status} ${res.statusText}`);
     }
+    finished = true;
   },
 };

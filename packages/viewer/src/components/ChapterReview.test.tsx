@@ -19,7 +19,29 @@ afterEach(() => {
   cleanup();
   localStorage.removeItem(VIEWED_KEY);
   localStorage.removeItem(COLLAPSED_KEY);
+  // biome-ignore lint/suspicious/noDocumentCookie: drop the "hide viewed" preference
+  document.cookie = "rb.hideViewed=; path=/; max-age=0";
 });
+
+/** Chapter 2 of the fixture: two files, in src/server/auth. */
+function renderChapter2(props: { openFile?: string } = {}) {
+  return renderWithApi(
+    <ChapterReview
+      review={fakeResolvedReview}
+      position={1}
+      onNavigate={() => {}}
+      onExit={() => {}}
+      {...props}
+    />,
+  );
+}
+
+const card = (path: string) => document.querySelector(`[data-file-path="${path}"]`);
+/** An element inside a file's card; null also when the card is missing. */
+const inCard = (path: string, selector: string) =>
+  document.querySelector(`[data-file-path="${path}"] ${selector}`);
+const MIDDLEWARE = "src/server/auth/middleware.ts";
+const SESSION = "src/server/auth/session.ts";
 
 test("marking viewed collapses the card; caret re-expands while viewed stays checked", () => {
   renderWithApi(
@@ -229,8 +251,10 @@ test("Done (default): the review's viewed state is cleared and the viewer says s
   );
   fireEvent.click(screen.getByLabelText("viewed"));
   expect(localStorage.getItem(VIEWED_KEY)).not.toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: "Done" }));
+  // Not every file is viewed, so Done asks first.
   await act(async () => {
-    fireEvent.click(screen.getByRole("button", { name: "Done" }));
+    fireEvent.click(screen.getByRole("button", { name: "Finish anyway" }));
   });
   expect(done).toHaveBeenCalledTimes(1);
   expect(localStorage.getItem(VIEWED_KEY)).toBeNull();
@@ -249,12 +273,164 @@ test('Done with afterDone "keep": the state stays and the review stays open', as
     fakeReviewApi({ overrides: { done, afterDone: "keep" } }),
   );
   fireEvent.click(screen.getByLabelText("viewed"));
+  fireEvent.click(screen.getByRole("button", { name: "Done" }));
+  // Not every file is viewed, so Done asks first.
   await act(async () => {
-    fireEvent.click(screen.getByRole("button", { name: "Done" }));
+    fireEvent.click(screen.getByRole("button", { name: "Finish anyway" }));
   });
   expect(done).toHaveBeenCalledTimes(1);
   expect(JSON.parse(localStorage.getItem(VIEWED_KEY)!)).toHaveLength(1);
   expect(screen.queryByText(/Review submitted/)).toBeNull();
   const button = screen.getByRole("button", { name: "Done ✓" }) as HTMLButtonElement;
   expect(button.disabled).toBe(true);
+});
+
+test("Done with every file viewed submits without asking", async () => {
+  localStorage.setItem(
+    VIEWED_KEY,
+    JSON.stringify([
+      "1:src/example.ts",
+      `2:${MIDDLEWARE}`,
+      `2:${SESSION}`,
+      "3:src/jobs/backoff.ts",
+    ]),
+  );
+  const done = mock(async () => {});
+  renderWithApi(
+    <ChapterReview
+      review={fakeResolvedReview}
+      position={0}
+      onNavigate={() => {}}
+      onExit={() => {}}
+    />,
+    fakeReviewApi({ overrides: { done } }),
+  );
+  await act(async () => {
+    fireEvent.click(screen.getByRole("button", { name: "Done" }));
+  });
+  expect(done).toHaveBeenCalledTimes(1);
+  expect(screen.queryByText(/Finish anyway/)).toBeNull();
+});
+
+test("Done with files not viewed asks; Keep reviewing does not submit", () => {
+  localStorage.setItem(VIEWED_KEY, JSON.stringify(["1:src/example.ts"]));
+  const done = mock(async () => {});
+  renderWithApi(
+    <ChapterReview
+      review={fakeResolvedReview}
+      position={0}
+      onNavigate={() => {}}
+      onExit={() => {}}
+    />,
+    fakeReviewApi({ overrides: { done } }),
+  );
+  fireEvent.click(screen.getByRole("button", { name: "Done" }));
+  expect(screen.getByText("Viewed 1 of 4 files. Finish anyway?")).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: "Keep reviewing" }));
+  expect(screen.queryByText(/Finish anyway/)).toBeNull();
+  expect(done).toHaveBeenCalledTimes(0);
+});
+
+test("Collapse all collapses every file, then Expand all opens them again", () => {
+  renderChapter2();
+  fireEvent.click(screen.getByRole("button", { name: "Collapse all" }));
+  expect(inCard(MIDDLEWARE, "[hidden]")).not.toBeNull();
+  expect(inCard(SESSION, "[hidden]")).not.toBeNull();
+
+  fireEvent.click(screen.getByRole("button", { name: "Expand all" }));
+  expect(inCard(MIDDLEWARE, "[hidden]")).toBeNull();
+  expect(inCard(SESSION, "[hidden]")).toBeNull();
+});
+
+test("Hide viewed files takes viewed files out of the list and the diffs", () => {
+  localStorage.setItem(VIEWED_KEY, JSON.stringify([`2:${MIDDLEWARE}`]));
+  renderChapter2();
+  fireEvent.click(screen.getByRole("switch", { name: "Hide viewed files" }));
+  expect(card(MIDDLEWARE)).toBeNull();
+  expect(document.querySelector(`aside [title="${MIDDLEWARE}"]`)).toBeNull();
+  expect(card(SESSION)).not.toBeNull();
+
+  fireEvent.click(screen.getByRole("switch", { name: "viewed" })); // the last one
+  expect(screen.getByText(/All 2 files are viewed/)).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: "Show them" }));
+  expect(card(MIDDLEWARE)).not.toBeNull();
+  expect(card(SESSION)).not.toBeNull();
+});
+
+test("the file list shows each file's folder after its name, and the full path on hover", () => {
+  renderChapter2();
+  const item = document.querySelector(`aside [title="${MIDDLEWARE}"]`)!;
+  expect(item.textContent).toContain("middleware.ts");
+  expect(item.textContent).toContain("src/server/auth");
+});
+
+test("openFile focuses that file when the chapter opens", () => {
+  renderChapter2({ openFile: SESSION });
+  expect(inCard(SESSION, "[data-focused]")).not.toBeNull();
+  expect(inCard(MIDDLEWARE, "[data-focused]")).toBeNull();
+});
+
+test("with Hide viewed on, the file the focus link opened stays shown, and open", () => {
+  // biome-ignore lint/suspicious/noDocumentCookie: turn the "hide viewed" preference on
+  document.cookie = "rb.hideViewed=true; path=/";
+  // Viewed, so also collapsed.
+  localStorage.setItem(VIEWED_KEY, JSON.stringify([`2:${SESSION}`]));
+  localStorage.setItem(COLLAPSED_KEY, JSON.stringify([`2:${SESSION}`]));
+  renderChapter2({ openFile: SESSION });
+  expect(inCard(SESSION, "[data-focused]")).not.toBeNull();
+  expect(inCard(SESSION, "[data-testid='patch-diff']")).not.toBeNull();
+  expect(inCard(SESSION, "[hidden]")).toBeNull();
+  expect(card(MIDDLEWARE)).not.toBeNull();
+});
+
+// Behavior checks only: in a real browser React re-renders between Radix's
+// capture listener and ours, which happy-dom doesn't reproduce. The regression
+// guard for that timing is the preventDefault test in lib/shortcuts.test.tsx.
+test("Esc closes the shortcuts dialog without leaving the chapter", () => {
+  const onExit = mock(() => {});
+  renderWithApi(
+    <ChapterReview
+      review={fakeResolvedReview}
+      position={0}
+      onNavigate={() => {}}
+      onExit={onExit}
+    />,
+  );
+
+  act(() => {
+    fireEvent.keyDown(document, { key: "?" });
+  });
+  act(() => {
+    fireEvent.keyDown(document.activeElement ?? document, { key: "Escape" });
+  });
+  expect(screen.queryByText("Keyboard shortcuts")).toBeNull();
+  expect(onExit).toHaveBeenCalledTimes(0);
+
+  act(() => {
+    fireEvent.keyDown(document, { key: "Escape" });
+  });
+  expect(onExit).toHaveBeenCalledTimes(1);
+});
+
+test("Esc closes the theme & font popover without leaving the chapter", async () => {
+  const onExit = mock(() => {});
+  renderWithApi(
+    <ChapterReview
+      review={fakeResolvedReview}
+      position={0}
+      onNavigate={() => {}}
+      onExit={onExit}
+    />,
+  );
+
+  await act(async () => {
+    fireEvent.click(screen.getByRole("button", { name: "Theme & font" }));
+  });
+  expect(screen.queryByLabelText("Font")).not.toBeNull();
+
+  act(() => {
+    fireEvent.keyDown(document.activeElement ?? document, { key: "Escape" });
+  });
+  expect(screen.queryByLabelText("Font")).toBeNull();
+  expect(onExit).toHaveBeenCalledTimes(0);
 });

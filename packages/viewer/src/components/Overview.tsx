@@ -1,7 +1,7 @@
 import type { ResolvedReview } from "@review-buddy/core/types";
 import { useMemo, useRef, useState } from "react";
 import { readViewedEntries } from "../lib/chapterFileSet.ts";
-import { chapterPathSet } from "../lib/chapterPathSet.ts";
+import { progressByChapter } from "../lib/progress.ts";
 import { reviewToMarkdown } from "../lib/reviewMarkdown.ts";
 import { useShortcuts } from "../lib/shortcuts.ts";
 import { cn } from "../lib/utils.ts";
@@ -21,7 +21,8 @@ export function Overview({
   onBeginReview,
 }: {
   review: ResolvedReview;
-  onBeginReview: (position: number) => void;
+  /** `file`: open the chapter at that file (the review focus). */
+  onBeginReview: (position: number, file?: string) => void;
 }) {
   const [tab, setTab] = useState<Tab>("prologue");
   const { pr, meta, prologue, stats, chapters, warnings } = review;
@@ -32,19 +33,17 @@ export function Overview({
   const copyRef = useRef<CopyMarkdownHandle>(null);
 
   const chapterProgress = useMemo(
-    () =>
-      chapters.map((ch) => {
-        // Intersect with chapter files so stale entries for removed paths don't inflate the count.
-        const viewed = chapterPathSet(viewedEntries, ch.index);
-        const viewedCount = ch.files.filter((f) => viewed.has(f.path)).length;
-        return {
-          viewedCount,
-          complete: ch.fileCount > 0 && viewedCount === ch.fileCount,
-        };
-      }),
+    () => progressByChapter(chapters, viewedEntries),
     [chapters, viewedEntries],
   );
   const completedCount = chapterProgress.filter((p) => p.complete).length;
+  // Once the reviewer has viewed a file, "Begin review" continues at the first
+  // chapter that is not complete (-1: nothing viewed yet, or all complete).
+  const resumeAt = chapterProgress.some((p) => p.viewedCount > 0)
+    ? chapters.findIndex((ch, i) => ch.fileCount > 0 && !chapterProgress[i]?.complete)
+    : -1;
+  const startAt = Math.max(resumeAt, 0);
+  const focus = findFocusFile(chapters, prologue.review_focus.file);
 
   useShortcuts({
     SHOW_SHORTCUTS: {
@@ -53,7 +52,7 @@ export function Overview({
     },
     BEGIN_REVIEW: {
       handler: () => {
-        if (chapters.length > 0) onBeginReview(0);
+        if (chapters.length > 0) onBeginReview(startAt);
       },
       enabled: !shortcutsOpen && chapters.length > 0,
     },
@@ -180,9 +179,20 @@ export function Overview({
             </h3>
             <p className="text-[0.95rem] leading-relaxed text-rb-focus-fg">
               <Markdown value={prologue.review_focus.summary} variant="inline" className="inline" />{" "}
-              <code className="mt-1.5 block font-mono text-xs text-rb-focus-fg/80">
-                {prologue.review_focus.file}
-              </code>
+              {focus ? (
+                <button
+                  type="button"
+                  onClick={() => onBeginReview(focus.position, focus.path)}
+                  title={`Open in chapter ${chapters[focus.position]?.index}`}
+                  className="mt-1.5 block text-left font-mono text-xs text-rb-focus-fg/80 underline decoration-rb-focus-fg/30 underline-offset-2 hover:decoration-current"
+                >
+                  {prologue.review_focus.file} →
+                </button>
+              ) : (
+                <code className="mt-1.5 block font-mono text-xs text-rb-focus-fg/80">
+                  {prologue.review_focus.file}
+                </code>
+              )}
             </p>
           </div>
         </section>
@@ -279,17 +289,37 @@ export function Overview({
       </ol>
 
       <Button
-        onClick={() => onBeginReview(0)}
+        onClick={() => onBeginReview(startAt)}
         disabled={chapters.length === 0}
         size="lg"
         className="mt-8"
       >
-        Begin review →
+        {resumeAt >= 0 ? `Continue with chapter ${chapters[resumeAt]?.index} →` : "Begin review →"}
       </Button>
 
       <ShortcutsDialog open={shortcutsOpen} onOpenChange={setShortcutsOpen} surface="overview" />
     </div>
   );
+}
+
+/**
+ * The chapter and diff path of the review focus file, or null when the diff
+ * does not have it. The agent may write `./a.ts` or `a.ts:42` (a line) for a
+ * file the diff calls `a.ts`, and may name a renamed file by its old path.
+ */
+function findFocusFile(
+  chapters: ResolvedReview["chapters"],
+  file: string,
+): { position: number; path: string } | null {
+  const path = file
+    .trim()
+    .replace(/^\.\//, "")
+    .replace(/:\d+(?:-\d+)?$/, "");
+  for (const [position, ch] of chapters.entries()) {
+    const found = ch.files.find((f) => f.path === path || f.old_path === path);
+    if (found) return { position, path: found.path };
+  }
+  return null;
 }
 
 function TabButton({

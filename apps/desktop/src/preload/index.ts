@@ -1,8 +1,8 @@
 /**
  * Runs in the sandboxed renderer before the page. It exposes only the calls
  * below — never `ipcRenderer` itself — so the page cannot send on any other
- * channel, and hears only the job list event. Built as CommonJS: sandboxed
- * preloads cannot load ES modules.
+ * channel, and hears only the job list and open-job events. Built as
+ * CommonJS: sandboxed preloads cannot load ES modules.
  */
 import { contextBridge, ipcRenderer } from "electron";
 import { type DesktopBridge, IPC, type ReviewJobStatus } from "../shared/ipc.ts";
@@ -33,6 +33,13 @@ const bridge: DesktopBridge = {
         ipcRenderer.removeListener(IPC.reviewJobsChanged, handler);
       };
     },
+    onOpenJob: (listener) => {
+      const handler = (_event: unknown, job: ReviewJobStatus) => listener(job);
+      ipcRenderer.on(IPC.openReviewJob, handler);
+      return () => {
+        ipcRenderer.removeListener(IPC.openReviewJob, handler);
+      };
+    },
   },
   github: {
     status: () => ipcRenderer.invoke(IPC.githubStatus),
@@ -48,6 +55,9 @@ const bridge: DesktopBridge = {
     check: () => ipcRenderer.invoke(IPC.claudeCheck),
     choose: () => ipcRenderer.invoke(IPC.claudeChoose),
     search: () => ipcRenderer.invoke(IPC.claudeSearch),
+    models: (refresh) => ipcRenderer.invoke(IPC.claudeModels, refresh),
+    choice: () => ipcRenderer.invoke(IPC.claudeChoice),
+    setChoice: (choice) => ipcRenderer.invoke(IPC.claudeSetChoice, choice),
   },
 };
 

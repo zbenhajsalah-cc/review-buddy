@@ -1,11 +1,12 @@
 import { clearReviewFileState, ReviewViewer } from "@review-buddy/viewer";
 import { Button } from "@review-buddy/viewer/ui";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   type ClaudeCodeStatus,
   type DesktopBridge,
   FIXTURE_REVIEW_KEY,
   type GitHubStatus,
+  type ModelChoice,
   type RepoSummary,
   type ReviewJobStatus,
 } from "../../shared/ipc.ts";
@@ -13,6 +14,8 @@ import { ClaudeCodeSettings, claudeBlocked } from "./ClaudeCodeSettings.tsx";
 import { GitHubSettings } from "./GitHubSettings.tsx";
 import { ipcReviewApi } from "./ipc-review-api.ts";
 import { LocalCopies } from "./LocalCopies.tsx";
+import { useModels } from "./ModelPicker.tsx";
+import { jobToFollow, viewForEndedJob } from "./open-job.ts";
 import { DoneBar } from "./PostReview.tsx";
 import { PullList } from "./PullList.tsx";
 import { RepoList } from "./RepoList.tsx";
@@ -56,6 +59,10 @@ export function App({ bridge }: { bridge: DesktopBridge }) {
   // The installed Claude Code (US-21); null until main's first check is back.
   const [claude, setClaude] = useState<ClaudeCodeStatus | null>(null);
   const blocked = claudeBlocked(claude);
+  // The models reviews can run on, and the default choice (US-22).
+  const models = useModels(bridge.claude);
+  // What the reviews started from the PR list run on; empty: that default.
+  const [override, setOverride] = useState<ModelChoice>({});
 
   const refreshGitHub = useCallback(() => {
     bridge.github.status().then(setGitHub, () => {});
@@ -63,13 +70,14 @@ export function App({ bridge }: { bridge: DesktopBridge }) {
 
   useEffect(() => {
     refreshGitHub();
-    // A review started with --review-pr (or before a reload) is followed.
+    // A review started with --review-pr (or before a reload) is followed;
+    // a window opened by a notification click follows that review's job.
     bridge.review.jobs().then(
       (found) => {
         setJobs(found);
-        const last = found.at(-1);
-        if (last) {
-          setView({ kind: "job", id: last.id });
+        const follow = jobToFollow(found, location.search);
+        if (follow) {
+          setView({ kind: "job", id: follow.id });
           setScreen("review");
         }
       },
@@ -79,6 +87,20 @@ export function App({ bridge }: { bridge: DesktopBridge }) {
 
   // Main sends the job list on every change (US-15): no polling.
   useEffect(() => bridge.review.onJobs(setJobs), [bridge]);
+
+  // A click on the notification that a review ended shows that review.
+  const jobsRef = useRef(jobs);
+  jobsRef.current = jobs;
+  useEffect(
+    () =>
+      bridge.review.onOpenJob((ended) => {
+        const next = viewForEndedJob(jobsRef.current, ended);
+        if (!next) return;
+        setView(next);
+        setScreen("review");
+      }),
+    [bridge],
+  );
 
   // Main checks Claude Code at start and before each review: a review that
   // failed for Claude reads the newest check.
@@ -108,11 +130,12 @@ export function App({ bridge }: { bridge: DesktopBridge }) {
       },
     };
   }, [bridge, reviewKey]);
-  // A job's review may be a saved one that was done before (also before a
-  // restart): Done is read from the saved reviews.
+  // A review may be a saved one that was done before (also before a restart):
+  // Done is read from the saved reviews. The PR list passes it with the
+  // review; a job's review, or a saved one a notification opens, has only this.
   const [savedDone, setSavedDone] = useState<{ reviewKey: string; doneAt?: string }>();
   useEffect(() => {
-    if (view.kind !== "job" || reviewKey === FIXTURE_REVIEW_KEY) return;
+    if (reviewKey === FIXTURE_REVIEW_KEY) return;
     bridge.review.saved().then(
       (list) => {
         const found = list.find((i) => i.reviewKey.toLowerCase() === reviewKey.toLowerCase());
@@ -120,26 +143,33 @@ export function App({ bridge }: { bridge: DesktopBridge }) {
       },
       () => {},
     );
-  }, [bridge, reviewKey, view.kind]);
+  }, [bridge, reviewKey]);
   const doneAt =
     doneNow[reviewKey] ??
-    (view.kind === "review"
-      ? view.doneAt
-      : savedDone?.reviewKey === reviewKey
-        ? savedDone.doneAt
-        : undefined);
+    (view.kind === "review" ? view.doneAt : undefined) ??
+    (savedDone?.reviewKey === reviewKey ? savedDone.doneAt : undefined);
   const reviewTab = view.kind === "review" ? view.pr : (job?.pr ?? "Sample review");
 
   /**
    * Queues reviews; `follow` shows the first one; `fresh` runs Claude even if
-   * a review of the PR's head is saved. Resolves with the errors, if any.
+   * a review of the PR's head is saved; `choice` overrides the default model
+   * and effort for these reviews (US-22). Resolves with the errors, if any.
    */
-  const startReviews = async (prs: string[], follow: boolean, fresh = false) => {
+  const startReviews = async (
+    prs: string[],
+    follow: boolean,
+    fresh = false,
+    choice?: ModelChoice,
+  ) => {
     const errors: string[] = [];
     let first: ReviewJobStatus | undefined;
+    const options = { ...(fresh ? { fresh } : {}), ...choice };
     for (const pr of prs) {
       try {
-        const started = await bridge.review.start(pr, fresh ? { fresh } : undefined);
+        const started = await bridge.review.start(
+          pr,
+          Object.keys(options).length ? options : undefined,
+        );
         first ??= started;
       } catch (e) {
         errors.push(ipcErrorMessage(e));
@@ -268,11 +298,15 @@ export function App({ bridge }: { bridge: DesktopBridge }) {
               repo={repo}
               jobs={jobs}
               blocked={blocked}
-              onReview={(numbers, follow, fresh) =>
+              models={models}
+              override={override}
+              onOverride={setOverride}
+              onReview={(numbers, follow, fresh, choice) =>
                 startReviews(
                   numbers.map((n) => `${repo.fullName}#${n}`),
                   follow,
                   fresh,
+                  choice,
                 )
               }
               onOpenReview={(review) => {
@@ -297,7 +331,12 @@ export function App({ bridge }: { bridge: DesktopBridge }) {
             onStatus={setGitHub}
             onClose={() => setScreen(back)}
           >
-            <ClaudeCodeSettings bridge={bridge.claude} status={claude} onStatus={setClaude} />
+            <ClaudeCodeSettings
+              bridge={bridge.claude}
+              status={claude}
+              onStatus={setClaude}
+              models={models}
+            />
             <SavedReviews bridge={bridge.review} onDeleted={savedDeleted} />
             <LocalCopies bridge={bridge.review} />
           </GitHubSettings>
@@ -306,7 +345,10 @@ export function App({ bridge }: { bridge: DesktopBridge }) {
             status={job}
             ahead={jobs.filter((j) => j.state === "queued" && j.id < job.id).length}
             onStop={() => stopJob(job.id)}
-            onRetry={() => void startReviews([job.pr], true).then(setStartError)}
+            // Again on what it asked for, not on the default (US-22).
+            onRetry={() =>
+              void startReviews([job.pr], true, false, job.requested).then(setStartError)
+            }
             retryBlocked={blocked}
             onDismiss={() => setView({ kind: "sample" })}
           />
