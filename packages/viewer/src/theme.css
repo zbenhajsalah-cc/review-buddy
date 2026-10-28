@@ -40,6 +40,19 @@
   color-scheme: light dark;
 }
 
+/* Tailwind v4's bare `border` / `divide-*` utilities fall back to
+   `currentColor`, which paints card and row rules in the text ink rather than
+   in Dust Grey. Point the default at the border token instead. */
+@layer base {
+  *,
+  ::after,
+  ::before,
+  ::backdrop,
+  ::file-selector-button {
+    border-color: var(--border);
+  }
+}
+
 html,
 body,
 #root {
