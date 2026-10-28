@@ -43,8 +43,7 @@ export function Overview({
     ? chapters.findIndex((ch, i) => ch.fileCount > 0 && !chapterProgress[i]?.complete)
     : -1;
   const startAt = Math.max(resumeAt, 0);
-  const focusPath = focusFilePath(prologue.review_focus.file);
-  const focusAt = chapters.findIndex((ch) => ch.files.some((f) => f.path === focusPath));
+  const focus = findFocusFile(chapters, prologue.review_focus.file);
 
   useShortcuts({
     SHOW_SHORTCUTS: {
@@ -180,11 +179,11 @@ export function Overview({
             </h3>
             <p className="text-[0.95rem] leading-relaxed text-rb-focus-fg">
               <Markdown value={prologue.review_focus.summary} variant="inline" className="inline" />{" "}
-              {focusAt >= 0 ? (
+              {focus ? (
                 <button
                   type="button"
-                  onClick={() => onBeginReview(focusAt, focusPath)}
-                  title={`Open in chapter ${chapters[focusAt]?.index}`}
+                  onClick={() => onBeginReview(focus.position, focus.path)}
+                  title={`Open in chapter ${chapters[focus.position]?.index}`}
                   className="mt-1.5 block text-left font-mono text-xs text-rb-focus-fg/80 underline decoration-rb-focus-fg/30 underline-offset-2 hover:decoration-current"
                 >
                   {prologue.review_focus.file} →
@@ -304,14 +303,23 @@ export function Overview({
 }
 
 /**
- * The review focus as a diff path: the agent may write `./a.ts` or `a.ts:42`
- * (a line) for a file the diff calls `a.ts`.
+ * The chapter and diff path of the review focus file, or null when the diff
+ * does not have it. The agent may write `./a.ts` or `a.ts:42` (a line) for a
+ * file the diff calls `a.ts`, and may name a renamed file by its old path.
  */
-export function focusFilePath(file: string): string {
-  return file
+function findFocusFile(
+  chapters: ResolvedReview["chapters"],
+  file: string,
+): { position: number; path: string } | null {
+  const path = file
     .trim()
     .replace(/^\.\//, "")
     .replace(/:\d+(?:-\d+)?$/, "");
+  for (const [position, ch] of chapters.entries()) {
+    const found = ch.files.find((f) => f.path === path || f.old_path === path);
+    if (found) return { position, path: found.path };
+  }
+  return null;
 }
 
 function TabButton({

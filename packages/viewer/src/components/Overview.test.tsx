@@ -190,3 +190,18 @@ test("a focus file the diff does not have stays plain text", () => {
   expect(screen.getByText("docs/missing.md").tagName).toBe("CODE");
   expect(screen.queryByTitle(/Open in chapter/)).toBeNull();
 });
+
+test("a focus file named by its old path opens the renamed file", () => {
+  const onBeginReview = mock((_position: number, _file?: string) => {});
+  const review = withFocus("src/jobs/retry.ts");
+  const [first, second, third] = review.chapters;
+  const renamed = {
+    ...third!.files[0]!,
+    change_type: "renamed" as const,
+    old_path: "src/jobs/retry.ts",
+  };
+  review.chapters = [first!, second!, { ...third!, files: [renamed] }];
+  renderWithApi(<Overview review={review} onBeginReview={onBeginReview} />);
+  fireEvent.click(screen.getByTitle("Open in chapter 3"));
+  expect(onBeginReview).toHaveBeenCalledWith(2, "src/jobs/backoff.ts");
+});

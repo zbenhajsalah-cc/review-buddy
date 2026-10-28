@@ -138,9 +138,15 @@ function ChapterReviewBody({
   const matching = filter
     ? chapter.files.filter((f) => f.path.toLowerCase().includes(filter.toLowerCase()))
     : chapter.files;
-  const files = hideViewed ? matching.filter((f) => !viewed.has(f.path)) : matching;
+  // The file the focus link opened stays shown, viewed or not.
+  const files = hideViewed
+    ? matching.filter((f) => !viewed.has(f.path) || f.path === openFile)
+    : matching;
   const filePaths = files.map((f) => f.path);
-  const { focusedPath, focusedPathRef, focus, move } = useFileFocus(filePaths);
+  const { focusedPath, focusedPathRef, focus, move } = useFileFocus(
+    filePaths,
+    chapter.files.map((f) => f.path),
+  );
   const prev = chapters[position - 1];
   const next = chapters[position + 1];
   const shortcutsActive = !submitted && !shortcutsOpen;
@@ -175,6 +181,7 @@ function ChapterReviewBody({
     const scroller = diffScrollRef.current;
     if (!openFile || !scroller || !chapter.files.some((f) => f.path === openFile)) return;
     focus(openFile);
+    setCollapsed(openFile, false); // also when viewed: the link is there to show its diff
     return keepFileInView(scroller, openFile);
   }, [chapterIndex, openFile]);
 

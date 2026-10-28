@@ -37,6 +37,9 @@ function renderChapter2(props: { openFile?: string } = {}) {
 }
 
 const card = (path: string) => document.querySelector(`[data-file-path="${path}"]`);
+/** An element inside a file's card; null also when the card is missing. */
+const inCard = (path: string, selector: string) =>
+  document.querySelector(`[data-file-path="${path}"] ${selector}`);
 const MIDDLEWARE = "src/server/auth/middleware.ts";
 const SESSION = "src/server/auth/session.ts";
 
@@ -331,12 +334,12 @@ test("Done with files not viewed asks; Keep reviewing does not submit", () => {
 test("Collapse all collapses every file, then Expand all opens them again", () => {
   renderChapter2();
   fireEvent.click(screen.getByRole("button", { name: "Collapse all" }));
-  expect(card(MIDDLEWARE)?.querySelector("[hidden]")).not.toBeNull();
-  expect(card(SESSION)?.querySelector("[hidden]")).not.toBeNull();
+  expect(inCard(MIDDLEWARE, "[hidden]")).not.toBeNull();
+  expect(inCard(SESSION, "[hidden]")).not.toBeNull();
 
   fireEvent.click(screen.getByRole("button", { name: "Expand all" }));
-  expect(card(MIDDLEWARE)?.querySelector("[hidden]")).toBeNull();
-  expect(card(SESSION)?.querySelector("[hidden]")).toBeNull();
+  expect(inCard(MIDDLEWARE, "[hidden]")).toBeNull();
+  expect(inCard(SESSION, "[hidden]")).toBeNull();
 });
 
 test("Hide viewed files takes viewed files out of the list and the diffs", () => {
@@ -363,6 +366,19 @@ test("the file list shows each file's folder after its name, and the full path o
 
 test("openFile focuses that file when the chapter opens", () => {
   renderChapter2({ openFile: SESSION });
-  expect(card(SESSION)?.querySelector("[data-focused]")).not.toBeNull();
-  expect(card(MIDDLEWARE)?.querySelector("[data-focused]")).toBeNull();
+  expect(inCard(SESSION, "[data-focused]")).not.toBeNull();
+  expect(inCard(MIDDLEWARE, "[data-focused]")).toBeNull();
+});
+
+test("with Hide viewed on, the file the focus link opened stays shown, and open", () => {
+  // biome-ignore lint/suspicious/noDocumentCookie: turn the "hide viewed" preference on
+  document.cookie = "rb.hideViewed=true; path=/";
+  // Viewed, so also collapsed.
+  localStorage.setItem(VIEWED_KEY, JSON.stringify([`2:${SESSION}`]));
+  localStorage.setItem(COLLAPSED_KEY, JSON.stringify([`2:${SESSION}`]));
+  renderChapter2({ openFile: SESSION });
+  expect(inCard(SESSION, "[data-focused]")).not.toBeNull();
+  expect(inCard(SESSION, "[data-testid='patch-diff']")).not.toBeNull();
+  expect(inCard(SESSION, "[hidden]")).toBeNull();
+  expect(card(MIDDLEWARE)).not.toBeNull();
 });
