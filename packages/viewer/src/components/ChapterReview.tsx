@@ -23,6 +23,7 @@ export function ChapterReview({
   onExit,
   markedDone,
   onMarkedDone,
+  onSubmitted,
 }: {
   review: ResolvedReview;
   position: number;
@@ -34,6 +35,8 @@ export function ChapterReview({
    */
   markedDone?: boolean;
   onMarkedDone?: () => void;
+  /** afterDone "close": the review was submitted; the parent may keep it. */
+  onSubmitted?: () => void;
 }) {
   const chapter = review.chapters[position];
   if (!chapter) {
@@ -48,7 +51,17 @@ export function ChapterReview({
       chapter={chapter}
       markedDone={markedDone}
       onMarkedDone={onMarkedDone}
+      onSubmitted={onSubmitted}
     />
+  );
+}
+
+/** The plugin's end: the review was submitted and the agent goes on. */
+export function ReviewSubmitted() {
+  return (
+    <div className="grid h-full place-items-center text-muted-foreground">
+      Review submitted — you can close this tab.
+    </div>
   );
 }
 
@@ -60,6 +73,7 @@ function ChapterReviewBody({
   chapter,
   markedDone: parentDone = false,
   onMarkedDone,
+  onSubmitted,
 }: {
   review: ResolvedReview;
   position: number;
@@ -68,6 +82,7 @@ function ChapterReviewBody({
   chapter: ResolvedChapter;
   markedDone?: boolean;
   onMarkedDone?: () => void;
+  onSubmitted?: () => void;
 }) {
   const [settings, updateSettings] = useDisplaySettings();
   const chapters = review.chapters;
@@ -163,6 +178,7 @@ function ChapterReviewBody({
       } else {
         clearReviewFileState(api.reviewKey);
         setSubmitted(true);
+        onSubmitted?.();
       }
     } catch (e) {
       setSubmitError(String(e));
@@ -174,13 +190,7 @@ function ChapterReviewBody({
   const done = () => submit(roundtrip ? { verdict: "approve" } : undefined);
   const requestChanges = () => submit({ verdict: "request_changes", summary });
 
-  if (submitted) {
-    return (
-      <div className="grid h-full place-items-center text-muted-foreground">
-        Review submitted — you can close this tab.
-      </div>
-    );
-  }
+  if (submitted) return <ReviewSubmitted />;
 
   return (
     <div className="flex h-full flex-col">
@@ -331,8 +341,11 @@ function ChapterReviewBody({
         {/* Right diff pane */}
         <div className="flex min-w-0 flex-1 flex-col">
           <DisplaySettingsBar settings={settings} update={updateSettings} />
-          <div ref={diffScrollRef} className="min-h-0 flex-1 overflow-y-auto p-4">
-            <div className="flex w-full flex-col gap-4">
+          {/* Padding on the inner list, not the scroller: a sticky file header
+              sticks inside the scroller's padding, so diff lines would show
+              in the gap above it. */}
+          <div ref={diffScrollRef} className="min-h-0 flex-1 overflow-y-auto">
+            <div className="flex w-full flex-col gap-4 p-4">
               {files.map((f) => (
                 <div key={f.path} data-file-path={f.path}>
                   <FileDiffCard

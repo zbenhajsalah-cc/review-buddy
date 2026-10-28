@@ -281,6 +281,10 @@ A repo's open PRs (`src/renderer/src/PullList.tsx`, data from
   you stay on the list and the rows show their progress. Two reviews run at
   a time; the others wait (see "Reviewing a PR"). After a failure, the
   row's button is **Try again**.
+- **When a review ends:** if the app is not in front, a system notification
+  says the review is ready, or why it failed; clicking it brings the window
+  back and shows that review. A review you stopped has no notification
+  (`src/main/job-notice.ts`).
 - **States:** loading, no open PRs, errors with **Try again**; "not found"
   when the repo is gone or the token cannot see it; a 401 signs the app out,
   as in the repo list.

@@ -26,6 +26,8 @@ export const IPC = {
   postedReview: "review:posted",
   /** Main → renderer: the job list changed (an event, not a call). */
   reviewJobsChanged: "review:jobs-changed",
+  /** Main → renderer: show this ended job (its notification was clicked). */
+  openReviewJob: "review:open-job",
   githubStatus: "github:status",
   githubSignInWithToken: "github:sign-in-with-token",
   githubUseGh: "github:use-gh",
@@ -186,6 +188,11 @@ export interface ReviewBridge {
   jobs(): Promise<ReviewJobStatus[]>;
   /** Calls `listener` with the job list on every change; returns "unsubscribe". */
   onJobs(listener: (jobs: ReviewJobStatus[]) => void): () => void;
+  /**
+   * Calls `listener` with an ended job when the user clicks its notification;
+   * returns "unsubscribe".
+   */
+  onOpenJob(listener: (job: ReviewJobStatus) => void): () => void;
   /** The saved reviews, newest first. */
   saved(): Promise<SavedReviewInfo[]>;
   /** Deletes one saved review (and forgets it); answers with the ones left. */

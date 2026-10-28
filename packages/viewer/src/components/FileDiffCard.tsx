@@ -114,13 +114,16 @@ export const FileDiffCard = memo(function FileDiffCard({
     <Card
       data-focused={focused || undefined}
       className={cn(
-        "gap-0 overflow-hidden py-0",
+        // overflow-clip, not -hidden: hidden makes the card a scroll container,
+        // and the sticky header would stick inside it (that is, never).
+        "gap-0 overflow-clip py-0",
         viewed && "opacity-60",
         focused && "ring-2 ring-primary ring-offset-1",
       )}
     >
-      {/* File header */}
-      <header className="flex items-center justify-between gap-3 border-b border-border bg-secondary px-3 py-2">
+      {/* File header: stays at the top of the diff pane while the file scrolls
+          under it, so a long file keeps its name and controls in view. */}
+      <header className="sticky top-0 z-10 flex items-center justify-between gap-3 border-b border-border bg-secondary px-3 py-2">
         <div className="flex min-w-0 items-center gap-2">
           <Button
             variant="ghost"

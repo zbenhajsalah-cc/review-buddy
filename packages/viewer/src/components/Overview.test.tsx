@@ -80,6 +80,49 @@ test("Enter on document.body begins review at chapter 0", () => {
   expect(onBeginReview).toHaveBeenCalledWith(0);
 });
 
+test("after some progress, Begin review continues at the first chapter not complete", () => {
+  // Chapter 1 complete, chapter 2 started: continue with chapter 2.
+  localStorage.setItem(
+    VIEWED_KEY,
+    JSON.stringify(["1:src/example.ts", "2:src/server/auth/middleware.ts"]),
+  );
+  const onBeginReview = mock(() => {});
+  renderWithApi(<Overview review={fakeResolvedReview} onBeginReview={onBeginReview} />);
+
+  fireEvent.click(screen.getByRole("button", { name: "Continue with chapter 2 →" }));
+  expect(onBeginReview).toHaveBeenLastCalledWith(1);
+  act(() => {
+    fireEvent.keyDown(document.body, { key: "Enter" });
+  });
+  expect(onBeginReview).toHaveBeenLastCalledWith(1);
+});
+
+test("a skipped chapter comes first: Continue goes back to it", () => {
+  localStorage.setItem(VIEWED_KEY, JSON.stringify(["3:src/jobs/backoff.ts"]));
+  const onBeginReview = mock(() => {});
+  renderWithApi(<Overview review={fakeResolvedReview} onBeginReview={onBeginReview} />);
+
+  fireEvent.click(screen.getByRole("button", { name: "Continue with chapter 1 →" }));
+  expect(onBeginReview).toHaveBeenCalledWith(0);
+});
+
+test("all chapters complete → Begin review starts at chapter 1 again", () => {
+  localStorage.setItem(
+    VIEWED_KEY,
+    JSON.stringify([
+      "1:src/example.ts",
+      "2:src/server/auth/middleware.ts",
+      "2:src/server/auth/session.ts",
+      "3:src/jobs/backoff.ts",
+    ]),
+  );
+  const onBeginReview = mock(() => {});
+  renderWithApi(<Overview review={fakeResolvedReview} onBeginReview={onBeginReview} />);
+
+  fireEvent.click(screen.getByRole("button", { name: "Begin review →" }));
+  expect(onBeginReview).toHaveBeenCalledWith(0);
+});
+
 test("Enter on a chapter button does not fire the global Begin-review shortcut", () => {
   const onBeginReview = mock(() => {});
   renderWithApi(<Overview review={fakeResolvedReview} onBeginReview={onBeginReview} />);

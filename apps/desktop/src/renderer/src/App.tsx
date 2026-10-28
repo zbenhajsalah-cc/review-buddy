@@ -1,6 +1,6 @@
 import { clearReviewFileState, ReviewViewer } from "@review-buddy/viewer";
 import { Button } from "@review-buddy/viewer/ui";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   type ClaudeCodeStatus,
   type DesktopBridge,
@@ -13,6 +13,7 @@ import { ClaudeCodeSettings, claudeBlocked } from "./ClaudeCodeSettings.tsx";
 import { GitHubSettings } from "./GitHubSettings.tsx";
 import { ipcReviewApi } from "./ipc-review-api.ts";
 import { LocalCopies } from "./LocalCopies.tsx";
+import { jobToFollow, viewForEndedJob } from "./open-job.ts";
 import { DoneBar } from "./PostReview.tsx";
 import { PullList } from "./PullList.tsx";
 import { RepoList } from "./RepoList.tsx";
@@ -63,13 +64,14 @@ export function App({ bridge }: { bridge: DesktopBridge }) {
 
   useEffect(() => {
     refreshGitHub();
-    // A review started with --review-pr (or before a reload) is followed.
+    // A review started with --review-pr (or before a reload) is followed;
+    // a window opened by a notification click follows that review's job.
     bridge.review.jobs().then(
       (found) => {
         setJobs(found);
-        const last = found.at(-1);
-        if (last) {
-          setView({ kind: "job", id: last.id });
+        const follow = jobToFollow(found, location.search);
+        if (follow) {
+          setView({ kind: "job", id: follow.id });
           setScreen("review");
         }
       },
@@ -79,6 +81,20 @@ export function App({ bridge }: { bridge: DesktopBridge }) {
 
   // Main sends the job list on every change (US-15): no polling.
   useEffect(() => bridge.review.onJobs(setJobs), [bridge]);
+
+  // A click on the notification that a review ended shows that review.
+  const jobsRef = useRef(jobs);
+  jobsRef.current = jobs;
+  useEffect(
+    () =>
+      bridge.review.onOpenJob((ended) => {
+        const next = viewForEndedJob(jobsRef.current, ended);
+        if (!next) return;
+        setView(next);
+        setScreen("review");
+      }),
+    [bridge],
+  );
 
   // Main checks Claude Code at start and before each review: a review that
   // failed for Claude reads the newest check.
@@ -108,11 +124,12 @@ export function App({ bridge }: { bridge: DesktopBridge }) {
       },
     };
   }, [bridge, reviewKey]);
-  // A job's review may be a saved one that was done before (also before a
-  // restart): Done is read from the saved reviews.
+  // A review may be a saved one that was done before (also before a restart):
+  // Done is read from the saved reviews. The PR list passes it with the
+  // review; a job's review, or a saved one a notification opens, has only this.
   const [savedDone, setSavedDone] = useState<{ reviewKey: string; doneAt?: string }>();
   useEffect(() => {
-    if (view.kind !== "job" || reviewKey === FIXTURE_REVIEW_KEY) return;
+    if (reviewKey === FIXTURE_REVIEW_KEY) return;
     bridge.review.saved().then(
       (list) => {
         const found = list.find((i) => i.reviewKey.toLowerCase() === reviewKey.toLowerCase());
@@ -120,14 +137,11 @@ export function App({ bridge }: { bridge: DesktopBridge }) {
       },
       () => {},
     );
-  }, [bridge, reviewKey, view.kind]);
+  }, [bridge, reviewKey]);
   const doneAt =
     doneNow[reviewKey] ??
-    (view.kind === "review"
-      ? view.doneAt
-      : savedDone?.reviewKey === reviewKey
-        ? savedDone.doneAt
-        : undefined);
+    (view.kind === "review" ? view.doneAt : undefined) ??
+    (savedDone?.reviewKey === reviewKey ? savedDone.doneAt : undefined);
   const reviewTab = view.kind === "review" ? view.pr : (job?.pr ?? "Sample review");
 
   /**
