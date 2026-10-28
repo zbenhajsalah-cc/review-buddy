@@ -17,12 +17,13 @@ The agent provides **judgment and structure**; the actual diff bytes come from g
 
 ## Status
 
-**v0.4.0 — Phase 1 complete** (one-way viewer), installed with zero build steps (the viewer ships prebuilt). What's in:
+**v1.0.0** — the Claude Code plugin and the Electron desktop app, both installed with zero build steps (the viewer ships prebuilt). What's in:
 
 - **Backend** — `submit_review` MCP tool, `/review` skill, and a blocking `PreToolUse` hook that captures the diff, resolves chapters (unclaimed changes bucketed into "Unsorted changes", generated artifacts into "Generated & noise files"), recomputes stats, and serves a hardened local app (loopback-only bind, Host-header validation, per-server token, path-traversal allowlist, symlink-safe file reads, payload caps, self-only CSP). Where the narrative doesn't map cleanly onto the real diff, the resolution notes travel **back to the agent** — via the hook's `additionalContext` on Claude Code, in the tool result standalone — so it can correct its anchors.
 - **Viewer** — Vite + React 19 + Tailwind v4 on [`@pierre/diffs`](https://www.npmjs.com/package/@pierre/diffs): Prologue/Description overview with per-chapter review progress, risk-rated chapter cards, split-pane chapter review, unified/split diffs with line/word/char highlighting granularity + off-thread syntax highlighting (worker pool), per-file controls (marking a file viewed collapses it), collapse state that persists across chapters, cookie-persisted display prefs. **Keyboard-driven** throughout (`?` for the cheatsheet), and `c` copies the review — or the current chapter — as Markdown for pasting into a PR comment. Once you have viewed files, **Begin review** becomes **Continue with chapter N** (the first chapter not complete); file headers stay at the top while a long file scrolls. In the plugin the chapter is in the URL (`#/chapter/3`), so reload, Back and Forward work, and closing the tab before **Done** asks first (the agent waits for Done). Agent prose and the PR description render as **markdown** (`react-markdown` + GFM, no raw HTML).
+- **Desktop app** — an Electron app that runs the whole review itself, no Claude Code session needed: it opens on your GitHub repositories, lists a repo's open PRs with their review state, and reviews one or several of them (or any `owner/repo#123` / PR URL you paste). Reviews run two at a time against the GitHub API with your own Claude login, with live phase progress, stop, and retry, and a system notification when one ends while the app is in the background; a PR too large for the API's diff is fetched from git into a small local clone. Finished reviews are saved per PR head and reopen without a re-run, keeping your viewed files and **Done** — and from Done you can post your verdict and summary to the PR as a real GitHub review, after a confirm step that shows the exact text. Your GitHub token lives in the OS keychain and never reaches the renderer. Installers are unsigned and use the `claude` you already have installed. See [`apps/desktop/README.md`](apps/desktop/README.md).
 
-**Deferred to later phases:** viewed-state round-trip + verdict submission (Phase 2), GitHub collaboration / Activity / Chat (Phase 3), conversational assistant (Phase 4). In the viewer: shadow-DOM theming.
+**Deferred:** in the plugin, the viewer stays one-way — verdict submission and the viewed-state round-trip are desktop-only for now; Activity and Chat, a conversational assistant, and shadow-DOM theming in the viewer are still open.
 
 ## Installation
 
@@ -116,7 +117,7 @@ apps/plugin/         # the Claude Code plugin + standalone MCP server (self-cont
   dist/              # committed bundles: server.js, hook.js
   integrations/      # Cursor / VS Code Copilot / Codex configs + review prompts
   examples/hooks.json # example Claude Code plugin hook config
-apps/desktop/        # Electron desktop app (in progress): the same viewer over IPC — see apps/desktop/README.md
+apps/desktop/        # Electron desktop app: the same viewer over IPC, reviews run in-app — see apps/desktop/README.md
 packages/core/       # @review-buddy/core: contracts, diff parser, chapter resolution, validation, git capture (src/node)
   schemas/           # review.schema.json = submit_review input schema
 packages/viewer/     # @review-buddy/viewer: <ReviewViewer api /> — React 19 + Tailwind v4 + @pierre/diffs, data via a ReviewApi

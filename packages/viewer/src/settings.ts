@@ -48,7 +48,7 @@ export function useDisplaySettings() {
 }
 
 /** GitHub-flavored themes; "auto" lets @pierre/diffs follow prefers-color-scheme. */
-const THEME = { dark: "github-dark", light: "github-light" } as const;
+export const THEME = { dark: "github-dark", light: "github-light" } as const;
 
 /** Translate our DisplaySettings into @pierre/diffs render options. */
 export function toDiffOptions(s: DisplaySettings): FileDiffOptions<undefined> {

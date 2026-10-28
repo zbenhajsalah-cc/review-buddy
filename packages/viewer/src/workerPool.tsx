@@ -5,7 +5,7 @@ import { WorkerPoolContextProvider } from "@pierre/diffs/react";
 // @ts-expect-error Vite ?worker virtual module (no ambient types in this package)
 import DiffsWorker from "@pierre/diffs/worker/worker.js?worker";
 import type { ReactNode } from "react";
-import { DEFAULT_SETTINGS, granularityToLineDiffType } from "./settings.ts";
+import { DEFAULT_SETTINGS, granularityToLineDiffType, THEME } from "./settings.ts";
 
 const poolOptions: WorkerPoolOptions = {
   poolSize: Math.min(Math.max(1, (globalThis.navigator?.hardwareConcurrency ?? 2) - 1), 3),
@@ -15,6 +15,11 @@ const poolOptions: WorkerPoolOptions = {
 
 const highlighterOptions: WorkerInitializationRenderOptions = {
   preferredHighlighter: "shiki-js",
+  // Must match toDiffOptions' theme: while the pool is working, @pierre/diffs
+  // highlights with the POOL's render options, not the card's. Leaving it unset
+  // defaults the pool to pierre-dark/pierre-light, so worker-highlighted diffs
+  // came out in different colors than the main-thread fallback's GitHub themes.
+  theme: THEME,
   lineDiffType: granularityToLineDiffType(DEFAULT_SETTINGS.granularity),
   langs: [
     "typescript",
