@@ -1,5 +1,6 @@
 /// <reference types="bun-types" />
 import { afterEach, expect, test } from "bun:test";
+import type { ResolvedHunk } from "@review-buddy/core/types";
 import { act, cleanup, renderHook } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { ReviewApiProvider } from "../review-api.tsx";
@@ -9,6 +10,7 @@ import {
   commentsToMarkdown,
   describeLines,
   type LineComment,
+  type LineRange,
   rangeFromSelection,
   readComments,
   useComments,
@@ -33,27 +35,72 @@ const comment = (over: Partial<LineComment> = {}): LineComment => ({
 });
 
 test("rangeFromSelection: one line is just that line", () => {
-  expect(rangeFromSelection({ start: 12, end: 12, side: "additions" })).toEqual({
+  expect(rangeFromSelection({ start: 12, end: 12, side: "additions" }, [])).toEqual({
     side: "new",
     line: 12,
   });
-  expect(rangeFromSelection({ start: 4, end: 4, side: "deletions" })).toEqual({
+  expect(rangeFromSelection({ start: 4, end: 4, side: "deletions" }, [])).toEqual({
     side: "old",
     line: 4,
   });
 });
 
 test("rangeFromSelection: a range dragged up still ends at its last line", () => {
-  const down = rangeFromSelection({ start: 10, end: 14, side: "additions" });
-  const up = rangeFromSelection({ start: 14, end: 10, side: "additions" });
+  const down = rangeFromSelection({ start: 10, end: 14, side: "additions" }, []);
+  const up = rangeFromSelection({ start: 14, end: 10, side: "additions" }, []);
   expect(down).toEqual({ side: "new", line: 14, startSide: "new", startLine: 10 });
   expect(up).toEqual(down);
 });
 
-test("rangeFromSelection: a range across sides keeps both sides", () => {
-  expect(rangeFromSelection({ start: 7, side: "deletions", end: 9, endSide: "additions" })).toEqual(
-    { side: "new", line: 9, startSide: "old", startLine: 7 },
-  );
+// Unified view of this hunk: old 8 / new 8, old 9, old 10, new 9, new 10, old 11 / new 11.
+const CHANGE: ResolvedHunk = {
+  old_start: 8,
+  old_lines: 4,
+  new_start: 8,
+  new_lines: 4,
+  header: "@@ -8,4 +8,4 @@",
+  lines: [" a", "-b", "-c", "+B", "+C", " d"],
+};
+
+test("rangeFromSelection: across sides, the range ends at its lowest line, dragged either way", () => {
+  const deletedToAdded: LineRange = { side: "new", line: 10, startSide: "old", startLine: 9 };
+  expect(
+    rangeFromSelection({ start: 9, side: "deletions", end: 10, endSide: "additions" }, [CHANGE]),
+  ).toEqual(deletedToAdded);
+  expect(
+    rangeFromSelection({ start: 10, side: "additions", end: 9, endSide: "deletions" }, [CHANGE]),
+  ).toEqual(deletedToAdded);
+
+  // A deleted line under an unchanged one: the deleted line is last.
+  expect(
+    rangeFromSelection({ start: 10, side: "deletions", end: 8, endSide: "additions" }, [CHANGE]),
+  ).toEqual({ side: "old", line: 10, startSide: "new", startLine: 8 });
+  // The unchanged line after the change is lower than its deleted lines.
+  expect(
+    rangeFromSelection({ start: 11, side: "additions", end: 9, endSide: "deletions" }, [CHANGE]),
+  ).toEqual({ side: "new", line: 11, startSide: "old", startLine: 9 });
+});
+
+test("rangeFromSelection: across sides outside the hunks (full-file view)", () => {
+  // Two lines added after old line 5: old 5 is new 5, old 6 is new 8.
+  const insert: ResolvedHunk = {
+    old_start: 5,
+    old_lines: 0,
+    new_start: 6,
+    new_lines: 2,
+    header: "@@ -5,0 +6,2 @@",
+    lines: ["+x", "+y"],
+  };
+  expect(
+    rangeFromSelection({ start: 6, side: "additions", end: 5, endSide: "deletions" }, [insert]),
+  ).toEqual({ side: "new", line: 6, startSide: "old", startLine: 5 });
+  expect(
+    rangeFromSelection({ start: 6, side: "deletions", end: 7, endSide: "additions" }, [insert]),
+  ).toEqual({ side: "old", line: 6, startSide: "new", startLine: 7 });
+  // After CHANGE (same size), old and new numbers match again.
+  expect(
+    rangeFromSelection({ start: 20, side: "deletions", end: 15, endSide: "additions" }, [CHANGE]),
+  ).toEqual({ side: "old", line: 20, startSide: "new", startLine: 15 });
 });
 
 test("describeLines names the lines and their side", () => {

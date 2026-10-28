@@ -106,14 +106,17 @@ export const FileDiffCard = memo(function FileDiffCard({
   // lines, and a selection would pin the "+" to them: the reviewer could not
   // open a comment on another line. So that selection is dropped.
   const dropSelection = useRef(false);
-  const openDraft = useCallback((picked: SelectedLineRange) => {
-    const range = rangeFromSelection(picked);
-    const key = positionKey(range);
-    setDrafts((prev) => ({ ...prev, [key]: { range, text: prev[key]?.text ?? "" } }));
-    setSelection(null);
-    dropSelection.current = true;
-    setFocusKey(`draft:${key}`);
-  }, []);
+  const openDraft = useCallback(
+    (picked: SelectedLineRange) => {
+      const range = rangeFromSelection(picked, file.hunks);
+      const key = positionKey(range);
+      setDrafts((prev) => ({ ...prev, [key]: { range, text: prev[key]?.text ?? "" } }));
+      setSelection(null);
+      dropSelection.current = true;
+      setFocusKey(`draft:${key}`);
+    },
+    [file.hunks],
+  );
   const onLineSelected = useCallback((range: SelectedLineRange | null) => {
     setSelection(dropSelection.current ? null : range);
     dropSelection.current = false;

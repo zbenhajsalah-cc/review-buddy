@@ -9,6 +9,7 @@
  * text: the reference-not-reproduce rule holds for comments too.
  */
 import type { AnnotationSide, SelectedLineRange } from "@pierre/diffs";
+import type { ResolvedHunk } from "@review-buddy/core/types";
 import { useCallback, useMemo } from "react";
 import { useReviewApi } from "../review-api.tsx";
 import { reviewStorageKey } from "./chapterFileSet.ts";
@@ -49,18 +50,60 @@ export const toAnnotationSide = (side: CommentSide): AnnotationSide =>
 /** One key per place a comment can show: its last line. */
 export const positionKey = (r: LineRange) => `${r.side}:${r.line}`;
 
-/** A line selection from @pierre/diffs (dragged either way) as a LineRange. */
-export function rangeFromSelection(selection: SelectedLineRange): LineRange {
+/**
+ * A line selection from @pierre/diffs (dragged either way) as a LineRange,
+ * ending at the range's lowest line in the diff of `hunks` (the file's).
+ */
+export function rangeFromSelection(
+  selection: SelectedLineRange,
+  hunks: readonly ResolvedHunk[],
+): LineRange {
   const a = { side: fromAnnotationSide(selection.side), line: selection.start };
   const b = {
     side: fromAnnotationSide(selection.endSide ?? selection.side),
     line: selection.end,
   };
-  // On one side, the bigger number is lower in the diff. Across sides (a
-  // unified-view range from deleted into added lines) keep the given order.
-  const [first, last] = a.side === b.side && a.line > b.line ? [b, a] : [a, b];
+  // On one side, the bigger number is lower in the diff. Across sides, the
+  // hunks tell where the old line is.
+  const aFirst =
+    a.side === b.side
+      ? a.line <= b.line
+      : a.side === "old"
+        ? oldLineFirst(hunks, a.line, b.line)
+        : !oldLineFirst(hunks, b.line, a.line);
+  const [first, last] = aFirst ? [a, b] : [b, a];
   if (first.side === last.side && first.line === last.line) return last;
   return { ...last, startSide: first.side, startLine: first.line };
+}
+
+/**
+ * Whether old line `oldLine` comes before new line `newLine` in the unified
+ * diff: a deleted line sits just before the new line that follows it (a
+ * change shows its deleted lines first), an unchanged line on the row of its
+ * new number.
+ */
+function oldLineFirst(hunks: readonly ResolvedHunk[], oldLine: number, newLine: number): boolean {
+  let shift = 0; // new number − old number of the unchanged lines so far
+  for (const hunk of hunks) {
+    // A side with no lines in the hunk names the line before it.
+    let oldNo = hunk.old_lines === 0 ? hunk.old_start + 1 : hunk.old_start;
+    let newNo = hunk.new_lines === 0 ? hunk.new_start + 1 : hunk.new_start;
+    if (oldLine < oldNo) break;
+    for (const line of hunk.lines) {
+      if (line.startsWith("+")) {
+        newNo++;
+      } else if (line.startsWith("-")) {
+        if (oldNo === oldLine) return newNo <= newLine;
+        oldNo++;
+      } else if (line.startsWith(" ")) {
+        if (oldNo === oldLine) return newNo < newLine;
+        oldNo++;
+        newNo++;
+      }
+    }
+    shift = newNo - oldNo;
+  }
+  return oldLine + shift < newLine;
 }
 
 /** "line 12 (new)", "lines 10-14 (new)", "lines 10 (old) to 14 (new)". */
