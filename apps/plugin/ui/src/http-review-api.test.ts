@@ -1,6 +1,6 @@
 /// <reference types="bun-types" />
 import { afterEach, expect, mock, test } from "bun:test";
-import { httpReviewApi } from "./http-review-api.ts";
+import { httpReviewApi, reviewFinished } from "./http-review-api.ts";
 
 const origFetch = globalThis.fetch;
 afterEach(() => {
@@ -34,6 +34,15 @@ test("done throws on a non-OK response", async () => {
     async () => new Response("", { status: 500, statusText: "Error" }),
   ) as unknown as typeof fetch;
   await expect(httpReviewApi.done({ verdict: "approve" })).rejects.toThrow("/api/done");
+  expect(reviewFinished()).toBe(false);
+});
+
+test("the review is finished once the server takes Done", async () => {
+  globalThis.fetch = mock(
+    async () => new Response(null, { status: 204 }),
+  ) as unknown as typeof fetch;
+  await httpReviewApi.done({});
+  expect(reviewFinished()).toBe(true);
 });
 
 test("reviewKey is the URL token, which session.ts removes from the address bar", () => {
