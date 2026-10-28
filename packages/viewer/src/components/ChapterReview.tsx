@@ -199,7 +199,7 @@ function ChapterReviewBody({
           >
             ← Prev
           </Button>
-          <span className="text-muted-foreground">
+          <span className="font-mono text-xs text-muted-foreground">
             Chapter {position + 1} of {chapters.length}
           </span>
           <Button
@@ -273,12 +273,22 @@ function ChapterReviewBody({
       {/* Split pane */}
       <div className="flex min-h-0 flex-1">
         {/* Left context panel */}
-        <aside className="w-80 shrink-0 overflow-y-auto border-r border-border bg-card p-4">
-          <div className="mb-2 flex items-center gap-2">
+        <aside className="w-80 shrink-0 overflow-y-auto border-r border-border bg-card px-5 py-5">
+          {/* The chapter spine: an oversized serif numeral beside the title,
+              so a chapter reads as a chapter and not as a filter result. The
+              "Chapter N of M" counter stays in the top bar, where it was. */}
+          <div className="flex items-start gap-3">
+            <span aria-hidden className="font-serif text-5xl leading-[0.85] text-muted-foreground">
+              {chapter.index}
+            </span>
+            <h1 className="font-serif text-[1.65rem] font-normal leading-tight tracking-[-0.01em]">
+              {chapter.title}
+            </h1>
+          </div>
+          <div className="mt-3.5 mb-2 flex items-center gap-2">
             <RiskBadge risk={chapter.risk} />
             <DiffStat additions={chapter.additions} deletions={chapter.deletions} />
           </div>
-          <h1 className="text-lg font-semibold leading-snug">{chapter.title}</h1>
           <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
             <span className="font-semibold text-foreground">Risk: </span>
             <Markdown value={chapter.risk_reason} variant="inline" className="inline" />
@@ -287,14 +297,14 @@ function ChapterReviewBody({
             <Markdown value={chapter.description} />
           </div>
 
-          <h2 className="mt-5 mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+          <h2 className="mt-6 mb-2 font-mono text-[0.66rem] font-medium uppercase tracking-[0.09em] text-muted-foreground">
             {chapter.files.length} file{chapter.files.length === 1 ? "" : "s"}
           </h2>
           <input
             value={filter}
             onChange={(e) => setFilter(e.target.value)}
             placeholder="Filter files…"
-            className="mb-2 w-full rounded-md border border-border bg-background px-2 py-1 text-sm"
+            className="mb-2 w-full rounded-md border border-border bg-background px-2.5 py-1.5 font-mono text-xs"
           />
           <ul className="space-y-0.5">
             {files.map((f) => (
@@ -305,7 +315,7 @@ function ChapterReviewBody({
                     focus(f.path);
                     scrollToFile(f.path);
                   }}
-                  className="flex w-full items-center justify-between gap-2 rounded px-2 py-1 text-left text-xs hover:bg-background"
+                  className="flex w-full items-center justify-between gap-2 rounded-md px-2 py-1.5 text-left text-xs transition-colors hover:bg-background"
                 >
                   <span className={cn("truncate font-mono", viewed.has(f.path) && "opacity-50")}>
                     {viewed.has(f.path) ? "✓ " : ""}

@@ -34,9 +34,16 @@ export function PrForm({
         value={value}
         onChange={(e) => setValue(e.target.value)}
         placeholder="owner/repo#123 or PR URL"
-        className="h-8 w-72 min-w-0 rounded-md border bg-background px-2.5 font-mono text-xs outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50"
+        className="h-8 w-72 min-w-0 rounded-lg border bg-background px-2.5 font-mono text-[0.72rem] outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50"
       />
-      <Button type="submit" size="sm" disabled={value.trim() === "" || !!blocked} title={blocked}>
+      <Button
+        type="submit"
+        variant="outline"
+        size="sm"
+        className="text-xs"
+        disabled={value.trim() === "" || !!blocked}
+        title={blocked}
+      >
         Review
       </Button>
     </form>
@@ -129,7 +136,7 @@ export function RunPanel({
     <div className="mx-auto max-w-xl px-6 py-10">
       <Card>
         <CardHeader>
-          <CardTitle className="flex items-baseline gap-3">
+          <CardTitle className="flex items-baseline gap-3 font-serif text-2xl font-normal leading-tight">
             <span className="min-w-0 flex-1 break-words">
               {state === "running"
                 ? `Reviewing ${status.pr}…`
@@ -138,7 +145,7 @@ export function RunPanel({
                   : failureTitle(status.errorKind, status.pr)}
             </span>
             {time ? (
-              <span className="shrink-0 text-sm font-normal tabular-nums text-muted-foreground">
+              <span className="shrink-0 font-mono text-xs font-normal tabular-nums text-muted-foreground">
                 {time}
               </span>
             ) : null}
@@ -176,7 +183,11 @@ export function RunPanel({
           ) : null}
           <div className="flex gap-2">
             {state === "running" ? (
-              <Button variant="outline" onClick={onStop}>
+              <Button
+                variant="outline"
+                className="border-destructive/50 text-destructive hover:bg-destructive/10 hover:text-destructive"
+                onClick={onStop}
+              >
                 Stop
               </Button>
             ) : state === "queued" ? (
@@ -205,28 +216,45 @@ function Phases({ status }: { status: ReviewJobStatus }) {
   const current = PHASES.findIndex((p) => p.phase === (status.phase ?? "github"));
   const last = status.steps.at(-1);
   return (
-    <ol aria-label="Progress" className="space-y-2">
-      {PHASES.map(({ phase, label }, i) => (
-        <li
-          key={phase}
-          aria-current={i === current ? "step" : undefined}
-          className={
-            i < current
-              ? "text-muted-foreground"
-              : i === current
-                ? "font-medium"
-                : "text-muted-foreground/60"
-          }
-        >
-          <span aria-hidden className="inline-block w-5">
-            {i < current ? "✓" : i === current ? "●" : "○"}
-          </span>
-          {label}
-          {i === current && last ? (
-            <div className="pl-5 text-xs font-normal text-muted-foreground">{last}…</div>
-          ) : null}
-        </li>
-      ))}
-    </ol>
+    <>
+      {/* The same four phases as the list below, read at a glance. */}
+      <div aria-hidden className="flex gap-1">
+        {PHASES.map(({ phase }, i) => (
+          <span
+            key={phase}
+            className={
+              i <= current
+                ? "h-1 flex-1 rounded-full bg-primary"
+                : "h-1 flex-1 rounded-full bg-secondary"
+            }
+          />
+        ))}
+      </div>
+      <ol aria-label="Progress" className="space-y-1">
+        {PHASES.map(({ phase, label }, i) => (
+          <li
+            key={phase}
+            aria-current={i === current ? "step" : undefined}
+            className={
+              i === current
+                ? "rounded-lg border bg-secondary px-3 py-2 font-medium"
+                : i < current
+                  ? "px-3 py-2 text-muted-foreground"
+                  : "px-3 py-2 text-muted-foreground/60"
+            }
+          >
+            <span aria-hidden className="inline-block w-5">
+              {i < current ? "✓" : i === current ? "●" : "○"}
+            </span>
+            {label}
+            {i === current && last ? (
+              <div className="pl-5 font-mono text-xs font-normal text-muted-foreground">
+                {last}…
+              </div>
+            ) : null}
+          </li>
+        ))}
+      </ol>
+    </>
   );
 }

@@ -3,19 +3,54 @@
    package's src/ there: Tailwind only scans what the app's CSS names, so
    without it the viewer's utility classes are missing from the build. */
 
-/* Design tokens — a calm, readable review surface in light and dark. */
+/* Typefaces — self-hosted, latin subsets only (see src/fonts/README.md).
+   Self-hosting keeps VIEWER_CSP (`font-src 'self' data:`) untouched and the
+   desktop app correct offline; a Google Fonts <link> would need both relaxed. */
+@font-face {
+  font-family: "Inter";
+  font-style: normal;
+  font-weight: 400 700;
+  font-display: swap;
+  src: url("./fonts/inter-latin-var.woff2") format("woff2");
+}
+
+@font-face {
+  font-family: "Instrument Serif";
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("./fonts/instrument-serif-latin-400.woff2") format("woff2");
+}
+
+@font-face {
+  font-family: "JetBrains Mono";
+  font-style: normal;
+  font-weight: 400 600;
+  font-display: swap;
+  src: url("./fonts/jetbrains-mono-latin-var.woff2") format("woff2");
+}
+
 @theme {
-  --color-risk-high: #b42318;
-  --color-risk-high-bg: #fde2e1;
-  --color-risk-medium: #b54708;
-  --color-risk-medium-bg: #fef0c7;
-  --color-risk-low: #067647;
-  --color-risk-low-bg: #dcfae6;
-  --font-mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, monospace;
+  --font-sans: "Inter", ui-sans-serif, system-ui, -apple-system, sans-serif;
+  --font-serif: "Instrument Serif", Georgia, "Times New Roman", serif;
+  --font-mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
 }
 
 :root {
   color-scheme: light dark;
+}
+
+/* Tailwind v4's bare `border` / `divide-*` utilities fall back to
+   `currentColor`, which paints card and row rules in the text ink rather than
+   in Dust Grey. Point the default at the border token instead. */
+@layer base {
+  *,
+  ::after,
+  ::before,
+  ::backdrop,
+  ::file-selector-button {
+    border-color: var(--border);
+  }
 }
 
 html,
@@ -26,40 +61,91 @@ body,
 
 body {
   margin: 0;
-  font-family: ui-sans-serif, system-ui, -apple-system, sans-serif;
+  font-family: var(--font-sans);
   background: var(--rb-bg);
   color: var(--rb-fg);
 }
 
-/* Neutral surface palette, theme-aware. */
+/* The palette: Pine Blue is the brand accent, Dry Sage the warm counterweight,
+   Watermelon the one loud color (deletions, Stop, high risk), Grey the muted
+   ink and Dust Grey the light-mode border. Raw Pine (#387780) and raw
+   Watermelon (#e83151) fail contrast on dark grounds, so each has a lightened
+   dark-mode value below rather than being reused as-is. */
 :root {
-  --rb-bg: #ffffff;
-  --rb-fg: #1a1a1a;
-  --rb-muted: #6b7280;
-  --rb-border: #e5e7eb;
-  --rb-panel: #f9fafb;
-  --rb-accent: #1f6feb;
+  --rb-bg: #f6f4f2;
+  --rb-fg: #1f2226;
+  --rb-muted: #5f6267;
+  --rb-border: #dbd4d3;
+  --rb-panel: #ffffff;
+  --rb-accent: #387780;
+  --rb-accent-fg: #ffffff;
+  --rb-link: #2e6670;
 
-  /* Inline `code` — a distinct pill that stands apart from prose:
-     tinted fill, firm border, and a saturated ink so it never reads as grey. */
-  --rb-code-fg: #b3187a;
-  --rb-code-bg: #f4eef7;
-  --rb-code-border: #e3d4ea;
+  /* A subtle second ground: the nav pill, segmented controls, inset rows. */
+  --rb-subtle: #ede9e6;
+
+  /* Risk — inside the palette, and differing in both hue AND lightness so the
+     three never rely on hue alone: High watermelon, Medium sage-olive, Low pine. */
+  --rb-risk-high: #a81f37;
+  --rb-risk-high-bg: #fbe4e8;
+  --rb-risk-medium: #5e5618;
+  --rb-risk-medium-bg: #f1eeda;
+  --rb-risk-low: #1f5a62;
+  --rb-risk-low-bg: #dfeded;
+
+  /* Inline `code` — Dry Sage ink on a warm tint, so it reads as a pill rather
+     than prose and stays clear of the Pine links around it. */
+  --rb-code-fg: #6b5e1b;
+  --rb-code-bg: #f3f0e2;
+  --rb-code-border: #d2cca1;
+
+  /* The editorial "read this first" callout: sage field, pine spine. */
+  --rb-focus-bg: #f3f0e2;
+  --rb-focus-border: #d2cca1;
+  --rb-focus-fg: #33311f;
+  --rb-focus-label: #22525b;
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --rb-bg: #0d1117;
-    --rb-fg: #e6edf3;
-    --rb-muted: #8b949e;
-    --rb-border: #21262d;
-    --rb-panel: #161b22;
-    --rb-accent: #4493f8;
+    --rb-bg: #15181a;
+    --rb-fg: #e8ebea;
+    --rb-muted: #9fa5a7;
+    --rb-border: #2f3739;
+    --rb-panel: #1a1e20;
+    --rb-accent: #5fa9b2;
+    --rb-accent-fg: #08191b;
+    --rb-link: #7cc2c9;
 
-    --rb-code-fg: #f6a4d8;
-    --rb-code-bg: #24202b;
-    --rb-code-border: #3a3145;
+    --rb-subtle: #1f2426;
+
+    --rb-risk-high: #ff8e9c;
+    --rb-risk-high-bg: #2e1419;
+    --rb-risk-medium: #e3dcb4;
+    --rb-risk-medium-bg: #2a2a1c;
+    --rb-risk-low: #8fd3d8;
+    --rb-risk-low-bg: #10282b;
+
+    --rb-code-fg: #d2cca1;
+    --rb-code-bg: #22261a;
+    --rb-code-border: #55522f;
+
+    --rb-focus-bg: #22261a;
+    --rb-focus-border: #55522f;
+    --rb-focus-fg: #e6e2cd;
+    --rb-focus-label: #7cc2c9;
   }
+}
+
+/* @pierre/diffs renders into a shadow root, where utility classes cannot
+   reach — but custom properties inherit through it. Pine-tinted additions,
+   watermelon deletions, our mono face. */
+:root {
+  --diffs-light-addition-color: #387780;
+  --diffs-dark-addition-color: #5fa9b2;
+  --diffs-light-deletion-color: #d62a47;
+  --diffs-dark-deletion-color: #e83151;
+  --diffs-font-family: var(--font-mono);
 }
 
 /* shadcn/ui semantic tokens — mapped to --rb-* palette (media-query theme, no .dark class). */
@@ -68,22 +154,29 @@ body {
   --foreground: var(--rb-fg);
   --card: var(--rb-panel);
   --card-foreground: var(--rb-fg);
-  --popover: var(--rb-bg);
+  --popover: var(--rb-panel);
   --popover-foreground: var(--rb-fg);
   --primary: var(--rb-accent);
-  --primary-foreground: #ffffff;
-  --secondary: var(--rb-panel);
+  --primary-foreground: var(--rb-accent-fg);
+  --secondary: var(--rb-subtle);
   --secondary-foreground: var(--rb-fg);
-  --muted: var(--rb-panel);
+  --muted: var(--rb-subtle);
   --muted-foreground: var(--rb-muted);
-  --accent: var(--rb-panel);
+  --accent: var(--rb-subtle);
   --accent-foreground: var(--rb-fg);
-  --destructive: var(--color-risk-high);
+  /* Watermelon, darkened just enough that white label text clears 4.5:1. */
+  --destructive: #c9203c;
   --destructive-foreground: #ffffff;
   --border: var(--rb-border);
   --input: var(--rb-border);
   --ring: var(--rb-accent);
-  --radius: 0.5rem;
+  --radius: 0.625rem;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --destructive: #d62a47;
+  }
 }
 
 @theme inline {
@@ -106,6 +199,20 @@ body {
   --color-border: var(--border);
   --color-input: var(--input);
   --color-ring: var(--ring);
+  /* Risk lives in `inline` so it follows the theme: a plain `@theme` block is
+     static, and the dark values would never apply. */
+  --color-risk-high: var(--rb-risk-high);
+  --color-risk-high-bg: var(--rb-risk-high-bg);
+  --color-risk-medium: var(--rb-risk-medium);
+  --color-risk-medium-bg: var(--rb-risk-medium-bg);
+  --color-risk-low: var(--rb-risk-low);
+  --color-risk-low-bg: var(--rb-risk-low-bg);
+  --color-rb-link: var(--rb-link);
+  --color-rb-subtle: var(--rb-subtle);
+  --color-rb-focus-bg: var(--rb-focus-bg);
+  --color-rb-focus-border: var(--rb-focus-border);
+  --color-rb-focus-fg: var(--rb-focus-fg);
+  --color-rb-focus-label: var(--rb-focus-label);
   --radius-sm: calc(var(--radius) - 4px);
   --radius-md: calc(var(--radius) - 2px);
   --radius-lg: var(--radius);

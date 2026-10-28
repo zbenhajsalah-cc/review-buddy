@@ -13,7 +13,7 @@ export function DisplaySettingsBar({
   update: (patch: Partial<DisplaySettings>) => void;
 }) {
   return (
-    <div className="flex flex-wrap items-center gap-x-4 gap-y-2 border-b border-border bg-card px-4 py-2 text-xs">
+    <div className="flex flex-wrap items-center gap-x-4 gap-y-2 border-b border-border bg-secondary px-4 py-2 text-xs">
       <Segmented
         label="Layout"
         value={settings.layout}
@@ -81,7 +81,9 @@ function Segmented<V extends string>({
 }) {
   return (
     <div className="flex items-center gap-1.5">
-      <span className="text-muted-foreground">{label}</span>
+      <span className="font-mono text-[0.62rem] uppercase tracking-[0.07em] text-muted-foreground">
+        {label}
+      </span>
       <ToggleGroup
         type="single"
         value={value}

@@ -94,7 +94,7 @@ export function DoneBar({
     <>
       <div
         role="status"
-        className="flex shrink-0 items-center gap-3 border-b bg-muted px-4 py-2 text-sm text-muted-foreground"
+        className="flex shrink-0 items-center gap-3 border-b border-risk-low/30 bg-risk-low-bg px-5 py-2.5 text-sm text-risk-low"
       >
         <span className="min-w-0 flex-1">
           You marked this review done {timeAgo(doneAt, now)}. Your viewed files are kept.
@@ -103,7 +103,12 @@ export function DoneBar({
               {" "}
               {postedLabel(posted.verdict)} on GitHub {timeAgo(posted.postedAt, now)}
               {posted.login ? ` as @${posted.login}` : ""}:{" "}
-              <a href={posted.url} target="_blank" rel="noreferrer" className="underline">
+              <a
+                href={posted.url}
+                target="_blank"
+                rel="noreferrer"
+                className="underline underline-offset-2"
+              >
                 view it
               </a>
               .
@@ -299,7 +304,7 @@ export function PostDialog({
               </dl>
               <section aria-label="Text to post" className="space-y-1.5">
                 <p className="text-muted-foreground">This exact text is posted:</p>
-                <pre className="max-h-60 overflow-auto whitespace-pre-wrap break-words rounded-md border bg-muted px-2.5 py-1.5 font-mono text-xs">
+                <pre className="max-h-60 overflow-auto whitespace-pre-wrap break-words rounded-lg border bg-secondary px-3 py-2 font-mono text-xs">
                   {body || "(no text)"}
                 </pre>
               </section>

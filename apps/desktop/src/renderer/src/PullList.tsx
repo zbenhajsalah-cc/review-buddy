@@ -196,8 +196,14 @@ export function PullList({
       <Button variant="ghost" size="sm" className="-ml-3 mb-2" onClick={onBack}>
         ← Repositories
       </Button>
-      <div className="mb-4 flex items-center gap-3">
-        <h1 className="min-w-0 truncate text-lg font-semibold">{repo.fullName}</h1>
+      <div className="mb-5 flex flex-wrap items-end gap-3">
+        {/* One line of inline spans, so the heading's accessible name stays
+            exactly "owner/name": block children would have it read as
+            "owner/ name", which is not what it was. */}
+        <h1 className="min-w-0 truncate font-serif text-[2rem] font-normal leading-none">
+          <span className="text-muted-foreground">{repo.fullName.split("/")[0]}/</span>
+          {repo.fullName.split("/").slice(1).join("/")}
+        </h1>
         <span className="text-sm text-muted-foreground">Open pull requests</span>
         <Button
           variant="outline"
@@ -242,7 +248,7 @@ export function PullList({
         <p className="text-sm text-muted-foreground">No open pull requests.</p>
       ) : (
         <div className="space-y-4">
-          <ul className="divide-y rounded-md border">
+          <ul className="divide-y overflow-hidden rounded-xl border bg-card">
             {state.pulls.map((pull) => (
               <PullRow
                 key={pull.number}
@@ -310,7 +316,7 @@ function PullRow({
   const { job, review, failed } = row;
   const now = useNow(job?.state === "running");
   return (
-    <li className="flex items-center gap-3 px-4 py-2.5">
+    <li className="flex flex-wrap items-center gap-3 px-4 py-3">
       <input
         type="checkbox"
         aria-label={`Select #${n}`}
@@ -321,18 +327,22 @@ function PullRow({
       />
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-2 text-sm">
-          <span className="shrink-0 text-muted-foreground">#{n}</span>
+          <span className="w-9 shrink-0 font-mono text-xs text-muted-foreground">#{n}</span>
           <a
             href={pull.url}
             target="_blank"
             rel="noreferrer"
-            className="min-w-0 truncate font-medium hover:underline"
+            className="min-w-0 truncate font-medium hover:text-primary hover:underline"
           >
             {pull.title}
           </a>
-          {pull.draft ? <Badge variant="outline">Draft</Badge> : null}
+          {pull.draft ? (
+            <Badge variant="outline" className="font-normal text-muted-foreground">
+              Draft
+            </Badge>
+          ) : null}
         </div>
-        <div className="truncate text-xs text-muted-foreground">
+        <div className="mt-0.5 truncate text-[0.72rem] text-muted-foreground">
           @{pull.author}
           {pull.updatedAt ? ` · updated ${timeAgo(pull.updatedAt, Date.now())}` : ""}
           {pull.size ? ` · ${sizeText(pull.size)}` : ""}
@@ -347,8 +357,21 @@ function PullRow({
       <div className="flex shrink-0 items-center gap-2">
         {job?.state === "running" ? (
           <>
-            <Badge>Reviewing…</Badge>
-            <span className="text-xs tabular-nums text-muted-foreground">
+            {/* The phase the job is in, as a bar: four phases, so each one
+                that lands fills a quarter. No new data, just the phase index. */}
+            <span
+              aria-hidden
+              className="hidden h-1 w-24 overflow-hidden rounded-full bg-secondary sm:block"
+            >
+              <span
+                className="block h-full rounded-full bg-primary transition-[width]"
+                style={{
+                  width: `${((PHASES.findIndex((p) => p.phase === job.phase) + 1) / PHASES.length) * 100}%`,
+                }}
+              />
+            </span>
+            <Badge className="font-normal">Reviewing…</Badge>
+            <span className="font-mono text-[0.7rem] tabular-nums text-muted-foreground">
               {PHASES.find((p) => p.phase === job.phase)?.short ?? "starting"}
               {job.startedAt !== undefined ? ` · ${elapsed(now - job.startedAt)}` : ""}
             </span>
@@ -363,7 +386,9 @@ function PullRow({
           </>
         ) : job ? (
           <>
-            <Badge variant="secondary">Queued</Badge>
+            <Badge variant="outline" className="font-normal text-muted-foreground">
+              Queued
+            </Badge>
             <Button
               variant="ghost"
               size="sm"
@@ -378,17 +403,31 @@ function PullRow({
             {review ? (
               <>
                 {review.current && review.posted ? (
-                  <Badge title="You posted your review of this commit to GitHub.">
+                  <Badge
+                    variant="outline"
+                    className="border-risk-low/40 bg-risk-low-bg font-normal text-risk-low"
+                    title="You posted your review of this commit to GitHub."
+                  >
                     {postedLabel(review.posted)} on GitHub
                   </Badge>
                 ) : review.current && review.doneAt ? (
-                  <Badge title={`You pressed Done ${timeAgo(review.doneAt, Date.now())}.`}>
+                  <Badge
+                    variant="outline"
+                    className="border-risk-low/40 bg-risk-low-bg font-normal text-risk-low"
+                    title={`You pressed Done ${timeAgo(review.doneAt, Date.now())}.`}
+                  >
                     Done ✓
                   </Badge>
                 ) : review.current ? (
-                  <Badge variant="secondary">Reviewed</Badge>
+                  <Badge variant="outline" className="font-normal text-muted-foreground">
+                    Reviewed
+                  </Badge>
                 ) : (
-                  <Badge variant="outline" title="The PR has new commits since this review.">
+                  <Badge
+                    variant="outline"
+                    className="border-risk-medium/40 bg-risk-medium-bg font-normal text-risk-medium"
+                    title="The PR has new commits since this review."
+                  >
                     Outdated review
                   </Badge>
                 )}

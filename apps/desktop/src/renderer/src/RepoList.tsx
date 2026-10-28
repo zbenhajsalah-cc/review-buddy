@@ -190,8 +190,8 @@ export function RepoList({
 
   return (
     <div className="mx-auto max-w-3xl px-6 py-8">
-      <div className="mb-4 flex items-center gap-3">
-        <h1 className="text-lg font-semibold">Repositories</h1>
+      <div className="mb-5 flex flex-wrap items-end gap-3">
+        <h1 className="font-serif text-[2rem] font-normal leading-none">Repositories</h1>
         {signedIn ? <span className="text-sm text-muted-foreground">@{login}</span> : null}
         {signedIn ? (
           <Button
@@ -277,7 +277,7 @@ function Repos({
         value={query}
         onChange={(e) => onQuery(e.target.value)}
         placeholder="Search by name or description"
-        className="h-9 w-full rounded-md border bg-background px-3 text-sm outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50"
+        className="h-9 w-full rounded-lg border bg-background px-3 text-sm outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50"
       />
       {nothing ? (
         <p className="text-sm text-muted-foreground">
@@ -330,18 +330,18 @@ function RepoSection({
   onChoose: (repo: RepoSummary) => void;
 }) {
   const list = (
-    <ul className="divide-y rounded-md border">
+    <ul className="divide-y overflow-hidden rounded-xl border bg-card">
       {repos.map((repo) => (
         <li key={repo.fullName}>
           <button
             type="button"
             onClick={() => onChoose(repo)}
-            className="flex w-full items-center gap-3 px-4 py-2.5 text-left outline-none hover:bg-accent focus-visible:bg-accent"
+            className="flex w-full items-center gap-3 px-4 py-3 text-left outline-none transition-colors hover:bg-accent focus-visible:bg-accent"
           >
             <span className="min-w-0 flex-1">
-              <span className="block truncate text-sm">
+              <span className="block truncate font-mono text-[0.8rem]">
                 <span className="text-muted-foreground">{repo.owner}/</span>
-                <span className="font-medium">{repo.name}</span>
+                <span className="font-medium text-foreground">{repo.name}</span>
               </span>
               {repo.description ? (
                 <span className="block truncate text-xs text-muted-foreground">
@@ -352,7 +352,7 @@ function RepoSection({
             {repo.private ? <Badge variant="outline">Private</Badge> : null}
             {repo.fork ? <Badge variant="outline">Fork</Badge> : null}
             {repo.archived ? <Badge variant="secondary">Archived</Badge> : null}
-            <span className="w-32 shrink-0 text-right text-xs text-muted-foreground">
+            <span className="w-32 shrink-0 text-right font-mono text-[0.7rem] text-muted-foreground">
               {repo.pushedAt ? `pushed ${timeAgo(repo.pushedAt, now)}` : "no pushes"}
             </span>
           </button>
@@ -363,7 +363,9 @@ function RepoSection({
   if (!title) return list;
   return (
     <section aria-label={title} className="space-y-2">
-      <h2 className="text-xs font-medium uppercase tracking-wide text-muted-foreground">{title}</h2>
+      <h2 className="font-mono text-[0.66rem] font-medium uppercase tracking-[0.09em] text-muted-foreground">
+        {title}
+      </h2>
       {list}
     </section>
   );
