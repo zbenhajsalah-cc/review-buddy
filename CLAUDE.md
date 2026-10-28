@@ -2,7 +2,7 @@
 
 An AI-assisted **narrative code review** tool for Claude Code. Instead of showing a pull request as one flat diff, an agent reads the changes, writes a high-level **Prologue**, and segments the work into risk-rated thematic **Chapters** that a reviewer walks through sequentially in a browser UI.
 
-> **Status:** Phase 1 shipped (one-way viewer): the `submit_review` MCP tool, the `PreToolUse` hook, a hardened loopback-only HTTP server, and the React viewer are all live with tests green. See `README.md` for install/dev and `docs/build-plan.md` for what's deferred to Phases 2–4.
+> **Status:** Phase 1 shipped (one-way viewer): the `submit_review` MCP tool, the `PreToolUse` hook, a hardened loopback-only HTTP server, and the React viewer are all live with tests green. Phase 2's round-trip is live too: the reviewer's verdict, note and line comments go back to the agent (on by default; `REVIEW_BUDDY_ROUNDTRIP=0` turns it off). See `README.md` for install/dev and `docs/build-plan.md` for what's deferred to Phases 2–4.
 
 ## What it does (target flow)
 
@@ -26,7 +26,7 @@ This mirrors how Plannotator (`~/code/plannotator`, the inspiration) intercepts 
 
 1. **Claude Code first; other harnesses via standalone MCP mode.** Claude Code gets the richest flow (hook blocks the turn). Cursor / VS Code Copilot / Codex reuse the SAME MCP server launched with the `--standalone` flag (a flag, not an env var — ambient env would leak into the Claude Code plugin's server and double-open reviews): `submit_review` itself captures + serves and returns the viewer URL immediately — their MCP tool-call timeouts (Cursor ~5 min hard, Copilot unconfigurable) can't hold a human review; Codex can opt into `--standalone=blocking` paired with `tool_timeout_sec`. See `docs/HARNESSES.md` + `integrations/`.
 2. **Transport = custom MCP tool + `PreToolUse` hook** (Claude Code). The agent calls `submit_review(...)`; a `PreToolUse` hook intercepts it (chosen over `PermissionRequest` because `PreToolUse` always fires, even in auto-accept modes). The hook **blocks** the turn (long timeout) while the human reviews.
-3. **One-way viewer first**, round-trip to the agent later. Build/test rendering first; keep the blocking hook so round-trip is a drop-in later (swap the "Done" response for "approve / request-changes + annotations").
+3. **One-way viewer first**, round-trip to the agent later. Build/test rendering first; keep the blocking hook so round-trip is a drop-in later (swap the "Done" response for "approve / request-changes + annotations"). *(Done in Phase 2: "Request changes" → hook `deny` with the note + line comments; Done → `allow`, comments in `additionalContext`.)*
 4. **JSON = runtime state, served over REST.** One prebuilt React app fetches the review from a local server (`GET /api/review`). No per-review codegen/compile. (Plannotator's model.)
 5. **The agent REFERENCES the diff; it does NOT reproduce it.** This is load-bearing — see below.
 
@@ -110,8 +110,14 @@ chapter's file list shows folders and has Collapse all / Hide viewed files; Done
 while files are not marked viewed; **line comments** (Phase 2's first part: the gutter "+"
 of `@pierre/diffs` opens one on a line or a dragged range; shown under the line as an
 annotation, edit/delete, listed in the sidebar, counted on the overview, included in the
-copied Markdown; kept in localStorage per review like viewed state, `lib/comments.ts`;
-not sent to the agent yet, so the plugin's Done offers to copy them first); the plugin keeps the chapter in the URL hash and names
+copied Markdown; kept in localStorage per review like viewed state, `lib/comments.ts`);
+**the round-trip** (Phase 2: "Request changes" sends the note and the line comments to the
+agent — the hook denies `submit_review` with them as the reason, the agent fixes and
+re-submits; Done approves, and any comments reach the agent as `additionalContext`; the
+server validates the `/api/done` body (`parseDoneResult`), and `core/messages.ts` builds the
+agent's text, capped well under Claude Code's 10,000-character hook limit; on by default,
+`REVIEW_BUDDY_ROUNDTRIP=0` turns it off, and then the plugin's Done offers to copy the
+comments first); the plugin keeps the chapter in the URL hash and names
 the tab after it (`<ReviewViewer urlHash tabTitle />`; both off in desktop, where one window
 shows many reviews) and asks before the tab closes without Done; a "Theme & font" popover
 picks the light/dark syntax themes (any `@pierre/diffs`/Shiki theme) and the code font, size
@@ -119,7 +125,7 @@ and ligatures (`packages/viewer/src/appearance.ts`; fonts self-hosted in `src/fo
 **resolution notes now travel back to the agent** (hook `additionalContext` on Claude Code,
 tool-result text standalone) so a review whose anchors missed can be corrected next time.
 
-**Deferred to later phases** (per PRD): viewed-state persistence round-trip, verdict submission, GitHub collaboration (open PR, copy branch, reviewers, CI), Activity view, Chat, conversational AI assistant.
+**Deferred to later phases** (per PRD): viewed-state persistence round-trip, posting line comments to GitHub (the desktop app posts the verdict and summary only), GitHub collaboration (open PR, copy branch, reviewers, CI), Activity view, Chat, conversational AI assistant.
 
 ## Reference implementation
 
