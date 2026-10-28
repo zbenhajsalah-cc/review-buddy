@@ -480,7 +480,7 @@ test("opening a comment from the list shows, opens and focuses its file", () => 
   expect((screen.getByPlaceholderText("Filter files…") as HTMLInputElement).value).toBe("");
 });
 
-test("Done with comments asks first, as they are not sent, and offers to copy them", async () => {
+test("without round-trip, Done with comments asks first, as they are not sent, and offers to copy them", async () => {
   localStorage.setItem(VIEWED_KEY, JSON.stringify(ALL_VIEWED));
   localStorage.setItem(COMMENTS_KEY, JSON.stringify(COMMENTS));
   const writeText = mock(() => Promise.resolve());
@@ -531,4 +531,74 @@ test('Done with afterDone "keep" does not ask about comments: they stay', async 
   });
   expect(done).toHaveBeenCalledTimes(1);
   expect(JSON.parse(localStorage.getItem(COMMENTS_KEY)!)).toHaveLength(3);
+});
+
+/** COMMENTS as `done` sends them: sorted, without ids. */
+const SENT_COMMENTS = [COMMENTS[2]!, COMMENTS[1]!, COMMENTS[0]!].map(({ id: _, ...c }) => c);
+
+test("round-trip: Done approves and sends the comments, without asking about them", async () => {
+  localStorage.setItem(VIEWED_KEY, JSON.stringify(ALL_VIEWED));
+  localStorage.setItem(COMMENTS_KEY, JSON.stringify(COMMENTS));
+  const done = mock(async () => {});
+  renderWithApi(
+    <ChapterReview
+      review={fakeResolvedReview}
+      position={0}
+      onNavigate={() => {}}
+      onExit={() => {}}
+    />,
+    fakeReviewApi({ roundtrip: true, overrides: { done } }),
+  );
+  await screen.findByRole("button", { name: "Request changes" });
+  await act(async () => {
+    fireEvent.click(screen.getByRole("button", { name: "Done" }));
+  });
+  expect(done).toHaveBeenCalledWith({ verdict: "approve", comments: SENT_COMMENTS });
+  expect(localStorage.getItem(COMMENTS_KEY)).toBeNull();
+});
+
+test("round-trip: Request changes sends the note and the comments", async () => {
+  localStorage.setItem(COMMENTS_KEY, JSON.stringify(COMMENTS));
+  const done = mock(async () => {});
+  renderWithApi(
+    <ChapterReview
+      review={fakeResolvedReview}
+      position={0}
+      onNavigate={() => {}}
+      onExit={() => {}}
+    />,
+    fakeReviewApi({ roundtrip: true, overrides: { done } }),
+  );
+  fireEvent.click(await screen.findByRole("button", { name: "Request changes" }));
+  expect(screen.getByText("Your 3 comments go too.")).toBeDefined();
+  fireEvent.change(screen.getByPlaceholderText("What should change?"), {
+    target: { value: "Fix the expiry." },
+  });
+  await act(async () => {
+    fireEvent.click(screen.getByRole("button", { name: "Submit request" }));
+  });
+  expect(done).toHaveBeenCalledWith({
+    verdict: "request_changes",
+    summary: "Fix the expiry.",
+    comments: SENT_COMMENTS,
+  });
+});
+
+test("round-trip without comments: Done sends the bare approval", async () => {
+  localStorage.setItem(VIEWED_KEY, JSON.stringify(ALL_VIEWED));
+  const done = mock(async () => {});
+  renderWithApi(
+    <ChapterReview
+      review={fakeResolvedReview}
+      position={0}
+      onNavigate={() => {}}
+      onExit={() => {}}
+    />,
+    fakeReviewApi({ roundtrip: true, overrides: { done } }),
+  );
+  await screen.findByRole("button", { name: "Request changes" });
+  await act(async () => {
+    fireEvent.click(screen.getByRole("button", { name: "Done" }));
+  });
+  expect(done).toHaveBeenCalledWith({ verdict: "approve" });
 });

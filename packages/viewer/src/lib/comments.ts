@@ -1,22 +1,23 @@
 /**
  * Line comments: the reviewer's notes on diff lines. Like viewed state, they
  * are kept in this browser per review (`ReviewApi.reviewKey`) and cleared when
- * the review is submitted. For now they leave the viewer only through "copy as
- * Markdown"; sending them to the agent with the verdict is the round-trip's
- * next step (docs/DESIGN-roundtrip.md §2).
+ * the review is submitted. With round-trip on, they go to the agent with the
+ * verdict (`DoneResult.comments`, docs/DESIGN-roundtrip.md §2); they can also
+ * be copied as Markdown.
  *
  * A comment points at real diff lines (side + line number), never at their
  * text: the reference-not-reproduce rule holds for comments too.
  */
 import type { AnnotationSide, FileDiffMetadata, SelectedLineRange } from "@pierre/diffs";
-import type { ResolvedHunk } from "@review-buddy/core/types";
+import { commentToMarkdown, describeLines } from "@review-buddy/core/messages";
+import type { CommentSide, ResolvedHunk, ReviewComment } from "@review-buddy/core/types";
 import { useCallback, useMemo } from "react";
 import { useReviewApi } from "../review-api.tsx";
 import { reviewStorageKey } from "./chapterFileSet.ts";
 import { parseStored, usePersistedState } from "./usePersistedState.ts";
 
-/** Which side of the diff a line number counts on. */
-export type CommentSide = "old" | "new";
+export type { CommentSide };
+export { describeLines };
 
 /**
  * The lines a comment is about. `side` + `line` is its last line, where the
@@ -30,13 +31,9 @@ export interface LineRange {
   startLine?: number;
 }
 
-export interface LineComment extends LineRange {
+/** A `ReviewComment` (what the agent gets), with an id to edit it by. */
+export interface LineComment extends ReviewComment {
   id: string;
-  /** The chapter's stable `index`: a file can be in two chapters. */
-  chapterIndex: number;
-  path: string;
-  /** Markdown. */
-  body: string;
 }
 
 export type NewLineComment = Omit<LineComment, "id">;
@@ -177,13 +174,6 @@ function oldLineFirst(spans: readonly DiffSpan[], oldLine: number, newLine: numb
 }
 
 /** "line 12 (new)", "lines 10-14 (new)", "lines 10 (old) to 14 (new)". */
-export function describeLines(r: LineRange): string {
-  if (r.startLine === undefined) return `line ${r.line} (${r.side})`;
-  const startSide = r.startSide ?? r.side;
-  if (startSide === r.side) return `lines ${r.startLine}-${r.line} (${r.side})`;
-  return `lines ${r.startLine} (${startSide}) to ${r.line} (${r.side})`;
-}
-
 /** Review order: chapter, then file, then line. */
 export function sortComments(comments: readonly LineComment[]): LineComment[] {
   return [...comments].sort(
@@ -197,9 +187,12 @@ export function sortComments(comments: readonly LineComment[]): LineComment[] {
 
 /** A Markdown list item per comment: "- `path` line 12 (new): body". */
 export function commentsToMarkdown(comments: readonly LineComment[]): string {
-  return sortComments(comments)
-    .map((c) => `- \`${c.path}\` ${describeLines(c)}: ${c.body.trim().replace(/\n/g, "\n  ")}`)
-    .join("\n");
+  return sortComments(comments).map(commentToMarkdown).join("\n");
+}
+
+/** The comments as the agent gets them: no ids. */
+export function toReviewComments(comments: readonly LineComment[]): ReviewComment[] {
+  return sortComments(comments).map(({ id: _, ...c }) => c);
 }
 
 const isSide = (v: unknown): v is CommentSide => v === "old" || v === "new";

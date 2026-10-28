@@ -3,19 +3,16 @@
  * passes a `ReviewApi` to `<ReviewViewer api />` — the plugin over its
  * loopback HTTP server, the desktop app over Electron IPC.
  */
-import type { ResolvedReview } from "@review-buddy/core/types";
+import type { DoneResult, ResolvedReview } from "@review-buddy/core/types";
 import { createContext, type ReactNode, useContext } from "react";
+
+export type { DoneResult };
 
 export interface FileContent {
   path: string;
   side: "base" | "head";
   language: string;
   content: string;
-}
-
-export interface DoneResult {
-  verdict?: "approve" | "request_changes";
-  summary?: string;
 }
 
 export interface ReviewApi {
@@ -28,8 +25,9 @@ export interface ReviewApi {
   getReview(): Promise<ResolvedReview>;
   /** Full file bytes for expansion (source C). content === "" means unavailable. */
   getFileContent(path: string, side: "base" | "head"): Promise<FileContent>;
+  /** `roundtrip`: show "Request changes", and send the verdict and line comments with `done`. */
   getConfig(): Promise<{ roundtrip: boolean }>;
-  /** The reviewer is finished (Done, or a verdict when round-trip is on). */
+  /** The reviewer is finished (Done, or a verdict and comments when round-trip is on). */
   done(result: DoneResult): Promise<void>;
   /**
    * What the viewer does after `done`. "close" (the default, the plugin): the
