@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import type { ReviewJobStatus } from "../shared/ipc.ts";
-import { jobNotice } from "./job-notice.ts";
+import { jobNotice, pageUrlForJob } from "./job-notice.ts";
 
 const job = (more: Partial<ReviewJobStatus>): ReviewJobStatus => ({
   id: 1,
@@ -37,4 +37,9 @@ test("nothing for a review the user stopped, or one still going", () => {
   expect(jobNotice(job({ state: "failed", errorKind: "stopped", error: "Stopped." }))).toBeNull();
   expect(jobNotice(job({ state: "running" }))).toBeNull();
   expect(jobNotice(job({ state: "queued" }))).toBeNull();
+});
+
+test("a new window for a notification click is told the job", () => {
+  expect(pageUrlForJob("app://renderer/index.html", 3)).toBe("app://renderer/index.html?job=3");
+  expect(pageUrlForJob("http://localhost:5173/", 12)).toBe("http://localhost:5173/?job=12");
 });

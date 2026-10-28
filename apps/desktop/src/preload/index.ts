@@ -34,7 +34,7 @@ const bridge: DesktopBridge = {
       };
     },
     onOpenJob: (listener) => {
-      const handler = (_event: unknown, id: number) => listener(id);
+      const handler = (_event: unknown, job: ReviewJobStatus) => listener(job);
       ipcRenderer.on(IPC.openReviewJob, handler);
       return () => {
         ipcRenderer.removeListener(IPC.openReviewJob, handler);

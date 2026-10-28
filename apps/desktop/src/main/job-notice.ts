@@ -12,6 +12,16 @@ export interface JobNotice {
   body: string;
 }
 
+/**
+ * The renderer page, asked to follow job `id`: a notification click when no
+ * window was open (macOS keeps the app running without one).
+ */
+export function pageUrlForJob(page: string, id: number): string {
+  const url = new URL(page);
+  url.searchParams.set("job", String(id));
+  return url.toString();
+}
+
 /** What to say about an ended job; null when there is nothing to say (stopped). */
 export function jobNotice(status: ReviewJobStatus): JobNotice | null {
   if (status.state === "done") {

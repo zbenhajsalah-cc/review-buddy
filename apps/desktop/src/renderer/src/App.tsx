@@ -1,6 +1,6 @@
 import { clearReviewFileState, ReviewViewer } from "@review-buddy/viewer";
 import { Button } from "@review-buddy/viewer/ui";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   type ClaudeCodeStatus,
   type DesktopBridge,
@@ -13,6 +13,7 @@ import { ClaudeCodeSettings, claudeBlocked } from "./ClaudeCodeSettings.tsx";
 import { GitHubSettings } from "./GitHubSettings.tsx";
 import { ipcReviewApi } from "./ipc-review-api.ts";
 import { LocalCopies } from "./LocalCopies.tsx";
+import { jobToFollow, viewForEndedJob } from "./open-job.ts";
 import { DoneBar } from "./PostReview.tsx";
 import { PullList } from "./PullList.tsx";
 import { RepoList } from "./RepoList.tsx";
@@ -63,13 +64,14 @@ export function App({ bridge }: { bridge: DesktopBridge }) {
 
   useEffect(() => {
     refreshGitHub();
-    // A review started with --review-pr (or before a reload) is followed.
+    // A review started with --review-pr (or before a reload) is followed;
+    // a window opened by a notification click follows that review's job.
     bridge.review.jobs().then(
       (found) => {
         setJobs(found);
-        const last = found.at(-1);
-        if (last) {
-          setView({ kind: "job", id: last.id });
+        const follow = jobToFollow(found, location.search);
+        if (follow) {
+          setView({ kind: "job", id: follow.id });
           setScreen("review");
         }
       },
@@ -81,10 +83,14 @@ export function App({ bridge }: { bridge: DesktopBridge }) {
   useEffect(() => bridge.review.onJobs(setJobs), [bridge]);
 
   // A click on the notification that a review ended shows that review.
+  const jobsRef = useRef(jobs);
+  jobsRef.current = jobs;
   useEffect(
     () =>
-      bridge.review.onOpenJob((id) => {
-        setView({ kind: "job", id });
+      bridge.review.onOpenJob((ended) => {
+        const next = viewForEndedJob(jobsRef.current, ended);
+        if (!next) return;
+        setView(next);
         setScreen("review");
       }),
     [bridge],

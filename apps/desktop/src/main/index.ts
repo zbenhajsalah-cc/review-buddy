@@ -36,7 +36,7 @@ import { GitHubPulls } from "./github/pulls.ts";
 import { GitHubRepos } from "./github/repos.ts";
 import { TokenStore } from "./github/token-store.ts";
 import { registerClaudeIpc, registerGitHubIpc, registerReviewIpc } from "./ipc.ts";
-import { jobNotice } from "./job-notice.ts";
+import { jobNotice, pageUrlForJob } from "./job-notice.ts";
 import { ReviewCache } from "./review-cache.ts";
 import { ReviewStore } from "./reviews.ts";
 import {
@@ -127,7 +127,8 @@ app.on("web-contents-created", (_event, contents) => {
   contents.on("will-attach-webview", (event) => event.preventDefault());
 });
 
-function createWindow(): BrowserWindow {
+/** `openJob`: the page follows that job (see pageUrlForJob), not the newest. */
+function createWindow(openJob?: number): BrowserWindow {
   const win = new BrowserWindow({
     width: 1280,
     height: 860,
@@ -141,7 +142,8 @@ function createWindow(): BrowserWindow {
     },
   });
   win.once("ready-to-show", () => win.show());
-  void win.loadURL(devServerUrl ?? APP_URL);
+  const page = devServerUrl ?? APP_URL;
+  void win.loadURL(openJob === undefined ? page : pageUrlForJob(page, openJob));
   return win;
 }
 
@@ -150,7 +152,8 @@ const notifications = new Set<Notification>();
 
 /**
  * A review ended while the app was in the background: say so. A click brings
- * the window back and shows that review.
+ * the window back and shows that review (the renderer picks the saved review
+ * once the job list has dropped the job).
  */
 function notifyJobEnded(status: ReviewJobStatus): void {
   const notice = jobNotice(status);
@@ -161,16 +164,16 @@ function notifyJobEnded(status: ReviewJobStatus): void {
   notification.on("click", () => {
     notifications.delete(notification);
     const win = BrowserWindow.getAllWindows()[0];
-    // No window (macOS keeps the app open): a new one follows the newest job.
+    // No window (macOS keeps the app open): a new one, told which job.
     if (!win) {
-      createWindow();
+      createWindow(status.id);
       return;
     }
     if (win.isMinimized()) win.restore();
     win.show();
     win.focus();
     const page = win.webContents;
-    if (isTrustedPage(page.getURL())) page.send(IPC.openReviewJob, status.id);
+    if (isTrustedPage(page.getURL())) page.send(IPC.openReviewJob, status);
   });
   notification.show();
 }
