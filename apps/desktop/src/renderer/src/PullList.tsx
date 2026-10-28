@@ -197,15 +197,12 @@ export function PullList({
         ← Repositories
       </Button>
       <div className="mb-5 flex flex-wrap items-end gap-3">
-        {/* One heading, so its accessible name stays the full "owner/name";
-            the owner is only set above the name visually. */}
-        <h1 className="min-w-0">
-          <span className="mb-1 block truncate font-mono text-[0.66rem] uppercase tracking-[0.09em] font-normal text-muted-foreground">
-            {repo.fullName.split("/")[0]}/
-          </span>
-          <span className="block truncate font-serif text-[2rem] font-normal leading-none">
-            {repo.fullName.split("/").slice(1).join("/")}
-          </span>
+        {/* One line of inline spans, so the heading's accessible name stays
+            exactly "owner/name": block children would have it read as
+            "owner/ name", which is not what it was. */}
+        <h1 className="min-w-0 truncate font-serif text-[2rem] font-normal leading-none">
+          <span className="text-muted-foreground">{repo.fullName.split("/")[0]}/</span>
+          {repo.fullName.split("/").slice(1).join("/")}
         </h1>
         <span className="text-sm text-muted-foreground">Open pull requests</span>
         <Button
