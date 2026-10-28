@@ -39,7 +39,7 @@ function FakeDiff({
 }
 mock.module("@pierre/diffs/react", () => ({
   PatchDiff: FakeDiff,
-  FileDiff: () => null,
+  FileDiff: FakeDiff,
 }));
 
 let fetchImpl: (path: string, side: string) => Promise<{ content: string }>;
@@ -264,4 +264,33 @@ test("an open form keeps its text when a comment is added above it", () => {
   rerender(<FileDiffCard {...props} comments={[shown]} />);
   expect(screen.getByText("line 1 (new)")).toBeDefined();
   expect(textarea().value).toBe("Half a thought");
+});
+
+test("full-file view: a range across sides is ordered by the whole file's changes", async () => {
+  // This chapter has only the two added lines; another chapter has the
+  // deleted i and j, which the full-file view also shows.
+  const base = `${"a b c d e f g h i j k l".split(" ").join("\n")}\n`;
+  const head = `${"a b c d e f x y g h k l".split(" ").join("\n")}\n`;
+  fetchImpl = async (_path, side) => ({ content: side === "base" ? base : head });
+  const insertOnly: ResolvedFile = {
+    ...modified,
+    hunks: [
+      {
+        old_start: 6,
+        old_lines: 0,
+        new_start: 7,
+        new_lines: 2,
+        header: "@@ -6,0 +7,2 @@",
+        lines: ["+x", "+y"],
+      },
+    ],
+  };
+  renderCard({ file: insertOnly });
+  fireEvent.click(screen.getByText("expand"));
+  await waitFor(() => expect(screen.getByText("collapse to diff")).toBeDefined());
+
+  // Dragged up from k (new 11) to the deleted j (old 10), which is above k.
+  pick = { start: 11, side: "additions", end: 10, endSide: "deletions" };
+  fireEvent.click(screen.getByText("gutter +"));
+  expect(screen.getByLabelText("Comment on lines 10 (old) to 11 (new)")).toBeDefined();
 });

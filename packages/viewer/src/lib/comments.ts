@@ -8,7 +8,7 @@
  * A comment points at real diff lines (side + line number), never at their
  * text: the reference-not-reproduce rule holds for comments too.
  */
-import type { AnnotationSide, SelectedLineRange } from "@pierre/diffs";
+import type { AnnotationSide, FileDiffMetadata, SelectedLineRange } from "@pierre/diffs";
 import type { ResolvedHunk } from "@review-buddy/core/types";
 import { useCallback, useMemo } from "react";
 import { useReviewApi } from "../review-api.tsx";
@@ -51,12 +51,77 @@ export const toAnnotationSide = (side: CommentSide): AnnotationSide =>
 export const positionKey = (r: LineRange) => `${r.side}:${r.line}`;
 
 /**
+ * A run of deleted and/or added lines: the old number of its first deleted
+ * line (or of the line after it, with none), the new number of its first
+ * added line (likewise), and its sizes.
+ */
+export interface ChangeBlock {
+  oldFrom: number;
+  deletions: number;
+  newFrom: number;
+  additions: number;
+}
+
+/** The change blocks of resolved hunks (the diff a chapter shows), in order. */
+export function changeBlocks(hunks: readonly ResolvedHunk[]): ChangeBlock[] {
+  const blocks: ChangeBlock[] = [];
+  for (const hunk of hunks) {
+    // A side with no lines in the hunk names the line before it.
+    let oldNo = hunk.old_lines === 0 ? hunk.old_start + 1 : hunk.old_start;
+    let newNo = hunk.new_lines === 0 ? hunk.new_start + 1 : hunk.new_start;
+    let block: ChangeBlock | null = null;
+    for (const line of hunk.lines) {
+      if (line.startsWith("-") || line.startsWith("+")) {
+        block ??= { oldFrom: oldNo, deletions: 0, newFrom: newNo, additions: 0 };
+        if (line.startsWith("-")) {
+          block.deletions++;
+          oldNo++;
+        } else {
+          block.additions++;
+          newNo++;
+        }
+      } else if (line.startsWith(" ")) {
+        if (block) blocks.push(block);
+        block = null;
+        oldNo++;
+        newNo++;
+      }
+    }
+    if (block) blocks.push(block);
+  }
+  return blocks;
+}
+
+/**
+ * The change blocks of a whole-file diff (the full-file view), which also
+ * has the file's changes that other chapters show. Its line indexes are into
+ * the whole old and new file.
+ */
+export function fullDiffChangeBlocks(diff: FileDiffMetadata): ChangeBlock[] {
+  return diff.hunks.flatMap((hunk) =>
+    hunk.hunkContent.flatMap((c) =>
+      c.type === "change"
+        ? [
+            {
+              oldFrom: c.deletionLineIndex + 1,
+              deletions: c.deletions,
+              newFrom: c.additionLineIndex + 1,
+              additions: c.additions,
+            },
+          ]
+        : [],
+    ),
+  );
+}
+
+/**
  * A line selection from @pierre/diffs (dragged either way) as a LineRange,
- * ending at the range's lowest line in the diff of `hunks` (the file's).
+ * ending at the range's lowest line in the diff shown, whose change blocks
+ * are `blocks`.
  */
 export function rangeFromSelection(
   selection: SelectedLineRange,
-  hunks: readonly ResolvedHunk[],
+  blocks: readonly ChangeBlock[],
 ): LineRange {
   const a = { side: fromAnnotationSide(selection.side), line: selection.start };
   const b = {
@@ -64,13 +129,13 @@ export function rangeFromSelection(
     line: selection.end,
   };
   // On one side, the bigger number is lower in the diff. Across sides, the
-  // hunks tell where the old line is.
+  // change blocks tell where the old line is.
   const aFirst =
     a.side === b.side
       ? a.line <= b.line
       : a.side === "old"
-        ? oldLineFirst(hunks, a.line, b.line)
-        : !oldLineFirst(hunks, b.line, a.line);
+        ? oldLineFirst(blocks, a.line, b.line)
+        : !oldLineFirst(blocks, b.line, a.line);
   const [first, last] = aFirst ? [a, b] : [b, a];
   if (first.side === last.side && first.line === last.line) return last;
   return { ...last, startSide: first.side, startLine: first.line };
@@ -78,30 +143,16 @@ export function rangeFromSelection(
 
 /**
  * Whether old line `oldLine` comes before new line `newLine` in the unified
- * diff: a deleted line sits just before the new line that follows it (a
- * change shows its deleted lines first), an unchanged line on the row of its
- * new number.
+ * diff: a deleted line sits just before its block's added lines (a change
+ * shows its deleted lines first), an unchanged line on the row of its new
+ * number.
  */
-function oldLineFirst(hunks: readonly ResolvedHunk[], oldLine: number, newLine: number): boolean {
+function oldLineFirst(blocks: readonly ChangeBlock[], oldLine: number, newLine: number): boolean {
   let shift = 0; // new number − old number of the unchanged lines so far
-  for (const hunk of hunks) {
-    // A side with no lines in the hunk names the line before it.
-    let oldNo = hunk.old_lines === 0 ? hunk.old_start + 1 : hunk.old_start;
-    let newNo = hunk.new_lines === 0 ? hunk.new_start + 1 : hunk.new_start;
-    if (oldLine < oldNo) break;
-    for (const line of hunk.lines) {
-      if (line.startsWith("+")) {
-        newNo++;
-      } else if (line.startsWith("-")) {
-        if (oldNo === oldLine) return newNo <= newLine;
-        oldNo++;
-      } else if (line.startsWith(" ")) {
-        if (oldNo === oldLine) return newNo < newLine;
-        oldNo++;
-        newNo++;
-      }
-    }
-    shift = newNo - oldNo;
+  for (const block of blocks) {
+    if (oldLine < block.oldFrom) break;
+    if (oldLine < block.oldFrom + block.deletions) return block.newFrom <= newLine;
+    shift = block.newFrom + block.additions - (block.oldFrom + block.deletions);
   }
   return oldLine + shift < newLine;
 }
