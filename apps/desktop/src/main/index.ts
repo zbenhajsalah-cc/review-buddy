@@ -44,11 +44,13 @@ import { SettingsFile } from "./settings-file.ts";
 const devServerUrl = app.isPackaged ? undefined : process.env.ELECTRON_RENDERER_URL;
 const rendererDir = join(import.meta.dirname, "../renderer");
 
-// The Vite build emits only these (the viewer inlines its fonts and icons).
+// The Vite build emits only these (the viewer's icons are inline SVG; its
+// self-hosted woff2 faces are emitted as files, being over the inline limit).
 const MIME: Record<string, string> = {
   ".html": "text/html",
   ".js": "text/javascript",
   ".css": "text/css",
+  ".woff2": "font/woff2",
 };
 
 // Must run before `ready`. "standard" + "secure" give app:// a real origin, so

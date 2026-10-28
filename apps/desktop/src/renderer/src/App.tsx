@@ -184,10 +184,10 @@ export function App({ bridge }: { bridge: DesktopBridge }) {
 
   const tab = (to: Exclude<Screen, "settings">, label: string) => (
     <Button
-      variant={screen === to ? "secondary" : "ghost"}
+      variant={screen === to ? "default" : "ghost"}
       size="sm"
       aria-current={screen === to ? "page" : undefined}
-      className="min-w-0 max-w-64"
+      className="min-w-0 max-w-64 rounded-md text-xs"
       title={label}
       onClick={() => setScreen(to)}
     >
@@ -197,9 +197,17 @@ export function App({ bridge }: { bridge: DesktopBridge }) {
 
   return (
     <div className="flex h-full flex-col">
-      <header className="flex h-11 shrink-0 items-center gap-4 border-b px-4">
-        <span className="shrink-0 text-sm font-semibold">Review Buddy</span>
-        <nav className="flex min-w-0 items-center gap-1">
+      <header className="flex h-13 shrink-0 items-center gap-4 border-b bg-card px-5">
+        <span className="flex shrink-0 items-center gap-2.5 text-sm font-semibold">
+          {/* The mark: three diff rules, the first one in the accent. */}
+          <span aria-hidden className="flex flex-col gap-[2px]">
+            <span className="block h-[2px] w-3.5 rounded-sm bg-primary" />
+            <span className="block h-[2px] w-2.5 rounded-sm bg-muted-foreground" />
+            <span className="block h-[2px] w-3.5 rounded-sm bg-muted-foreground" />
+          </span>
+          Review Buddy
+        </span>
+        <nav className="flex min-w-0 items-center gap-0.5 rounded-lg border bg-secondary p-[3px]">
           {tab("repos", "Repositories")}
           {repo ? tab("pulls", repo.fullName) : null}
           {tab("review", reviewTab)}
@@ -211,9 +219,9 @@ export function App({ bridge }: { bridge: DesktopBridge }) {
           </span>
         ) : null}
         <Button
-          variant="ghost"
+          variant="outline"
           size="sm"
-          className="ml-auto"
+          className="ml-auto rounded-full text-xs font-normal"
           onClick={() => (screen === "settings" ? setScreen(back) : openSettings())}
         >
           {github === null
@@ -226,10 +234,10 @@ export function App({ bridge }: { bridge: DesktopBridge }) {
       {blocked && screen !== "settings" ? (
         <div
           role="alert"
-          className="flex shrink-0 items-center gap-3 border-b bg-muted px-4 py-2 text-sm"
+          className="flex shrink-0 items-center gap-3 border-b border-rb-focus-border bg-rb-focus-bg px-5 py-2.5 text-sm text-rb-focus-fg"
         >
           <span className="min-w-0 flex-1">
-            <span className="font-medium">Reviews cannot run.</span> {blocked}
+            <span className="font-semibold">Reviews cannot run.</span> {blocked}
           </span>
           <Button size="sm" variant="outline" onClick={openSettings}>
             Claude Code settings
@@ -307,7 +315,7 @@ export function App({ bridge }: { bridge: DesktopBridge }) {
             {view.kind === "review" && view.outdated ? (
               <div
                 role="status"
-                className="flex shrink-0 items-center gap-3 border-b bg-muted px-4 py-2 text-sm"
+                className="flex shrink-0 items-center gap-3 border-b border-rb-focus-border bg-rb-focus-bg px-5 py-2.5 text-sm text-rb-focus-fg"
               >
                 <span className="min-w-0 flex-1">
                   This review is for an older commit: {view.pr} has new commits since.
