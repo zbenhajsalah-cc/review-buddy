@@ -10,7 +10,7 @@
  *
  * Dependencies are passed in (no Electron import), so this is tested with bun.
  */
-import type { GitHubListError, PullPage, PullSummary } from "../../shared/ipc.ts";
+import type { GitHubListError, PullLabel, PullPage, PullSummary } from "../../shared/ipc.ts";
 import { GITHUB_API, githubHeaders } from "./auth.ts";
 import { checkPage, getListPage, type ListCallDeps } from "./list-call.ts";
 import { parseFullName } from "./repos.ts";
@@ -41,6 +41,7 @@ export function toPullSummary(json: unknown): Omit<PullSummary, "size" | "review
     html_url?: unknown;
     head?: { sha?: unknown } | null;
     requested_reviewers?: unknown;
+    labels?: unknown;
   } | null;
   if (
     !p ||
@@ -62,7 +63,31 @@ export function toPullSummary(json: unknown): Omit<PullSummary, "size" | "review
     url: typeof p.html_url === "string" ? p.html_url : "",
     headSha: p.head.sha,
     requestedReviewers: toLogins(p.requested_reviewers),
+    labels: toLabels(p.labels),
   };
+}
+
+/**
+ * The labels of a PR's `labels` array: named ones only. A color that is not
+ * 6 hex digits is dropped (it ends up in a style), the label is kept.
+ */
+export function toLabels(json: unknown): PullLabel[] {
+  if (!Array.isArray(json)) return [];
+  return json.flatMap((l) => {
+    const label = l as { name?: unknown; color?: unknown; description?: unknown } | null;
+    if (typeof label?.name !== "string" || label.name === "") return [];
+    const color =
+      typeof label.color === "string" && /^[0-9a-f]{6}$/i.test(label.color) ? label.color : "";
+    return [
+      {
+        name: label.name,
+        color,
+        ...(typeof label.description === "string" && label.description !== ""
+          ? { description: label.description }
+          : {}),
+      },
+    ];
+  });
 }
 
 /** The logins of a `requested_reviewers` array; anything else is no request. */

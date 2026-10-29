@@ -314,6 +314,14 @@ export interface RepoPage {
 }
 
 /** An open pull request in the PR list (US-14). */
+/** A label on a pull request, as GitHub sends it. */
+export interface PullLabel {
+  name: string;
+  /** 6 hex digits, no `#`; empty if GitHub sent none we can use. */
+  color: string;
+  description?: string;
+}
+
 export interface PullSummary {
   number: number;
   title: string;
@@ -324,6 +332,8 @@ export interface PullSummary {
    * resolved to their members, so they are not here.
    */
   requestedReviewers: string[];
+  /** The PR's labels, in GitHub's order. `color` is 6 hex digits, no `#`. */
+  labels: PullLabel[];
   /** ISO time of the last update. */
   updatedAt: string;
   draft: boolean;

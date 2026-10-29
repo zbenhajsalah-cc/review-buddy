@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import pr28 from "./fixtures/pr-28.json" with { type: "json" };
-import { GitHubPulls, PULLS_PER_PAGE, toLogins, toPullSummary, toSize } from "./pulls.ts";
+import { GitHubPulls, PULLS_PER_PAGE, toLabels, toLogins, toPullSummary, toSize } from "./pulls.ts";
 
 const API = "https://api.github.com";
 const REPO = "/repos/zbenhajsalah-cc/review-buddy";
@@ -75,6 +75,7 @@ describe("toPullSummary and toSize", () => {
       url: "https://github.com/zbenhajsalah-cc/review-buddy/pull/28",
       headSha: "7e8e70534d5fdb0a8ef1a5a0bf8407774b007b00",
       requestedReviewers: [],
+      labels: [],
     });
     expect(toSize(pr28)).toEqual({ additions: 35, deletions: 5, changedFiles: 4 });
   });
@@ -99,6 +100,37 @@ describe("toPullSummary and toSize", () => {
     ).toEqual(["zied", "octocat"]);
     // The recorded PR has no such key at all: nobody is asked.
     expect(toPullSummary(pr28)?.requestedReviewers).toEqual([]);
+  });
+
+  test("the labels, when the list has them", () => {
+    const labels = [
+      { id: 1, name: "bug", color: "d73a4a", description: "Something isn't working" },
+      { id: 2, name: "desktop", color: "0E8A16", description: null },
+    ];
+    expect(toPullSummary({ ...pr28, labels })?.labels).toEqual([
+      { name: "bug", color: "d73a4a", description: "Something isn't working" },
+      { name: "desktop", color: "0E8A16" },
+    ]);
+    // The recorded PR has none.
+    expect(toPullSummary(pr28)?.labels).toEqual([]);
+  });
+
+  test("toLabels keeps named labels and safe colors only", () => {
+    expect(toLabels(undefined)).toEqual([]);
+    expect(toLabels("bug")).toEqual([]);
+    expect(
+      toLabels([
+        null,
+        {},
+        { name: "" },
+        { name: 7 },
+        { name: "odd", color: "red;background:url(x)" },
+        { name: "short", color: "fff" },
+      ]),
+    ).toEqual([
+      { name: "odd", color: "" },
+      { name: "short", color: "" },
+    ]);
   });
 
   test("toLogins keeps strings only", () => {

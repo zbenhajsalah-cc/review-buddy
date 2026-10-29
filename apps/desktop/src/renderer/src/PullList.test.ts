@@ -13,6 +13,7 @@ const pull: PullSummary = {
   url: "https://github.com/octo/repo/pull/7",
   headSha: HEAD,
   requestedReviewers: [],
+  labels: [],
 };
 
 function job(id: number, state: ReviewJobStatus["state"], extra: Partial<ReviewJobStatus> = {}) {

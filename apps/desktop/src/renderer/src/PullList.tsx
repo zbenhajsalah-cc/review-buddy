@@ -6,6 +6,7 @@ import type {
   GitHubListError,
   ModelChoice,
   PostVerdict,
+  PullLabel,
   PullPage,
   PullSummary,
   RepoSummary,
@@ -365,6 +366,46 @@ export function PullList({
   );
 }
 
+/** Labels shown on a row before the rest fold into "+N". */
+const LABELS_SHOWN = 3;
+
+/** A PR's labels: GitHub's color as a dot, so the text stays readable in both themes. */
+function PullLabels({ labels }: { labels: PullLabel[] }) {
+  if (labels.length === 0) return null;
+  const shown = labels.slice(0, LABELS_SHOWN);
+  const rest = labels.slice(LABELS_SHOWN);
+  return (
+    <>
+      {shown.map((label) => (
+        <Badge
+          key={label.name}
+          variant="outline"
+          className="max-w-40 shrink-0 gap-1 font-normal text-muted-foreground"
+          title={label.description ?? label.name}
+        >
+          {label.color ? (
+            <span
+              aria-hidden
+              className="size-2 shrink-0 rounded-full"
+              style={{ backgroundColor: `#${label.color}` }}
+            />
+          ) : null}
+          <span className="truncate">{label.name}</span>
+        </Badge>
+      ))}
+      {rest.length > 0 ? (
+        <Badge
+          variant="outline"
+          className="shrink-0 font-normal text-muted-foreground"
+          title={rest.map((label) => label.name).join(", ")}
+        >
+          +{rest.length}
+        </Badge>
+      ) : null}
+    </>
+  );
+}
+
 function PullRow({
   pull,
   row,
@@ -440,6 +481,7 @@ function PullRow({
               Review requested
             </Badge>
           ) : null}
+          <PullLabels labels={pull.labels} />
         </div>
         <div className="mt-0.5 truncate text-[0.72rem] text-muted-foreground">
           {mine ? (
