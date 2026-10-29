@@ -142,7 +142,7 @@ export function PullList({
   bridge: GitHubBridge;
   repo: RepoSummary;
   jobs: ReviewJobStatus[];
-  /** The signed-in GitHub login, for the "Yours" and "Review requested" badges. */
+  /** The signed-in GitHub login, to color your own handle and show the "Review requested" badge. */
   viewer?: string;
   /** The models reviews can run on, and the default choice (US-22). */
   models: ReturnType<typeof useModels>;
@@ -440,19 +440,16 @@ function PullRow({
               Review requested
             </Badge>
           ) : null}
-          {mine ? (
-            <Badge
-              variant="outline"
-              className="shrink-0 font-normal text-muted-foreground"
-              title="You opened this pull request."
-            >
-              Yours
-            </Badge>
-          ) : null}
         </div>
         <div className="mt-0.5 truncate text-[0.72rem] text-muted-foreground">
-          @{pull.author}
-          {mine ? " (you)" : ""}
+          {mine ? (
+            <span className="font-medium text-primary" title="You opened this pull request.">
+              @{pull.author}
+              <span className="sr-only"> (you)</span>
+            </span>
+          ) : (
+            `@${pull.author}`
+          )}
           {pull.updatedAt ? ` · updated ${timeAgo(pull.updatedAt, Date.now())}` : ""}
           {pull.size ? ` · ${sizeText(pull.size)}` : ""}
           {failed ? (
