@@ -267,6 +267,7 @@ export function App({ bridge }: { bridge: DesktopBridge }) {
               bridge={bridge.github}
               repo={repo}
               jobs={jobs}
+              viewer={github?.login}
               blocked={blocked}
               onReview={(numbers, follow, fresh) =>
                 startReviews(
