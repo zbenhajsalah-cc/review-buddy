@@ -24,13 +24,14 @@ async function setup() {
   const cache = new ReviewCache(dir, now);
   await cache.load();
   const { review } = await loadFixtureReview();
-  const save = (pr: string, headSha: string) =>
+  const save = (pr: string, headSha: string, madeWith?: { model?: string; effort?: "high" }) =>
     cache.save({
       pr,
       headSha,
       baseSha: A,
       files: [{ path: "src/retry.ts", changeType: "modified", binary: false }],
       review,
+      ...madeWith,
     });
   const reopen = async () => {
     const again = new ReviewCache(dir, now);
@@ -205,4 +206,22 @@ describe("ReviewCache", () => {
     await cache.delete(key);
     expect(await reading).toBeUndefined();
   });
+});
+
+test("what a review was made with is kept, and read back after a restart (US-22)", async () => {
+  const { cache, save, reopen } = await setup();
+  const key = await save("octo/repo#12", A, { model: "claude-opus-5", effort: "high" });
+  expect(cache.info(key)).toMatchObject({ model: "claude-opus-5", effort: "high" });
+  expect(cache.newestFor("octo/repo#12")).toMatchObject({
+    model: "claude-opus-5",
+    effort: "high",
+  });
+  expect(await cache.read(key)).toMatchObject({ model: "claude-opus-5", effort: "high" });
+  // The index is written and read again: the fields survive a restart.
+  const again = await reopen();
+  expect(again.info(key)).toMatchObject({ model: "claude-opus-5", effort: "high" });
+  // A review saved before this feature has neither.
+  const plain = await save("octo/repo#13", A);
+  expect(cache.info(plain)!.model).toBeUndefined();
+  expect(cache.info(plain)!.effort).toBeUndefined();
 });

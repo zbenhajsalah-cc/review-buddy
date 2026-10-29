@@ -15,11 +15,66 @@ var __export = (target, all) => {
 import { readFileSync as readFileSync2 } from "fs";
 
 // ../../packages/core/src/messages.ts
-function requestChangesMessage(summary) {
-  const note = typeof summary === "string" ? summary.trim() : "";
-  return note ? `Reviewer requested changes:
+function describeLines(r) {
+  if (r.startLine === undefined)
+    return `line ${r.line} (${r.side})`;
+  const startSide = r.startSide ?? r.side;
+  if (startSide === r.side)
+    return `lines ${r.startLine}-${r.line} (${r.side})`;
+  return `lines ${r.startLine} (${startSide}) to ${r.line} (${r.side})`;
+}
+function commentToMarkdown(c) {
+  return `- \`${c.path}\` ${describeLines(c)}: ${c.body.trim().replace(/\n/g, `
+  `)}`;
+}
+var MAX_FEEDBACK_CHARS = 6000;
+var MAX_SUMMARY_CHARS = 2000;
+var MAX_COMMENT_CHARS = 1000;
+var cut = (text, max) => text.length <= max ? text : `${text.slice(0, max).trimEnd()} \u2026 (cut)`;
+function commentsBlock(comments, budget) {
+  const sorted = [...comments].sort((a, b) => a.path.localeCompare(b.path) || a.line - b.line);
+  const lines = [
+    `${comments.length} line comment${comments.length === 1 ? "" : "s"} ` + `("new" is a line of the changed version, "old" a line of the base version):`
+  ];
+  let used = lines[0].length;
+  for (const c of sorted) {
+    const item = commentToMarkdown({ ...c, body: cut(c.body.trim(), MAX_COMMENT_CHARS) });
+    if (used + item.length + 1 > budget)
+      break;
+    lines.push(item);
+    used += item.length + 1;
+  }
+  const omitted = sorted.length - (lines.length - 1);
+  if (omitted > 0) {
+    lines.push(`\u2026and ${omitted} more not shown: the feedback was too long for one message.`);
+  }
+  return lines.join(`
+`);
+}
+function feedback(head, comments) {
+  if (comments.length === 0)
+    return head;
+  return `${head}
 
-${note}` : "Reviewer requested changes (no details provided) \u2014 re-examine the flagged chapters.";
+${commentsBlock(comments, MAX_FEEDBACK_CHARS - head.length)}`;
+}
+var noteOf = (summary) => cut(summary?.trim() ?? "", MAX_SUMMARY_CHARS);
+function requestChangesMessage(summary, comments = []) {
+  const note = noteOf(summary);
+  if (!note && comments.length === 0) {
+    return "Reviewer requested changes (no details provided) \u2014 re-examine the flagged chapters.";
+  }
+  return feedback(note ? `Reviewer requested changes:
+
+${note}` : "Reviewer requested changes.", comments);
+}
+function approvalMessage(summary, comments = []) {
+  const note = noteOf(summary);
+  if (!note && comments.length === 0)
+    return;
+  return feedback(note ? `Reviewer approved, with a note:
+
+${note}` : "Reviewer approved, with comments.", comments);
 }
 var MAX_RESOLUTION_NOTES = 10;
 function resolutionNotesMessage(warnings) {
@@ -37,6 +92,12 @@ function resolutionNotesMessage(warnings) {
   lines.push("If you submit this diff again, correct the file paths and hunk anchors " + "(`old_start` / `new_start` from the `@@` headers).");
   return lines.join(`
 `);
+}
+function joinMessages(...parts) {
+  const present = parts.filter((p) => !!p);
+  return present.length > 0 ? present.join(`
+
+`) : undefined;
 }
 
 // ../../node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/classic/external.js
@@ -14355,11 +14416,34 @@ var AgentReviewSchema = exports_external.object({
   chapters: exports_external.array(Chapter).min(1).max(500),
   source: Source.optional()
 });
+var describeIssues = (error51) => error51.issues.map((i) => `${i.path.join(".") || "(root)"}: ${i.message}`).join("; ");
 function validateAgentReview(agent) {
   const parsed = AgentReviewSchema.safeParse(agent);
   if (parsed.success)
     return null;
-  return parsed.error.issues.map((i) => `${i.path.join(".") || "(root)"}: ${i.message}`).join("; ");
+  return describeIssues(parsed.error);
+}
+var CommentSide = exports_external.enum(["old", "new"]);
+var LineNumber = exports_external.number().int().min(1);
+var ReviewCommentSchema = exports_external.object({
+  chapterIndex: exports_external.number().int().min(1),
+  path: exports_external.string().min(1).max(4096),
+  side: CommentSide,
+  line: LineNumber,
+  startSide: CommentSide.optional(),
+  startLine: LineNumber.optional(),
+  body: exports_external.string().max(50000)
+});
+var DoneResultSchema = exports_external.object({
+  verdict: exports_external.enum(["approve", "request_changes"]).optional(),
+  summary: exports_external.string().max(50000).optional(),
+  comments: exports_external.array(ReviewCommentSchema).max(2000).optional()
+});
+function parseDoneResult(body) {
+  const parsed = DoneResultSchema.safeParse(body);
+  if (parsed.success)
+    return { ok: true, value: parsed.data };
+  return { ok: false, error: describeIssues(parsed.error) };
 }
 
 // src/server/session.ts
@@ -15081,10 +15165,19 @@ function startServer(ctx) {
         const len = Number(req.headers.get("content-length") ?? "0");
         if (len > MAX_DONE_BODY)
           return json2({ error: "body too large" }, 413);
-        let body = {};
-        try {
-          body = await req.json();
-        } catch {}
+        const text = await req.text();
+        let raw = {};
+        if (text.trim() !== "") {
+          try {
+            raw = JSON.parse(text);
+          } catch {
+            return json2({ error: "body is not valid JSON" }, 400);
+          }
+        }
+        const parsed = parseDoneResult(raw);
+        if (!parsed.ok)
+          return json2({ error: parsed.error }, 400);
+        const body = parsed.value;
         setTimeout(() => resolveDone(body), 50);
         return json2({ ok: true });
       }
@@ -15196,6 +15289,10 @@ function uiDir() {
   const dir = join4(root, "ui", "dist");
   return existsSync4(join4(dir, "index.html")) ? dir : undefined;
 }
+function roundtripEnabled(env = process.env) {
+  const value = env.REVIEW_BUDDY_ROUNDTRIP?.trim().toLowerCase();
+  return !(value && ["0", "false", "off", "no"].includes(value));
+}
 async function openReviewSession(agent, cwd, opts = {}) {
   const source = localGitSource(cwd, agent.source, process.env.REVIEW_BUDDY_BASE);
   const diff = await source.diff();
@@ -15211,7 +15308,7 @@ async function openReviewSession(agent, cwd, opts = {}) {
     cwd,
     source,
     uiDir: uiDir(),
-    roundtrip: opts.roundtrip ?? !!process.env.REVIEW_BUDDY_ROUNDTRIP
+    roundtrip: opts.roundtrip ?? roundtripEnabled()
   });
   console.error(`[review-buddy] Review ready at ${server.url}`);
   if (process.env.REVIEW_BUDDY_NO_OPEN) {
@@ -15242,8 +15339,8 @@ function allow(reason, additionalContext) {
 function deny(reason, additionalContext) {
   respond("deny", reason, additionalContext);
 }
-async function serveAndBlock(agent, cwd) {
-  const server = await openReviewSession(agent, cwd);
+async function serveAndBlock(agent, cwd, opts) {
+  const server = await openReviewSession(agent, cwd, opts);
   const done = await server.done;
   const { warnings } = server;
   server.stop();
@@ -15265,18 +15362,21 @@ async function runOpenReview() {
     console.error(`[review-buddy] Invalid review payload: ${invalid}`);
     allow("Review Buddy received no valid review payload; proceeding.");
   }
+  const roundtrip = roundtripEnabled();
   let result;
   try {
-    result = await serveAndBlock(agent, cwd);
+    result = await serveAndBlock(agent, cwd, { roundtrip });
   } catch (err) {
     console.error(`[review-buddy] Viewer error: ${String(err)}`);
     allow("Review Buddy hit an error rendering the review; proceeding.");
   }
   const notes = resolutionNotesMessage(result.warnings);
-  if (process.env.REVIEW_BUDDY_ROUNDTRIP && result.done.verdict === "request_changes") {
-    deny(requestChangesMessage(result.done.summary), notes);
-  }
-  allow("Review viewed by the human.", notes);
+  if (!roundtrip)
+    allow("Review viewed by the human.", notes);
+  const { verdict, summary, comments } = result.done;
+  if (verdict === "request_changes")
+    deny(requestChangesMessage(summary, comments), notes);
+  allow("Review approved by the human.", joinMessages(approvalMessage(summary, comments), notes));
 }
 async function runDev(args) {
   const i = args.indexOf("--review");
@@ -15287,8 +15387,12 @@ async function runDev(args) {
   const agent = JSON.parse(readFileSync2(args[i + 1], "utf8"));
   const cwdIdx = args.indexOf("--cwd");
   const cwd = cwdIdx !== -1 && args[cwdIdx + 1] ? args[cwdIdx + 1] : process.cwd();
-  await serveAndBlock(agent, cwd);
-  console.error("[review-buddy] Done.");
+  const roundtrip = roundtripEnabled();
+  const { done } = await serveAndBlock(agent, cwd, { roundtrip });
+  const feedback2 = !roundtrip ? undefined : done.verdict === "request_changes" ? requestChangesMessage(done.summary, done.comments) : approvalMessage(done.summary, done.comments);
+  console.error(feedback2 ? `[review-buddy] Done. The agent would get:
+
+${feedback2}` : "[review-buddy] Done.");
   process.exit(0);
 }
 var [, , mode, ...rest] = process.argv;

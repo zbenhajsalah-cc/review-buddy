@@ -13,16 +13,21 @@ beforeAll(() => {
 
 afterAll(() => rmSync(dir, { recursive: true, force: true }));
 
-/** Spawn open-review, POST Done with `{}`, return parsed decision JSON. */
-async function openReviewRoundTrip(event: unknown, label: string) {
+/**
+ * Spawn open-review (round-trip on unless `env` turns it off) and wait for its
+ * viewer URL. Returns the review's API, `postDone`, and `decision`, which
+ * waits for the hook to exit and parses what it printed.
+ */
+async function startOpenReview(event: unknown, label: string, env: Record<string, string> = {}) {
   const outPath = join(tmpdir(), `rb-cli-out-${label}-${process.pid}.txt`);
   const errPath = join(tmpdir(), `rb-cli-err-${label}-${process.pid}.txt`);
   const outFd = openSync(outPath, "w");
   const errFd = openSync(errPath, "w");
 
+  const { REVIEW_BUDDY_ROUNDTRIP: _, ...baseEnv } = process.env;
   const proc = Bun.spawn(["bun", "run", join(import.meta.dir, "index.ts"), "open-review"], {
     cwd: dir,
-    env: { ...process.env, REVIEW_BUDDY_NO_OPEN: "1" },
+    env: { ...baseEnv, REVIEW_BUDDY_NO_OPEN: "1", ...env },
     stdin: "pipe",
     stdout: outFd,
     stderr: errFd,
@@ -37,14 +42,33 @@ async function openReviewRoundTrip(event: unknown, label: string) {
   }
   expect(m).not.toBeNull();
   const api = (p: string) => `http://127.0.0.1:${m![1]!}/${p}?token=${m![2]!}`;
+  // Cross-process requests use curl (fresh connection each time). Bun's global
+  // fetch pools connections to the child server and would reuse a dead socket.
   const curl = (...args: string[]) => execFileSync("curl", ["-s", ...args], { encoding: "utf8" });
 
-  curl("-X", "POST", api("api/done"), "-H", "content-type: application/json", "-d", "{}");
-  await proc.exited;
-  closeSync(outFd);
-  closeSync(errFd);
+  const postDone = (body: unknown) => {
+    const out = curl(
+      ...["-X", "POST", api("api/done"), "-H", "content-type: application/json"],
+      ...["-d", JSON.stringify(body), "-w", "\n%{http_code}"],
+    );
+    const i = out.lastIndexOf("\n");
+    return { status: Number(out.slice(i + 1)), body: JSON.parse(out.slice(0, i)) };
+  };
+  const decision = async () => {
+    const code = await proc.exited;
+    closeSync(outFd);
+    closeSync(errFd);
+    expect(code).toBe(0);
+    return JSON.parse(readFileSync(outPath, "utf8"));
+  };
+  return { api, curl, postDone, decision };
+}
 
-  return JSON.parse(readFileSync(outPath, "utf8"));
+/** Spawn open-review, POST Done with `{}`, return parsed decision JSON. */
+async function openReviewRoundTrip(event: unknown, label: string) {
+  const review = await startOpenReview(event, label);
+  review.postDone({});
+  return review.decision();
 }
 
 test("open-review: stdin hook event -> serves review -> returns allow on Done", async () => {
@@ -102,119 +126,71 @@ test("open-review: stdin hook event -> serves review -> returns allow on Done", 
   expect(decision.hookSpecificOutput.permissionDecision).toBe("allow");
 }, 20_000);
 
-test("open-review: request_changes verdict returns deny with the summary (roundtrip flag)", async () => {
-  const agent = sampleReview();
-  const event = {
-    tool_name: "mcp__plugin_review-buddy_review-buddy__submit_review",
-    tool_input: agent,
-    cwd: dir,
-  };
+const hookEvent = () => ({
+  tool_name: "mcp__plugin_review-buddy_review-buddy__submit_review",
+  tool_input: sampleReview(),
+  cwd: dir,
+});
 
-  const outPath = join(tmpdir(), `rb-cli-out-deny-${process.pid}.txt`);
-  const errPath = join(tmpdir(), `rb-cli-err-deny-${process.pid}.txt`);
-  const outFd = openSync(outPath, "w");
-  const errFd = openSync(errPath, "w");
+const lineComment = {
+  chapterIndex: 1,
+  path: "app.ts",
+  side: "new",
+  line: 2,
+  body: "Why 20?",
+};
 
-  const proc = Bun.spawn(["bun", "run", join(import.meta.dir, "index.ts"), "open-review"], {
-    cwd: dir,
-    env: { ...process.env, REVIEW_BUDDY_NO_OPEN: "1", REVIEW_BUDDY_ROUNDTRIP: "1" },
-    stdin: "pipe",
-    stdout: outFd,
-    stderr: errFd,
+test("open-review: request changes denies with the note and the line comments", async () => {
+  const review = await startOpenReview(hookEvent(), "deny");
+  // Round-trip is on by default: the viewer shows the verdict UI.
+  expect(JSON.parse(review.curl(review.api("api/config"))).roundtrip).toBe(true);
+
+  const res = review.postDone({
+    verdict: "request_changes",
+    summary: "tighten the null check",
+    comments: [lineComment],
   });
-  proc.stdin.write(JSON.stringify(event));
-  proc.stdin.end();
+  expect(res).toEqual({ status: 200, body: { ok: true } });
 
-  let m: RegExpMatchArray | null = null;
-  for (let i = 0; i < 100 && !m; i++) {
-    m = readFileSync(errPath, "utf8").match(VIEWER_URL_RE);
-    if (!m) await Bun.sleep(50);
-  }
-  expect(m).not.toBeNull();
-  const port = m![1]!;
-  const token = m![2]!;
-  const api = (p: string) => `http://127.0.0.1:${port}/${p}?token=${token}`;
-
-  const curl = (...args: string[]) => execFileSync("curl", ["-s", ...args], { encoding: "utf8" });
-
-  const review = JSON.parse(curl(api("api/review")));
-  expect(review.chapters[0].files[0].hunks[0].lines).toContain("+let y = 20;");
-
-  curl(
-    "-X",
-    "POST",
-    api("api/done"),
-    "-H",
-    "content-type: application/json",
-    "-d",
-    '{"verdict":"request_changes","summary":"tighten the null check"}',
+  const out = (await review.decision()).hookSpecificOutput;
+  expect(out.hookEventName).toBe("PreToolUse");
+  expect(out.permissionDecision).toBe("deny");
+  expect(out.permissionDecisionReason).toContain(
+    "Reviewer requested changes:\n\ntighten the null check",
   );
-  await proc.exited;
-  closeSync(outFd);
-  closeSync(errFd);
-
-  const decision = JSON.parse(readFileSync(outPath, "utf8"));
-  expect(decision.hookSpecificOutput.hookEventName).toBe("PreToolUse");
-  expect(decision.hookSpecificOutput.permissionDecision).toBe("deny");
-  expect(decision.hookSpecificOutput.permissionDecisionReason).toContain("tighten the null check");
+  expect(out.permissionDecisionReason).toContain("- `app.ts` line 2 (new): Why 20?");
 }, 20_000);
 
-test("open-review: non-string summary still emits a valid deny (no crash / fail-open)", async () => {
-  const agent = sampleReview();
-  const event = {
-    tool_name: "mcp__plugin_review-buddy_review-buddy__submit_review",
-    tool_input: agent,
-    cwd: dir,
-  };
+test("open-review: a malformed Done is refused and the hook keeps waiting", async () => {
+  const review = await startOpenReview(hookEvent(), "bad-done");
+  const bad = review.postDone({ verdict: "request_changes", summary: 123 });
+  expect(bad.status).toBe(400);
+  expect(bad.body.error).toContain("summary");
 
-  const outPath = join(tmpdir(), `rb-cli-out-deny-nonstr-${process.pid}.txt`);
-  const errPath = join(tmpdir(), `rb-cli-err-deny-nonstr-${process.pid}.txt`);
-  const outFd = openSync(outPath, "w");
-  const errFd = openSync(errPath, "w");
+  // Still blocked: the reviewer can try again.
+  expect(review.postDone({ verdict: "request_changes" }).status).toBe(200);
+  const out = (await review.decision()).hookSpecificOutput;
+  expect(out.permissionDecision).toBe("deny");
+  expect(out.permissionDecisionReason).toContain("no details provided");
+}, 20_000);
 
-  const proc = Bun.spawn(["bun", "run", join(import.meta.dir, "index.ts"), "open-review"], {
-    cwd: dir,
-    env: { ...process.env, REVIEW_BUDDY_NO_OPEN: "1", REVIEW_BUDDY_ROUNDTRIP: "1" },
-    stdin: "pipe",
-    stdout: outFd,
-    stderr: errFd,
-  });
-  proc.stdin.write(JSON.stringify(event));
-  proc.stdin.end();
+test("open-review: an approval with comments allows and passes them as additionalContext", async () => {
+  const review = await startOpenReview(hookEvent(), "approve");
+  review.postDone({ verdict: "approve", comments: [lineComment] });
+  const out = (await review.decision()).hookSpecificOutput;
+  expect(out.permissionDecision).toBe("allow");
+  expect(out.additionalContext).toContain("Reviewer approved, with comments.");
+  expect(out.additionalContext).toContain("- `app.ts` line 2 (new): Why 20?");
+}, 20_000);
 
-  let m: RegExpMatchArray | null = null;
-  for (let i = 0; i < 100 && !m; i++) {
-    m = readFileSync(errPath, "utf8").match(VIEWER_URL_RE);
-    if (!m) await Bun.sleep(50);
-  }
-  expect(m).not.toBeNull();
-  const port = m![1]!;
-  const token = m![2]!;
-  const api = (p: string) => `http://127.0.0.1:${port}/${p}?token=${token}`;
-
-  const curl = (...args: string[]) => execFileSync("curl", ["-s", ...args], { encoding: "utf8" });
-
-  const review = JSON.parse(curl(api("api/review")));
-  expect(review.chapters[0].files[0].hunks[0].lines).toContain("+let y = 20;");
-
-  curl(
-    "-X",
-    "POST",
-    api("api/done"),
-    "-H",
-    "content-type: application/json",
-    "-d",
-    '{"verdict":"request_changes","summary":123}',
-  );
-  const code = await proc.exited;
-  closeSync(outFd);
-  closeSync(errFd);
-
-  expect(code).toBe(0);
-  const decision = JSON.parse(readFileSync(outPath, "utf8"));
-  expect(decision.hookSpecificOutput.hookEventName).toBe("PreToolUse");
-  expect(decision.hookSpecificOutput.permissionDecision).toBe("deny");
-  expect(decision.hookSpecificOutput.permissionDecisionReason).toContain("no details provided");
+test("open-review: REVIEW_BUDDY_ROUNDTRIP=0 is the one-way viewer: always allow", async () => {
+  const review = await startOpenReview(hookEvent(), "oneway", { REVIEW_BUDDY_ROUNDTRIP: "0" });
+  expect(JSON.parse(review.curl(review.api("api/config"))).roundtrip).toBe(false);
+  review.postDone({ verdict: "request_changes", summary: "ignored", comments: [lineComment] });
+  const out = (await review.decision()).hookSpecificOutput;
+  expect(out.permissionDecision).toBe("allow");
+  expect(out.permissionDecisionReason).toBe("Review viewed by the human.");
+  expect("additionalContext" in out).toBe(false);
 }, 20_000);
 
 test("open-review: resolution warnings ride back as additionalContext", async () => {

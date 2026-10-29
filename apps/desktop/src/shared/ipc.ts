@@ -26,6 +26,8 @@ export const IPC = {
   postedReview: "review:posted",
   /** Main → renderer: the job list changed (an event, not a call). */
   reviewJobsChanged: "review:jobs-changed",
+  /** Main → renderer: show this ended job (its notification was clicked). */
+  openReviewJob: "review:open-job",
   githubStatus: "github:status",
   githubSignInWithToken: "github:sign-in-with-token",
   githubUseGh: "github:use-gh",
@@ -34,6 +36,9 @@ export const IPC = {
   githubMarkRepoUsed: "github:mark-repo-used",
   githubPulls: "github:pulls",
   claudeStatus: "claude:status",
+  claudeModels: "claude:models",
+  claudeChoice: "claude:choice",
+  claudeSetChoice: "claude:set-choice",
   claudeCheck: "claude:check",
   claudeChoose: "claude:choose",
   claudeSearch: "claude:search",
@@ -43,6 +48,52 @@ export const IPC = {
 export const FIXTURE_REVIEW_KEY = "fixture";
 
 export type FileSide = "base" | "head";
+
+/**
+ * How much thinking Claude puts into a review (the Agent SDK's effort
+ * levels). Named here, not imported from the SDK: the renderer must not pull
+ * the SDK into its graph.
+ */
+export type ReviewEffort = "low" | "medium" | "high" | "xhigh" | "max";
+
+/**
+ * What a review runs on: a model (an alias like "opus", or a full id) and an
+ * effort level. An absent field means Claude Code's own default.
+ */
+export interface ModelChoice {
+  model?: string;
+  effort?: ReviewEffort;
+}
+
+/**
+ * A model the installed Claude Code offers this account, as the pickers show
+ * it. From the Agent SDK's `supportedModels()`; `value` is what a review is
+ * started with, so a saved alias ("opus") follows model upgrades.
+ */
+export interface ClaudeModelOption {
+  value: string;
+  displayName: string;
+  description?: string;
+  /** The wire id `value` resolves to, for matching a saved full id. */
+  resolvedModel?: string;
+  supportsEffort?: boolean;
+  supportedEffortLevels?: ReviewEffort[];
+}
+
+/** The model list, or the static fallback when Claude could not be asked. */
+export interface ClaudeModelCatalog {
+  models: ClaudeModelOption[];
+  /**
+   * Claude Code's own default, when it named one ("Default (recommended)" —
+   * Opus 5.5 on 2026-10-28). It is not in `models`: the pickers have their own
+   * "Claude Code's default" option, and use this to say which model that is.
+   */
+  defaultModel?: ClaudeModelOption;
+  /** The list is the built-in fallback, not what this account offers. */
+  fallback: boolean;
+  /** Why the real list is missing (for "fallback"). */
+  error?: string;
+}
 
 export interface IpcFileContent {
   path: string;
@@ -130,6 +181,12 @@ export interface ReviewJobStatus {
   endedAt?: number;
   /** Resolution notes of the review shown: places its anchors did not match. */
   notes?: string[];
+  /** The model and effort this job was started with (absent: the default). */
+  requested?: ModelChoice;
+  /** The model Claude actually ran, as soon as it says so. */
+  model?: string;
+  /** The effort it really ran at (the default and any clamping applied). */
+  effort?: ReviewEffort;
   error?: string;
   errorKind?: ReviewErrorKind;
 }
@@ -148,6 +205,9 @@ export interface SavedReviewInfo {
   bytes: number;
   /** When the reviewer pressed Done (US-17). */
   doneAt?: string;
+  /** The model that wrote it (as Claude reported it) and the effort asked for. */
+  model?: string;
+  effort?: ReviewEffort;
   /** The last review posted to GitHub for this commit (US-20). */
   posted?: PostedReview;
 }
@@ -179,13 +239,18 @@ export interface ReviewBridge {
    * "Try again" of a failed review. A saved review of the PR's current head
    * is used at once, without Claude, unless `fresh` (US-16).
    */
-  start(pr: string, options?: { fresh?: boolean }): Promise<ReviewJobStatus>;
+  start(pr: string, options?: { fresh?: boolean } & ModelChoice): Promise<ReviewJobStatus>;
   /** Stops a running job, or takes a queued one out of the queue. */
   stop(id: number): Promise<ReviewJobStatus[]>;
   /** Queued and running jobs, and the last finished ones, oldest first. */
   jobs(): Promise<ReviewJobStatus[]>;
   /** Calls `listener` with the job list on every change; returns "unsubscribe". */
   onJobs(listener: (jobs: ReviewJobStatus[]) => void): () => void;
+  /**
+   * Calls `listener` with an ended job when the user clicks its notification;
+   * returns "unsubscribe".
+   */
+  onOpenJob(listener: (job: ReviewJobStatus) => void): () => void;
   /** The saved reviews, newest first. */
   saved(): Promise<SavedReviewInfo[]>;
   /** Deletes one saved review (and forgets it); answers with the ones left. */
@@ -267,7 +332,15 @@ export interface PullSummary {
   /** From the PR itself (the list has no sizes); missing if that read failed. */
   size?: { additions: number; deletions: number; changedFiles: number };
   /** The newest review made in the app for this PR, at whatever head it had. */
-  review?: { reviewKey: string; headSha: string; doneAt?: string; posted?: PostVerdict };
+  review?: {
+    reviewKey: string;
+    headSha: string;
+    doneAt?: string;
+    posted?: PostVerdict;
+    /** What it was reviewed with (US-22), for "run again on another model". */
+    model?: string;
+    effort?: ReviewEffort;
+  };
 }
 
 /** One page of a repository's open PRs, most recently updated first. */
@@ -342,6 +415,12 @@ export interface ClaudeBridge {
   choose(): Promise<ClaudeCodeStatus>;
   /** Forgets the chosen binary and searches again. */
   search(): Promise<ClaudeCodeStatus>;
+  /** The models this account can review with (`refresh`: ask Claude again). */
+  models(refresh?: boolean): Promise<ClaudeModelCatalog>;
+  /** The model and effort reviews use unless a run overrides them. */
+  choice(): Promise<ModelChoice>;
+  /** Sets that default; answers with what was kept. */
+  setChoice(choice: ModelChoice): Promise<ModelChoice>;
 }
 
 /** `window.reviewBuddy`. */

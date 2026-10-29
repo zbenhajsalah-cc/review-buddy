@@ -72,13 +72,42 @@ narrative + inventory only, never hunk bytes); and the **agent feedback loop** �
 through the hook's `hookSpecificOutput.additionalContext` (Claude Code) or the tool-result
 text (standalone), capped so it can't flood the agent's context.
 
+**Theme & font picker ✅ shipped** (post-Phase 1): the toolbar's Theme toggle became a
+"Theme & font" popover — color mode, a light and a dark syntax theme (all 69 themes
+`@pierre/diffs` can render; catalog in `packages/viewer/src/appearance.ts`), and the code
+font (JetBrains Mono by default, 7 more free OFL fonts self-hosted in
+`packages/viewer/src/fonts/`, or the system monospace) with size + ligature controls and a
+live preview; GitHub themes and JetBrains Mono stay the defaults. Keyboard shortcuts now
+skip keys a dialog/popover already handled (`preventDefault`), so Esc closes the overlay
+without also leaving the chapter.
+
 ## Phase 2 — Progress & round-trip
 
+**Line comments ✅ shipped (viewer only):** the gutter "+" of `@pierre/diffs`
+(`enableGutterUtility`) opens a comment on its line, or on the lines dragged over (line
+numbers also select lines, shift-click for a range); comments render under their line as
+`lineAnnotations`, can be edited and deleted, are listed in the chapter sidebar (a click
+scrolls to one) and counted on the overview, and are part of copy-as-Markdown. They are
+kept in localStorage per review (`packages/viewer/src/lib/comments.ts`) and cleared on
+submit like viewed state. Each one is a `ReviewComment` (`packages/core/src/types.ts`):
+`{ chapterIndex, path, side, line, startSide?, startLine?, body }` — the `Annotation` of
+`DESIGN-roundtrip.md` §2 plus the range start.
+
+**Verdict round-trip ✅ shipped (plugin):** on by default (`REVIEW_BUDDY_ROUNDTRIP=0`
+turns it off). "Request changes" POSTs `{ verdict, summary, comments }` to `/api/done`;
+the server validates it (`parseDoneResult`, 400 when malformed) and the hook returns
+`deny` with `requestChangesMessage` (the note, then the comments by file and line, cut to
+6,000 characters with "…and N more not shown") as the reason; the agent fixes and
+re-submits (at most 3 times, in the skill's prose). Done POSTs `{ verdict: "approve",
+comments }` → `allow`, with `approvalMessage` in `additionalContext`. Standalone blocking
+returns the same text; detached shows no verdict UI. A hook `deny` is honored in
+`bypassPermissions` mode (checked by hand with Claude Code 2.1.312).
+
 - Persist viewed state (files/chapters) → `POST /api/file-viewed`; reflect in
-  the chapter list.
-- Verdict submission: `POST /api/feedback`; hook returns
-  `permissionDecision: "deny"` with annotations as `permissionDecisionReason`
-  so the agent acts on feedback. "Collapse all files" control.
+  the chapter list. Today each submission gets a new server port, and so a new
+  localStorage origin: viewed marks do not survive a re-submit.
+- Desktop: post line comments to GitHub as inline review comments (today it posts the
+  verdict and summary only).
 
 ## Phase 3 — Collaboration & integration
 

@@ -19,7 +19,10 @@ you must tell the tool via `source` so the hook re-captures the *same* diff (the
 hook never sees `$ARGUMENTS` — only your `submit_review` payload):
 
 - **No arguments** → review the local working tree; `source = { "type": "worktree" }`. Run:
-  - `git diff HEAD` — tracked changes, staged and unstaged (the hook captures the same, so your anchors line up; plain `git diff` misses staged changes). In a repo with no commits yet, run `git diff 4b825dc642cb6eb9a060e54bf8d69288fbee4904` (git's empty tree) instead — every file is new.
+  - `git diff HEAD` — tracked changes, staged and unstaged (the hook captures the same, so your
+    anchors line up; plain `git diff` leaves out staged changes). In a repo with no commits yet,
+    run `git diff 4b825dc642cb6eb9a060e54bf8d69288fbee4904` (git's empty tree) instead — every
+    file is new.
   - `git status --short` — note any untracked files (new files the diff above may not show)
   - For each untracked file you intend to include, `git diff --no-index -- /dev/null <file>` to see it as a new-file diff.
 - **A PR number or URL** → `source = { "type": "pr", "ref": "<arg>" }`. Run `gh pr diff <arg>`
@@ -86,15 +89,22 @@ Call **`submit_review`** with `{ source, prologue, chapters }` matching the sche
 `source` is the object you determined in Step 0 (`worktree` / `pr` / `branch`). This is how
 the hook knows which diff to re-capture; for a PR it is REQUIRED (omitting it makes the hook
 fall back to the local working tree, and the viewer shows an empty diff). Calling the tool
-opens the review in the reviewer's browser and pauses for their review. When control returns,
-briefly acknowledge and continue.
+opens the review in the reviewer's browser and pauses for their review. The reviewer can
+leave **line comments** on the diff, then finish in one of two ways.
 
-### If your review is denied with feedback (Phase 2 spike)
+### If the reviewer approves
 
-When `REVIEW_BUDDY_ROUNDTRIP` is enabled, the reviewer can **request changes**
-instead of approving. Your `submit_review` call is then **denied**, and the
-denial reason carries the reviewer's requested changes. When that happens: read
-the reason as review feedback, make the requested edits, then call
-`submit_review` **again with the same `source`**. Acknowledge what you changed
-between submissions. Re-submit at most **3 times**; if the reviewer still requests
-changes, stop and ask the human directly rather than looping.
+The tool call goes through. Any note or line comments come with it as additional context
+("Reviewer approved, with comments"). Answer their questions and make the small fixes they
+ask for; do not call `submit_review` again unless the user asks. With no comments, briefly
+acknowledge and continue.
+
+### If your review is denied with feedback
+
+When the reviewer **requests changes**, your `submit_review` call is **denied**, and the
+denial reason carries their note and their line comments. Each comment names a file and
+lines, like `` `src/a.ts` lines 10-14 (new): … `` — `(new)` is a line number in the changed
+version of the file, `(old)` one in the base version. Read the reason as review feedback,
+make the requested edits, then call `submit_review` **again with the same `source`**.
+Acknowledge what you changed between submissions. Re-submit at most **3 times**; if the
+reviewer still requests changes, stop and ask the human directly rather than looping.

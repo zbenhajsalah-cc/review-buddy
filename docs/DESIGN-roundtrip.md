@@ -1,10 +1,9 @@
 # Design: Phase 2 round-trip (reviewer verdict + feedback → agent)
 
-**Status:** design + spike (Plan 014). The spike is real but flag-gated behind
-`REVIEW_BUDDY_ROUNDTRIP=1`; with the flag off, behavior is byte-identical to
-Phase 1 (always `allow`). This doc is the input to the real Phase 2 build
-plan(s); it makes the decisions that are cheap to make now and names the ones
-deferred to that build.
+**Status:** shipped in the plugin (Phase 2). Round-trip is **on by default**;
+`REVIEW_BUDDY_ROUNDTRIP=0` (or `false` / `off` / `no`) restores Phase 1 (plain
+Done, always `allow`). The sections below are the design as written for the
+spike (Plan 014); **Shipped:** notes say what the build decided. §7 sums it up.
 
 Companion: `ARCHITECTURE.md` ("Later phases" table) and `PRD.md` (the
 "top-level Review control [to] submit an overall verdict" requirement).
@@ -49,6 +48,12 @@ be silently ignored (the tool call proceeds anyway). `PreToolUse` was chosen ove
 whether the *deny is honored* in bypass mode is a separate, unverified question.
 The real Phase 2 build must test this empirically and, if bypass overrides deny,
 surface a warning ("round-trip has no effect in bypassPermissions mode").
+
+**Shipped:** tested by hand with Claude Code 2.1.312: a `PreToolUse` hook that
+returns `deny`, in a `claude -p --permission-mode bypassPermissions` run, blocked
+the tool call (its side effect did not happen) and Claude saw the reason. The
+permissions docs also say a call "a `PreToolUse` hook blocked stays blocked". So
+no warning is needed for bypass mode.
 
 **Open:** `"ask"` is a documented alternative to `"deny"`. `deny` is the right
 default for "request changes" (it blocks the call and returns the reason in one
@@ -127,11 +132,32 @@ matches everything else the agent already reads. **Decision:** the tool builds
 this string from structured `annotations` — the UI never sends assembled prose or
 code content back through the hook (keeps the channel injection-safe and small).
 
+**Shipped:** the field is `comments` (not `annotations`), each a `ReviewComment`
+(`packages/core/src/types.ts`): the `Annotation` above plus an optional range start
+(`startSide`, `startLine`). The text is built by `requestChangesMessage` /
+`approvalMessage` (`packages/core/src/messages.ts`), in the viewer's copy-as-Markdown
+format, sorted by file and line:
+```
+Reviewer requested changes:
+
+<summary>
+
+2 line comments ("new" is a line of the changed version, "old" a line of the base version):
+- `src/server/http.ts` line 127 (new): this containment check should reject before the fetch
+- `src/ui/src/api.ts` lines 20-24 (new): missing await on postDone
+```
+
 **Open — token budget.** `permissionDecisionReason` is unbounded in principle but
 a very long reason wastes context and may be truncated by Claude Code. The Phase 2
 build should cap the serialized reason (e.g. summary + first N annotations, with a
 "…and M more; re-open the review" tail) and measure the real truncation limit.
 The spike sends only `summary`, so this doesn't bite yet.
+
+**Shipped:** Claude Code moves hook text over 10,000 characters (`additionalContext`)
+to a file and shows a 2,000-character preview; it states no limit for
+`permissionDecisionReason`. The feedback is capped at 6,000 characters, so it fits next
+to the resolution notes: the note is cut at 2,000 characters, each comment body at
+1,000, and comments that do not fit are counted ("…and N more not shown").
 
 ---
 
@@ -187,6 +213,13 @@ changes but types nothing, the hook still returns `deny` with a generic reason
 chapters."). Rationale: the reviewer's *verdict* is the signal; missing prose
 shouldn't silently flip it to approve.
 
+**Shipped:** the label stays **Done** (its tooltip says "Approve" with round-trip on).
+Line comments go with both verdicts: with Request changes they are part of the deny
+reason; with Done the hook allows, and they reach the agent as `additionalContext` (an
+`allow` reason only reaches the debug log), so it can answer questions and make small
+fixes without re-submitting. The Request changes panel says "Your N comments go
+too." Without round-trip, Done does not send them and asks first.
+
 **Open — approve + viewed-state.** Should Approve also relay which
 chapters/files the reviewer actually looked at (so the agent knows coverage)?
 Deferred — viewed-state persistence (`/api/file-viewed`) is a separate Phase 2
@@ -222,6 +255,12 @@ treats anything other than `"request_changes"` (with the flag on) as the default
 `allow` path. That's safe (fail-open) but silent; Phase 2 could validate the
 verdict enum server-side and log unexpected values.
 
+**Shipped:** the server validates the body (`parseDoneResult` in
+`packages/core/src/validate.ts`; unknown keys are dropped) and answers 400 with the
+reason when it is malformed. The hook keeps waiting, and the viewer shows the reason,
+so the reviewer can try again and no comment is lost silently. An empty body is still a
+plain Done.
+
 ---
 
 ## 6. Open questions (carried forward to the Phase 2 build)
@@ -234,7 +273,16 @@ verdict enum server-side and log unexpected values.
   5. **Open:** per-chapter verdicts vs one overall verdict. (§4)
   6. **Open:** server-side verdict-enum validation + logging. (§5)
 
-The annotation UI (per-line commenting), viewed-state round-trip
-(`/api/file-viewed`), and any GitHub write (posting the verdict to the PR) are
-explicitly **not** in this spike — they are the real Phase 2 build, for which this
-document is the brief.
+## 7. What shipped
+
+- **Line comments** (viewer): `packages/viewer/src/lib/comments.ts`.
+- **Round-trip** (plugin), on by default: `DoneResult { verdict?, summary?, comments? }`
+  on `POST /api/done`, validated by the server; the hook denies on "request changes" and
+  allows otherwise, with the text from `core/messages.ts`. Standalone blocking returns
+  the same text; standalone detached shows no verdict UI.
+- Answered: deny under `bypassPermissions` (§1: honored), the token budget (§2: 6,000
+  characters), verdict validation (§5).
+- Still open: the viewed-state round-trip (`/api/file-viewed`; each submission gets a
+  new port, so viewed marks do not survive a re-submit), a hook-side re-submit counter
+  (§3), Approve + coverage (§4), per-chapter verdicts (§4), and posting line comments to
+  GitHub from the desktop app (it posts the verdict and summary).

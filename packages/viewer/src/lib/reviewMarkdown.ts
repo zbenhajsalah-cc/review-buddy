@@ -1,4 +1,5 @@
 import type { ResolvedChapter, ResolvedFile, ResolvedReview } from "@review-buddy/core/types";
+import { commentsToMarkdown, type LineComment } from "./comments.ts";
 
 function pluralFiles(n: number): string {
   return `${n} file${n === 1 ? "" : "s"}`;
@@ -14,8 +15,15 @@ function fileBullet(file: ResolvedFile): string {
   return `- ${pathLabel} (${typeLabel}) ${diffCounts(file.additions, file.deletions)}`;
 }
 
-/** Narrative + inventory Markdown for one chapter. Never includes hunk line content. */
-export function chapterToMarkdown(chapter: ResolvedChapter, headingLevel: 2 | 3 = 2): string {
+/**
+ * Narrative + inventory Markdown for one chapter, and the reviewer's comments
+ * on it. Never includes hunk line content.
+ */
+export function chapterToMarkdown(
+  chapter: ResolvedChapter,
+  headingLevel: 2 | 3 = 2,
+  comments: readonly LineComment[] = [],
+): string {
   const heading = "#".repeat(headingLevel);
   const parts: string[] = [
     `${heading} ${String(chapter.index).padStart(2, "0")} ${chapter.title}`,
@@ -31,11 +39,21 @@ export function chapterToMarkdown(chapter: ResolvedChapter, headingLevel: 2 | 3 
     parts.push("", ...chapter.files.map(fileBullet));
   }
 
+  if (comments.length > 0) {
+    parts.push("", "**Comments**", "", commentsToMarkdown(comments));
+  }
+
   return parts.join("\n");
 }
 
-/** Full-review Markdown (prologue + chapters + optional warnings). No hunk line content. */
-export function reviewToMarkdown(review: ResolvedReview): string {
+/**
+ * Full-review Markdown (prologue + chapters with their comments + optional
+ * warnings). No hunk line content.
+ */
+export function reviewToMarkdown(
+  review: ResolvedReview,
+  comments: readonly LineComment[] = [],
+): string {
   const title = review.pr.title || "Untitled review";
   const { pr, prologue, stats, chapters, warnings } = review;
 
@@ -73,7 +91,17 @@ export function reviewToMarkdown(review: ResolvedReview): string {
 
   if (chapters.length > 0) {
     parts.push("", "## Chapters", "");
-    parts.push(chapters.map((c) => chapterToMarkdown(c, 3)).join("\n\n"));
+    parts.push(
+      chapters
+        .map((c) =>
+          chapterToMarkdown(
+            c,
+            3,
+            comments.filter((x) => x.chapterIndex === c.index),
+          ),
+        )
+        .join("\n\n"),
+    );
   }
 
   if (warnings.length > 0) {

@@ -92,30 +92,37 @@ test("captureDiff folds in multiple untracked files (concurrent, none dropped)",
   rmSync(repo, { recursive: true, force: true });
 });
 
-test("captureDiff against HEAD includes staged changes (the prompts' `git diff HEAD`)", async () => {
-  // The review prompts tell the agent to run `git diff HEAD` so its anchors match
-  // this capture. Plain `git diff` (index vs worktree) would miss a staged edit.
+// The review prompts tell the agent to run `git diff HEAD` for a worktree
+// review; these pin that it is the diff the tool captures, so anchors line up.
+test("captureDiff vs HEAD is `git diff HEAD`: staged and unstaged changes", async () => {
   const repo = makeTempRepo("rb-staged-");
-  testGit(repo, "add", "app.ts"); // stage the whole pending edit
-  expect(testGit(repo, "diff")).toBe("");
-  const diff = await captureDiff(repo, "HEAD");
-  expect(diff).toContain("+++ b/app.ts");
-  expect(diff).toContain("+let y = 20;");
-  expect(diff).toContain("+let z = 3;");
-  rmSync(repo, { recursive: true, force: true });
+  try {
+    testGit(repo, "add", "app.ts"); // staged: y = 20, z = 3
+    writeFileSync(join(repo, "app.ts"), "let x = 10;\nlet y = 20;\nlet z = 3;\n"); // unstaged: x = 10
+    const diff = await captureDiff(repo, resolveBase(repo));
+    expect(diff).toBe(testGit(repo, "diff", "--no-color", "HEAD"));
+    expect(diff).toContain("+let x = 10;");
+    expect(diff).toContain("+let y = 20;");
+    // Plain `git diff` (index vs working tree) leaves out the staged lines.
+    expect(testGit(repo, "diff", "--no-color")).not.toContain("+let y = 20;");
+  } finally {
+    rmSync(repo, { recursive: true, force: true });
+  }
 });
 
-test("captureDiff in a repo with no commits diffs the empty tree against the worktree", async () => {
-  // The prompts name EMPTY_TREE for this case: `git diff --cached` would show the
-  // staged bytes and miss an edit made after `git add`.
-  const dir = mkdtempSync(join(tmpdir(), "rb-unborn-"));
+test("captureDiff with no commits yet is the diff against the empty tree", async () => {
+  // The prompts name the empty tree for this case: `git diff --cached` would show
+  // the staged bytes and miss an edit made after `git add`.
+  const dir = mkdtempSync(join(tmpdir(), "rb-nohead-"));
   try {
     testGit(dir, "init", "-q");
-    writeFileSync(join(dir, "f.txt"), "staged\n");
-    testGit(dir, "add", "f.txt");
-    writeFileSync(join(dir, "f.txt"), "edited\n");
+    writeFileSync(join(dir, "a.ts"), "staged\n");
+    testGit(dir, "add", "a.ts");
+    writeFileSync(join(dir, "a.ts"), "edited\n");
     expect(resolveBase(dir)).toBe(EMPTY_TREE);
-    const diff = await captureDiff(dir, EMPTY_TREE);
+    expect(testGit(dir, "hash-object", "-t", "tree", "/dev/null").trim()).toBe(EMPTY_TREE);
+    const diff = await captureDiff(dir, resolveBase(dir));
+    expect(diff).toBe(testGit(dir, "diff", "--no-color", EMPTY_TREE));
     expect(diff).toContain("+edited");
     expect(diff).not.toContain("+staged");
   } finally {

@@ -40,6 +40,28 @@ test("does not fire when metaKey, ctrlKey, or altKey is held", () => {
   expect(onFire).toHaveBeenCalledTimes(0);
 });
 
+test("does not fire when another handler already called preventDefault", () => {
+  // Radix's dismissable layers (dialog, popover) close on Esc from a document
+  // capture listener and preventDefault the event; the shortcut must not also run.
+  const onExit = mock(() => {});
+  render(<Probe bindings={{ BACK_TO_OVERVIEW: { handler: onExit } }} />);
+  const claim = (e: KeyboardEvent) => e.preventDefault();
+  document.addEventListener("keydown", claim, { capture: true });
+  try {
+    act(() => {
+      fireEvent.keyDown(document, { key: "Escape" });
+    });
+  } finally {
+    document.removeEventListener("keydown", claim, { capture: true });
+  }
+  expect(onExit).toHaveBeenCalledTimes(0);
+
+  act(() => {
+    fireEvent.keyDown(document, { key: "Escape" });
+  });
+  expect(onExit).toHaveBeenCalledTimes(1);
+});
+
 test("does not fire when the event target is an input or textarea", () => {
   const onFire = mock(() => {});
   render(

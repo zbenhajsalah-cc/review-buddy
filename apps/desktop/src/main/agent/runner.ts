@@ -18,7 +18,7 @@ import { tmpdir } from "node:os";
 import type { SDKMessage } from "@anthropic-ai/claude-agent-sdk";
 import type { ReviewDataSource } from "@review-buddy/core/source";
 import type { ResolvedReview } from "@review-buddy/core/types";
-import type { ReviewErrorKind } from "../../shared/ipc.ts";
+import type { ModelChoice, ReviewEffort, ReviewErrorKind } from "../../shared/ipc.ts";
 import { PrTooLargeError } from "../github/api-source.ts";
 import type { QueryFn } from "./check.ts";
 import {
@@ -41,8 +41,33 @@ export interface ReviewRunOptions {
   onProgress?: (progress: ReviewProgress) => void;
   /** Stops the run (the app quits, or the user starts another). */
   signal?: AbortSignal;
+  /** The base limit; more effort gets more of it (see `timeoutFor`). */
   timeoutMs?: number;
   maxTurns?: number;
+  /**
+   * The model and effort for this review (US-22). Absent fields are left to
+   * Claude Code's own default.
+   */
+  choice?: ModelChoice;
+}
+
+/** The base time a review gets. */
+export const DEFAULT_TIMEOUT_MS = 15 * 60_000;
+
+/**
+ * More thinking takes longer, not more turns: a review at xhigh or max on a
+ * big PR does not fit the time a default one needs.
+ */
+export function timeoutFor(effort: ReviewEffort | undefined, base = DEFAULT_TIMEOUT_MS): number {
+  switch (effort) {
+    case "high":
+      return Math.round(base * 1.5);
+    case "xhigh":
+    case "max":
+      return base * 2;
+    default:
+      return base;
+  }
 }
 
 export interface ReviewRunResult {
@@ -53,6 +78,8 @@ export interface ReviewRunResult {
   /** How many submissions passed validation (the last one is shown). */
   submissions: number;
   model?: string;
+  /** The effort the review actually ran at (what was sent to Claude). */
+  effort?: ReviewEffort;
   turns?: number;
   costUsd?: number;
   durationMs: number;
@@ -104,12 +131,19 @@ export async function runReview(
 ): Promise<ReviewRunResult> {
   const started = Date.now();
   const progress = options.onProgress ?? (() => {});
-  const result: ReviewRunResult = { ok: false, warnings: [], submissions: 0, durationMs: 0 };
+  const result: ReviewRunResult = {
+    ok: false,
+    warnings: [],
+    submissions: 0,
+    durationMs: 0,
+    // What this run asks for, known before it starts (also kept on a failure).
+    ...(options.choice?.effort ? { effort: options.choice.effort } : {}),
+  };
   const abortController = new AbortController();
   const abort = () => abortController.abort();
   options.signal?.addEventListener("abort", abort);
   if (options.signal?.aborted) abort();
-  const timer = setTimeout(abort, options.timeoutMs ?? 15 * 60_000);
+  const timer = setTimeout(abort, timeoutFor(options.choice?.effort, options.timeoutMs));
   const stderr: string[] = [];
   let tools: ReturnType<typeof createReviewTools> | undefined;
   /** An error code Claude reported (login, rate limit, …). */
@@ -142,6 +176,9 @@ export async function runReview(
         abortController,
         pathToClaudeCodeExecutable: options.pathToClaudeCodeExecutable,
         systemPrompt: options.systemPrompt,
+        // The model and effort for this review (US-22); absent: Claude Code's default.
+        ...(options.choice?.model ? { model: options.choice.model } : {}),
+        ...(options.choice?.effort ? { effort: options.choice.effort } : {}),
         // Not the user's projects: no CLAUDE.md, settings, plugins or saved session.
         cwd: tmpdir(),
         settingSources: [],
@@ -164,7 +201,13 @@ export async function runReview(
     for await (const message of q as AsyncIterable<SDKMessage>) {
       if (message.type === "system" && message.subtype === "init") {
         result.model = message.model;
-        progress({ phase: "reading", step: `Claude is reading the PR (${message.model})` });
+        // The model travels with the step: the progress view shows it while
+        // the review runs, not only when it ends.
+        progress({
+          phase: "reading",
+          step: `Claude is reading the PR (${message.model})`,
+          model: message.model,
+        });
       } else if (message.type === "stream_event") {
         writing.event(message.event as StreamEvent);
       } else if (message.type === "assistant" && message.error) {

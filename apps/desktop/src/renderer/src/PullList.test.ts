@@ -118,3 +118,26 @@ test("a PR is the user's own, or waits on their review (US-14)", () => {
   expect(pullOwnership(asked, undefined)).toEqual({ mine: false, reviewRequested: false });
   expect(pullOwnership(asked, "")).toEqual({ mine: false, reviewRequested: false });
 });
+
+test("what a review was made with follows the review shown (US-22)", () => {
+  const listed = {
+    ...pull,
+    review: { reviewKey: "k", headSha: HEAD, model: "claude-sonnet-5", effort: "low" },
+  } satisfies PullSummary;
+  expect(pullState("octo/repo", listed, []).review).toMatchObject({
+    model: "claude-sonnet-5",
+    effort: "low",
+  });
+  // Run again finished in this run: the row shows that job's model, not the
+  // one the PR page was read with.
+  const again = pullState("octo/repo", listed, [
+    job(1, "done", { reviewKey: "k2", headSha: HEAD, model: "claude-haiku-5", effort: "max" }),
+  ]);
+  expect(again.review).toMatchObject({ model: "claude-haiku-5", effort: "max" });
+  // A job that reported neither (the default everywhere): nothing is shown.
+  const plain = pullState("octo/repo", listed, [
+    job(1, "done", { reviewKey: "k2", headSha: HEAD }),
+  ]);
+  expect(plain.review?.model).toBeUndefined();
+  expect(plain.review?.effort).toBeUndefined();
+});

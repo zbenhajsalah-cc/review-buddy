@@ -16,6 +16,7 @@ import { mkdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import type { ResolvedReview } from "@review-buddy/core/types";
 import type { PostedReview, SavedReviewInfo } from "../shared/ipc.ts";
+import { toReviewEffort } from "../shared/models.ts";
 import { type DiffFileInfo, isRepoName } from "./github/api-source.ts";
 
 export const CACHE_VERSION = 1;
@@ -33,6 +34,9 @@ export interface SavedReview {
   /** The diff's files, for file reads after a restart. */
   files: DiffFileInfo[];
   review: ResolvedReview;
+  /** The model that wrote it, and the effort it was asked for (US-22). */
+  model?: SavedReviewInfo["model"];
+  effort?: SavedReviewInfo["effort"];
 }
 
 const SHA = /^[0-9a-f]{40}$/;
@@ -89,17 +93,26 @@ export class ReviewCache {
   }
 
   /** The newest saved review of `owner/repo#123` (any case), at whatever head. */
-  newestFor(
-    pr: string,
-  ): { reviewKey: string; headSha: string; doneAt?: string; posted?: PostedReview } | undefined {
+  newestFor(pr: string):
+    | {
+        reviewKey: string;
+        headSha: string;
+        doneAt?: string;
+        posted?: PostedReview;
+        model?: SavedReviewInfo["model"];
+        effort?: SavedReviewInfo["effort"];
+      }
+    | undefined {
     const found = this.list().find((info) => info.pr.toLowerCase() === pr.toLowerCase());
     if (!found) return undefined;
-    const { reviewKey, headSha, doneAt, posted } = found;
+    const { reviewKey, headSha, doneAt, posted, model, effort } = found;
     return {
       reviewKey,
       headSha,
       ...(doneAt ? { doneAt } : {}),
       ...(posted ? { posted } : {}),
+      ...(model ? { model } : {}),
+      ...(effort ? { effort } : {}),
     };
   }
 
@@ -178,6 +191,8 @@ export class ReviewCache {
       headSha: entry.headSha,
       savedAt: saved.savedAt,
       bytes: Buffer.byteLength(text),
+      ...(entry.model ? { model: entry.model } : {}),
+      ...(entry.effort ? { effort: entry.effort } : {}),
     };
     // Done belongs to the commit, like the viewed files: a new review of the
     // same head only replaces Claude's text. So does what was posted (US-20).
@@ -273,6 +288,10 @@ function toInfo(value: unknown): SavedReviewInfo | null {
     savedAt: v.savedAt,
     bytes: typeof v.bytes === "number" ? v.bytes : 0,
   };
+  // What it was reviewed with (US-22); absent in files saved before it.
+  if (typeof v.model === "string" && v.model) info.model = v.model;
+  const effort = toReviewEffort(v.effort);
+  if (effort) info.effort = effort;
   if (typeof v.doneAt === "string") info.doneAt = v.doneAt;
   const posted = toPosted(v.posted);
   if (posted) info.posted = posted;

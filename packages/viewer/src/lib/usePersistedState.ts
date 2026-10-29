@@ -61,14 +61,17 @@ function writeCookie<T>(key: string, value: T): void {
   }
 }
 
+/** Read a persisted value outside React (e.g. to seed options before first render). */
+export function readPersisted<T>(key: string, initial: T, backend: StorageBackend): T {
+  return backend === "local" ? readLocal(key, initial) : readCookie(key, initial);
+}
+
 export function usePersistedState<T>(
   key: string,
   initial: T,
   backend: StorageBackend,
 ): readonly [T, (updater: T | ((prev: T) => T)) => void] {
-  const read = backend === "local" ? readLocal : readCookie;
-
-  const [value, setValue] = useState<T>(() => read(key, initial));
+  const [value, setValue] = useState<T>(() => readPersisted(key, initial, backend));
 
   useEffect(() => {
     if (backend === "local") {

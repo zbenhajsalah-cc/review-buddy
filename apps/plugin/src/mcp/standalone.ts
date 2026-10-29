@@ -16,7 +16,12 @@
  * No flag = off: the handler is the Phase-1 ack for the hook flow.
  */
 import { isAbsolute } from "node:path";
-import { requestChangesMessage, resolutionNotesMessage } from "@review-buddy/core/messages";
+import {
+  approvalMessage,
+  joinMessages,
+  requestChangesMessage,
+  resolutionNotesMessage,
+} from "@review-buddy/core/messages";
 import { repoToplevel } from "@review-buddy/core/node/git";
 import type { AgentReview } from "@review-buddy/core/types";
 import { validateAgentReview } from "@review-buddy/core/validate";
@@ -37,8 +42,7 @@ const errMsg = (e: unknown): string => (e instanceof Error ? e.message : String(
 
 /** Append resolution notes to a tool-result string when there are any. */
 function withNotes(text: string, warnings: readonly string[]): string {
-  const notes = resolutionNotesMessage(warnings);
-  return notes ? `${text}\n\n${notes}` : text;
+  return joinMessages(text, resolutionNotesMessage(warnings)) ?? text;
 }
 
 // The live review's server — superseded (stopped) when a new review arrives,
@@ -124,8 +128,9 @@ export async function handleStandaloneSubmit(
   // Ports are ephemeral, so the brief overlap can't collide.
   let server: RunningServer;
   try {
-    // Blocking exists to return the verdict, so the verdict UI is forced on.
-    server = await openReviewSession(agent, cwd, mode === "blocking" ? { roundtrip: true } : {});
+    // Blocking exists to return the verdict, so the verdict UI is forced on;
+    // detached returns before the reviewer starts, so nothing could carry it.
+    server = await openReviewSession(agent, cwd, { roundtrip: mode === "blocking" });
   } catch (e) {
     return err(`Review Buddy could not open the review: ${errMsg(e)}`);
   }
@@ -156,8 +161,13 @@ export async function handleStandaloneSubmit(
       "This review was superseded by a newer submit_review call; no verdict was collected.",
     );
   }
-  if (result.verdict === "request_changes") {
-    return ok(withNotes(requestChangesMessage(result.summary), warnings));
+  const { verdict, summary, comments } = result;
+  if (verdict === "request_changes") {
+    return ok(withNotes(requestChangesMessage(summary, comments), warnings));
   }
-  return ok(withNotes("Review complete — the reviewer finished walking through it.", warnings));
+  const approved = joinMessages(
+    "Review complete — the reviewer finished walking through it.",
+    approvalMessage(summary, comments),
+  )!;
+  return ok(withNotes(approved, warnings));
 }

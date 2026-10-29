@@ -24,3 +24,24 @@ export const Default: Story = {
     return <DisplaySettingsBar settings={settings} update={update} />;
   },
 };
+
+/** The theme & font popover, open: mode, syntax themes, code font, size, ligatures. */
+export const ThemeAndFontOpen: Story = {
+  args: {
+    settings: DEFAULT_SETTINGS,
+    update: () => {},
+  },
+  render: function Interactive() {
+    const [settings, setSettings] = useState<DisplaySettings>(DEFAULT_SETTINGS);
+    const [open, setOpen] = useState(true);
+    const update = (patch: Partial<DisplaySettings>) => setSettings((s) => ({ ...s, ...patch }));
+    return (
+      <DisplaySettingsBar
+        settings={settings}
+        update={update}
+        appearanceOpen={open}
+        onAppearanceOpenChange={setOpen}
+      />
+    );
+  },
+};

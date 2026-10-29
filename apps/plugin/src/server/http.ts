@@ -3,9 +3,9 @@
  * pattern) and exposes its endpoints:
  *
  *   GET  /api/review        -> the merged ResolvedReview (sources A+B+computed)
- *   GET  /api/config        -> { roundtrip } — REVIEW_BUDDY_ROUNDTRIP flag for the client
+ *   GET  /api/config        -> { roundtrip } — whether the viewer shows the verdict UI
  *   GET  /api/file-content  -> full file for expand/word-level (source C)
- *   POST /api/done          -> reviewer closed the viewer; unblocks the hook
+ *   POST /api/done          -> reviewer finished (verdict, note, line comments); unblocks the hook
  *
  * `done` resolves when the reviewer is finished, which is how the blocking
  * PreToolUse hook knows to return control to the agent.
@@ -16,7 +16,8 @@ import { join, resolve, sep } from "node:path";
 import { languageOf } from "@review-buddy/core/diff";
 import { allowedPaths } from "@review-buddy/core/resolve";
 import type { ReviewDataSource } from "@review-buddy/core/source";
-import type { ResolvedReview } from "@review-buddy/core/types";
+import type { ResolvedReview, DoneResult as ViewerDoneResult } from "@review-buddy/core/types";
+import { parseDoneResult } from "@review-buddy/core/validate";
 import { VIEWER_CSP } from "@review-buddy/core/viewer-csp";
 
 /** True iff `rel` resolves lexically inside `root` (blocks `..` only; does not dereference symlinks — link escape is guarded at read time in fileContent). */
@@ -34,15 +35,12 @@ export interface ServerContext {
   source: Pick<ReviewDataSource, "fileContent">;
   /** Directory of the built React UI (ui/dist). Falls back to a placeholder. */
   uiDir?: string;
-  /** Phase 2 spike: REVIEW_BUDDY_ROUNDTRIP — exposes the verdict UI via /api/config. */
+  /** Show the verdict UI (approve / request changes), via /api/config. */
   roundtrip?: boolean;
 }
 
-export interface DoneResult {
-  /** Round-trip verdict. Absent/other ⇒ treated as approve (fail-open). */
-  verdict?: "approve" | "request_changes";
-  /** Reviewer's overall note when requesting changes (markdown). */
-  summary?: string;
+/** What the viewer sent (validated), or how the server stopped. No verdict ⇒ approve. */
+export interface DoneResult extends ViewerDoneResult {
   /** True when the server was stopped before the reviewer finished (e.g. a
    *  newer review superseded it) — `stop()` settles `done` with this so
    *  awaiting callers never hang on a server that can't receive /api/done. */
@@ -66,7 +64,7 @@ export interface RunningServer {
 
 const ALLOWED_HOSTS = new Set(["127.0.0.1", "localhost"]);
 
-// A verdict summary is short prose; anything larger is malformed/abusive.
+// A verdict, a note and line comments; anything larger is malformed/abusive.
 const MAX_DONE_BODY = 256 * 1024;
 
 function withViewerHeaders(res: Response): Response {
@@ -155,12 +153,21 @@ export function startServer(ctx: ServerContext): RunningServer {
       if (pathname === "/api/done" && req.method === "POST") {
         const len = Number(req.headers.get("content-length") ?? "0");
         if (len > MAX_DONE_BODY) return json({ error: "body too large" }, 413);
-        let body: DoneResult = {};
-        try {
-          body = (await req.json()) as DoneResult;
-        } catch {
-          /* empty body is fine */
+        // A malformed body is refused, not guessed at: the viewer shows the
+        // error and the reviewer can try again, and no comment is lost. Only
+        // an empty body is a plain Done.
+        const text = await req.text();
+        let raw: unknown = {};
+        if (text.trim() !== "") {
+          try {
+            raw = JSON.parse(text);
+          } catch {
+            return json({ error: "body is not valid JSON" }, 400);
+          }
         }
+        const parsed = parseDoneResult(raw);
+        if (!parsed.ok) return json({ error: parsed.error }, 400);
+        const body: DoneResult = parsed.value;
         // Resolve on the next tick so THIS response flushes to the client
         // before the hook tears the server down (otherwise the client sees an
         // empty reply / connection reset).
