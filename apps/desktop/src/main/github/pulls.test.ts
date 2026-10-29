@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import pr28 from "./fixtures/pr-28.json" with { type: "json" };
-import { GitHubPulls, PULLS_PER_PAGE, toPullSummary, toSize } from "./pulls.ts";
+import { GitHubPulls, PULLS_PER_PAGE, toLogins, toPullSummary, toSize } from "./pulls.ts";
 
 const API = "https://api.github.com";
 const REPO = "/repos/zbenhajsalah-cc/review-buddy";
@@ -74,6 +74,7 @@ describe("toPullSummary and toSize", () => {
       draft: false,
       url: "https://github.com/zbenhajsalah-cc/review-buddy/pull/28",
       headSha: "7e8e70534d5fdb0a8ef1a5a0bf8407774b007b00",
+      requestedReviewers: [],
     });
     expect(toSize(pr28)).toEqual({ additions: 35, deletions: 5, changedFiles: 4 });
   });
@@ -89,6 +90,21 @@ describe("toPullSummary and toSize", () => {
     });
     expect(toSize({ additions: 1, deletions: -1, changed_files: 1 })).toBeNull();
     expect(toSize(listItem(1))).toBeNull();
+  });
+
+  test("the pending review requests, when the list has them", () => {
+    expect(
+      toPullSummary({ ...pr28, requested_reviewers: [{ login: "zied" }, { login: "octocat" }] })
+        ?.requestedReviewers,
+    ).toEqual(["zied", "octocat"]);
+    // The recorded PR has no such key at all: nobody is asked.
+    expect(toPullSummary(pr28)?.requestedReviewers).toEqual([]);
+  });
+
+  test("toLogins keeps strings only", () => {
+    expect(toLogins(undefined)).toEqual([]);
+    expect(toLogins("zied")).toEqual([]);
+    expect(toLogins([{ login: "zied" }, null, {}, { login: 7 }, { login: "" }])).toEqual(["zied"]);
   });
 });
 

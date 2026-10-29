@@ -40,6 +40,7 @@ export function toPullSummary(json: unknown): Omit<PullSummary, "size" | "review
     draft?: unknown;
     html_url?: unknown;
     head?: { sha?: unknown } | null;
+    requested_reviewers?: unknown;
   } | null;
   if (
     !p ||
@@ -60,7 +61,16 @@ export function toPullSummary(json: unknown): Omit<PullSummary, "size" | "review
     draft: p.draft === true,
     url: typeof p.html_url === "string" ? p.html_url : "",
     headSha: p.head.sha,
+    requestedReviewers: toLogins(p.requested_reviewers),
   };
+}
+
+/** The logins of a `requested_reviewers` array; anything else is no request. */
+export function toLogins(json: unknown): string[] {
+  if (!Array.isArray(json)) return [];
+  return json
+    .map((r) => (r as { login?: unknown } | null)?.login)
+    .filter((login): login is string => typeof login === "string" && login !== "");
 }
 
 /** The size fields of a single PR's JSON, or null. */

@@ -318,6 +318,12 @@ export interface PullSummary {
   number: number;
   title: string;
   author: string;
+  /**
+   * The logins GitHub has a *pending* review request for. A reviewer who has
+   * already submitted a review is no longer listed. Team requests are not
+   * resolved to their members, so they are not here.
+   */
+  requestedReviewers: string[];
   /** ISO time of the last update. */
   updatedAt: string;
   draft: boolean;

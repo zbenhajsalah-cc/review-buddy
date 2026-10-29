@@ -76,6 +76,28 @@ export function pullState(repo: string, pull: PullSummary, jobs: ReviewJobStatus
   return state;
 }
 
+/** How the PR relates to the signed-in user: theirs, waiting on their review. */
+export interface PullOwnership {
+  /** The signed-in user opened it. */
+  mine: boolean;
+  /** GitHub has a pending review request for the signed-in user. */
+  reviewRequested: boolean;
+}
+
+/**
+ * Whether a PR is the signed-in user's own and whether it waits on their
+ * review (US-14). Logins are compared case-insensitively, as GitHub does.
+ * With no login known (signed out), a PR is neither.
+ */
+export function pullOwnership(pull: PullSummary, viewer: string | undefined): PullOwnership {
+  const me = viewer?.toLowerCase();
+  if (!me) return { mine: false, reviewRequested: false };
+  return {
+    mine: pull.author.toLowerCase() === me,
+    reviewRequested: pull.requestedReviewers.some((login) => login.toLowerCase() === me),
+  };
+}
+
 /** "+120 −30 · 5 files". */
 export function sizeText(size: PullSummary["size"]): string {
   if (!size) return "";
@@ -104,6 +126,7 @@ export function PullList({
   bridge,
   repo,
   jobs,
+  viewer,
   models,
   override,
   onOverride,
@@ -119,6 +142,8 @@ export function PullList({
   bridge: GitHubBridge;
   repo: RepoSummary;
   jobs: ReviewJobStatus[];
+  /** The signed-in GitHub login, for the "Yours" and "Review requested" badges. */
+  viewer?: string;
   /** The models reviews can run on, and the default choice (US-22). */
   models: ReturnType<typeof useModels>;
   /**
@@ -306,6 +331,7 @@ export function PullList({
                 key={pull.number}
                 pull={pull}
                 row={pullState(repo.fullName, pull, jobs)}
+                ownership={pullOwnership(pull, viewer)}
                 selected={selected.has(pull.number)}
                 onToggle={() => toggle(pull.number)}
                 onReview={(fresh) => void review([pull.number], true, fresh)}
@@ -342,6 +368,7 @@ export function PullList({
 function PullRow({
   pull,
   row,
+  ownership,
   selected,
   onToggle,
   onReview,
@@ -353,6 +380,7 @@ function PullRow({
 }: {
   pull: PullSummary;
   row: PullRowState;
+  ownership: PullOwnership;
   blocked?: string;
   selected: boolean;
   onToggle: () => void;
@@ -370,11 +398,16 @@ function PullRow({
 }) {
   const n = pull.number;
   const { job, review, failed } = row;
+  const { mine, reviewRequested } = ownership;
   // What the review shown here was made with (US-22).
   const madeWith = choiceLabel(models, review);
   const now = useNow(job?.state === "running");
   return (
-    <li className="flex flex-wrap items-center gap-3 px-4 py-3">
+    <li
+      className={`flex flex-wrap items-center gap-3 border-l-2 px-4 py-3 ${
+        reviewRequested ? "border-l-primary" : mine ? "border-l-border" : "border-l-transparent"
+      }`}
+    >
       <input
         type="checkbox"
         aria-label={`Select #${n}`}
@@ -395,13 +428,31 @@ function PullRow({
             {pull.title}
           </a>
           {pull.draft ? (
-            <Badge variant="outline" className="font-normal text-muted-foreground">
+            <Badge variant="outline" className="shrink-0 font-normal text-muted-foreground">
               Draft
+            </Badge>
+          ) : null}
+          {reviewRequested ? (
+            <Badge
+              className="shrink-0 font-normal"
+              title="GitHub is waiting for your review of this pull request."
+            >
+              Review requested
+            </Badge>
+          ) : null}
+          {mine ? (
+            <Badge
+              variant="outline"
+              className="shrink-0 font-normal text-muted-foreground"
+              title="You opened this pull request."
+            >
+              Yours
             </Badge>
           ) : null}
         </div>
         <div className="mt-0.5 truncate text-[0.72rem] text-muted-foreground">
           @{pull.author}
+          {mine ? " (you)" : ""}
           {pull.updatedAt ? ` · updated ${timeAgo(pull.updatedAt, Date.now())}` : ""}
           {pull.size ? ` · ${sizeText(pull.size)}` : ""}
           {failed ? (

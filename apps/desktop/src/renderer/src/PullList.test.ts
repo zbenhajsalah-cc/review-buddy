@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import type { PullSummary, ReviewJobStatus } from "../../shared/ipc.ts";
-import { pullState, sizeText } from "./PullList.tsx";
+import { pullOwnership, pullState, sizeText } from "./PullList.tsx";
 
 const HEAD = "b".repeat(40);
 const OLD = "a".repeat(40);
@@ -12,6 +12,7 @@ const pull: PullSummary = {
   draft: false,
   url: "https://github.com/octo/repo/pull/7",
   headSha: HEAD,
+  requestedReviewers: [],
 };
 
 function job(id: number, state: ReviewJobStatus["state"], extra: Partial<ReviewJobStatus> = {}) {
@@ -94,6 +95,28 @@ test("the posted verdict comes from the list, for the same review only (US-20)",
     job(1, "done", { reviewKey: "k2", headSha: HEAD }),
   ]);
   expect(newer.review?.posted).toBeUndefined();
+});
+
+test("a PR is the user's own, or waits on their review (US-14)", () => {
+  expect(pullOwnership(pull, "octocat")).toEqual({ mine: true, reviewRequested: false });
+  // GitHub's logins are case-insensitive.
+  expect(pullOwnership(pull, "OctoCat").mine).toBe(true);
+  expect(pullOwnership(pull, "zied")).toEqual({ mine: false, reviewRequested: false });
+
+  const asked = { ...pull, author: "someone", requestedReviewers: ["Zied", "other"] };
+  expect(pullOwnership(asked, "zied")).toEqual({ mine: false, reviewRequested: true });
+  expect(pullOwnership(asked, "other").reviewRequested).toBe(true);
+  expect(pullOwnership(asked, "nobody").reviewRequested).toBe(false);
+
+  // A PR can be both: the user opened it and someone asked them to review it.
+  expect(pullOwnership({ ...pull, requestedReviewers: ["octocat"] }, "octocat")).toEqual({
+    mine: true,
+    reviewRequested: true,
+  });
+
+  // Signed out: no login to compare with, so no badge.
+  expect(pullOwnership(asked, undefined)).toEqual({ mine: false, reviewRequested: false });
+  expect(pullOwnership(asked, "")).toEqual({ mine: false, reviewRequested: false });
 });
 
 test("what a review was made with follows the review shown (US-22)", () => {
