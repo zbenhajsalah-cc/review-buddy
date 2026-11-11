@@ -4,7 +4,12 @@ import { act, cleanup, fireEvent, screen } from "@testing-library/react";
 import { renderWithApi } from "../../test/render.tsx";
 import type { LineComment } from "../lib/comments.ts";
 import { reviewToMarkdown } from "../lib/reviewMarkdown.ts";
-import { fakeResolvedReview, fakeReviewApi, fakeReviewWithQuestions } from "../stories/fixtures.ts";
+import {
+  fakeResolvedReview,
+  fakeReviewApi,
+  fakeReviewWithFindings,
+  fakeReviewWithQuestions,
+} from "../stories/fixtures.ts";
 import { Overview } from "./Overview.tsx";
 
 /** The overview's chapter list heading ("3 chapters", "3 chapters · 1 of 3 complete"). */
@@ -297,4 +302,21 @@ test("the Evidence card shows on the overview, with a muted line when nothing wa
   renderWithApi(<Overview review={fakeResolvedReview} onBeginReview={() => {}} />);
   const card = screen.getByRole("region", { name: "Evidence" });
   expect(card.textContent).toContain("No checks were reported for this change.");
+});
+
+test("findings: the counts, other findings, and a count on each chapter card", () => {
+  renderWithApi(<Overview review={fakeReviewWithFindings} onBeginReview={() => {}} />);
+  const card = screen.getByRole("region", { name: "Findings" });
+  expect(card.textContent).toContain("2 important · 1 nit · 1 pre-existing");
+  expect(card.textContent).toContain("Other findings — on files this change does not touch");
+  expect(card.textContent).toContain("src/legacy/cookies.ts line 14 (new)");
+  expect(card.textContent).toContain("Not from this change.");
+  // The chapter findings are not repeated on the overview.
+  expect(card.textContent).not.toContain("Name the 30-minute constant");
+  expect(screen.getByText("3 findings")).toBeDefined(); // chapter 2's card
+});
+
+test("no findings → no Findings card", () => {
+  renderWithApi(<Overview review={fakeResolvedReview} onBeginReview={() => {}} />);
+  expect(screen.queryByRole("region", { name: "Findings" })).toBeNull();
 });

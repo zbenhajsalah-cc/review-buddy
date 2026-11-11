@@ -53,6 +53,31 @@ const Verification = z.object({
   not_covered: z.string().max(5000).optional(),
 });
 
+const Finding = z
+  .object({
+    path: z.string().trim().min(1, "must not be empty").max(4096),
+    line: z.number().int().min(1),
+    start_line: z.number().int().min(1).optional(),
+    side: z.enum(["old", "new"]).optional(),
+    severity: z.enum(["important", "nit", "pre_existing"]),
+    title: z
+      .string()
+      .trim()
+      .min(1, "must not be empty")
+      .max(200, "one line (at most 200 characters)"),
+    body: z.string().max(1000).optional(),
+    source: z.string().max(100).optional(),
+  })
+  .superRefine((f, ctx) => {
+    if (f.start_line !== undefined && f.start_line > f.line) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["start_line"],
+        message: "start_line must not be after line",
+      });
+    }
+  });
+
 /** Structural schema for the agent's review payload (hook backstop; mirrors the
  *  load-bearing constraints of ../schemas/review.schema.json, not every field).
  *  When present, `source` is validated; unknown keys (e.g. advisory `stats`) are
@@ -62,6 +87,7 @@ export const AgentReviewSchema = z.object({
   chapters: z.array(Chapter).min(1).max(500),
   source: Source.optional(),
   verification: Verification.optional(),
+  findings: z.array(Finding).max(50).optional(),
 });
 
 const describeIssues = (error: z.ZodError): string =>

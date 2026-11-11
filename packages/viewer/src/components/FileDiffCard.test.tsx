@@ -2,7 +2,7 @@
 import { afterEach, expect, mock, test } from "bun:test";
 import type { SelectedLineRange } from "@pierre/diffs";
 import type { PatchDiffProps } from "@pierre/diffs/react";
-import type { ResolvedFile } from "@review-buddy/core/types";
+import type { ResolvedFile, ResolvedFinding } from "@review-buddy/core/types";
 import { cleanup, fireEvent, screen, waitFor } from "@testing-library/react";
 import type { ComponentProps } from "react";
 import { renderWithApi } from "../../test/render.tsx";
@@ -293,4 +293,51 @@ test("full-file view: a range across sides is ordered by the whole file's change
   pick = { start: 11, side: "additions", end: 10, endSide: "deletions" };
   fireEvent.click(screen.getByText("gutter +"));
   expect(screen.getByLabelText("Comment on lines 10 (old) to 11 (new)")).toBeDefined();
+});
+
+const finding = (over: Partial<ResolvedFinding> = {}): ResolvedFinding => ({
+  id: "f-1",
+  path: "app.ts",
+  line: 1,
+  side: "new",
+  severity: "important",
+  title: "c is never checked",
+  body: "Check **c** first.",
+  source: "/code-review",
+  chapterIndex: 1,
+  ...over,
+});
+
+test("a finding and a comment on the same line both show, the finding first", () => {
+  renderCard({ comments: [shown], findings: [finding()] });
+  const diff = screen.getByTestId("diff");
+  const card = screen.getByRole("article", { name: "Important finding: c is never checked" });
+  expect(diff.contains(card)).toBe(true);
+  expect(card.textContent).toContain("from /code-review");
+  const text = diff.textContent ?? "";
+  expect(text).toContain("Rename c?"); // the comment
+  expect(text.indexOf("c is never checked")).toBeLessThan(text.indexOf("Rename"));
+  // One line, one slot.
+  expect(diff.querySelectorAll("[data-finding-id], [data-comment-id]").length).toBe(2);
+});
+
+test("a finding outside the diff is listed under the file header, not on a line", () => {
+  renderCard({ findings: [finding({ id: "f-2", line: 90, outsideDiff: true })] });
+  const list = screen.getByRole("region", { name: "Findings outside the diff" });
+  expect(list.textContent).toContain("1 finding on a line this diff does not show");
+  expect(list.textContent).toContain("c is never checked");
+  expect(screen.getByTestId("diff").querySelector("[data-finding-id]")).toBeNull();
+});
+
+test("a nit is folded; a pre-existing one says it is not from this change", () => {
+  renderCard({
+    findings: [
+      finding({ id: "n", severity: "nit", title: "Name it", body: "A long reason." }),
+      finding({ id: "p", severity: "pre_existing", title: "Old bug", line: 1 }),
+    ],
+  });
+  expect(screen.queryByText("A long reason.")).toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: "Show details" }));
+  expect(screen.getByText("A long reason.")).toBeDefined();
+  expect(screen.getByText("Not from this change.")).toBeDefined();
 });

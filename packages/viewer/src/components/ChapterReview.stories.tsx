@@ -1,5 +1,5 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
-import { fakeResolvedReview } from "../stories/fixtures.ts";
+import { fakeResolvedReview, fakeReviewWithFindings } from "../stories/fixtures.ts";
 import { ChapterReview } from "./ChapterReview.tsx";
 
 const meta = {
@@ -34,6 +34,16 @@ export const LastChapter: Story = {
   args: {
     review: fakeResolvedReview,
     position: fakeResolvedReview.chapters.length - 1,
+    onNavigate: () => {},
+    onExit: () => {},
+  },
+};
+
+/** Chapter 2 with findings: on lines, outside the diff, and in the sidebar. */
+export const WithFindings: Story = {
+  args: {
+    review: fakeReviewWithFindings,
+    position: 1,
     onNavigate: () => {},
     onExit: () => {},
   },

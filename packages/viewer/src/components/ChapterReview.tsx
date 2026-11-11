@@ -1,4 +1,4 @@
-import type { ResolvedChapter, ResolvedReview } from "@review-buddy/core/types";
+import type { ResolvedChapter, ResolvedFinding, ResolvedReview } from "@review-buddy/core/types";
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import { codeFontStyle } from "../appearance.ts";
 import {
@@ -16,6 +16,7 @@ import {
   toReviewComments,
   useComments,
 } from "../lib/comments.ts";
+import { chapterFindings, findingLines } from "../lib/findings.ts";
 import { keepFileInView, keepInView } from "../lib/keepFileInView.ts";
 import { reviewProgress } from "../lib/progress.ts";
 import { chapterToMarkdown } from "../lib/reviewMarkdown.ts";
@@ -29,6 +30,7 @@ import { CopyMarkdownButton, type CopyMarkdownHandle } from "./CopyMarkdownButto
 import { DiffStat } from "./DiffStat.tsx";
 import { DisplaySettingsBar } from "./DisplaySettingsBar.tsx";
 import { FileDiffCard } from "./FileDiffCard.tsx";
+import { SeverityTag } from "./Finding.tsx";
 import { Markdown } from "./Markdown.tsx";
 import { RiskBadge } from "./RiskBadge.tsx";
 import { ShortcutsDialog } from "./ShortcutsDialog.tsx";
@@ -169,6 +171,15 @@ function ChapterReviewBody({
     () => sortComments(allComments.filter((c) => c.chapterIndex === chapterIndex)),
     [allComments, chapterIndex],
   );
+  const findings = useMemo(
+    () => chapterFindings(review.findings, chapterIndex),
+    [review.findings, chapterIndex],
+  );
+  const findingsByPath = useMemo(() => {
+    const byPath = new Map<string, ResolvedFinding[]>();
+    for (const f of findings) byPath.set(f.path, [...(byPath.get(f.path) ?? []), f]);
+    return byPath;
+  }, [findings]);
   const commentsByPath = useMemo(() => {
     const byPath = new Map<string, LineComment[]>();
     for (const c of chapterComments) byPath.set(c.path, [...(byPath.get(c.path) ?? []), c]);
@@ -181,7 +192,9 @@ function ChapterReviewBody({
   );
   // The comment last opened from the list (a new object each time, so the
   // same one opens again).
-  const [openedComment, setOpenedComment] = useState<{ comment: LineComment } | null>(null);
+  // A comment or finding opened from the sidebar list: its file and the
+  // selector of its card. A new object each time, so opening it again scrolls.
+  const [opened, setOpened] = useState<{ path: string; selector: string } | null>(null);
   const diffScrollRef = useRef<HTMLDivElement>(null);
   const copyRef = useRef<CopyMarkdownHandle>(null);
 
@@ -189,11 +202,9 @@ function ChapterReviewBody({
     ? chapter.files.filter((f) => f.path.toLowerCase().includes(filter.toLowerCase()))
     : chapter.files;
   // The file the focus link opened stays shown, viewed or not; so does the
-  // file of the comment opened from the list.
+  // file of the comment or finding opened from the list.
   const files = hideViewed
-    ? matching.filter(
-        (f) => !viewed.has(f.path) || f.path === openFile || f.path === openedComment?.comment.path,
-      )
+    ? matching.filter((f) => !viewed.has(f.path) || f.path === openFile || f.path === opened?.path)
     : matching;
   const filePaths = files.map((f) => f.path);
   const { focusedPath, focusedPathRef, focus, move } = useFileFocus(
@@ -238,7 +249,7 @@ function ChapterReviewBody({
   useEffect(() => {
     diffScrollRef.current?.scrollTo({ top: 0 });
     setFilter("");
-    setOpenedComment(null);
+    setOpened(null);
   }, [chapterIndex]);
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: reset focus when chapter or filter changes
@@ -261,21 +272,24 @@ function ChapterReviewBody({
     return keepFileInView(scroller, openFile);
   }, [chapterIndex, openFile]);
 
-  const openComment = (comment: LineComment) => {
-    if (!matching.some((f) => f.path === comment.path)) setFilter("");
-    setOpenedComment({ comment });
+  const openItem = (path: string, selector: string) => {
+    if (!matching.some((f) => f.path === path)) setFilter("");
+    setOpened({ path, selector });
   };
+  const openComment = (comment: LineComment) =>
+    openItem(comment.path, `[data-comment-id="${CSS.escape(comment.id)}"]`);
+  const openFinding = (finding: ResolvedFinding) =>
+    openItem(finding.path, `[data-finding-id="${CSS.escape(finding.id)}"]`);
   // After the filter reset above (its effect clears the focus), so the
   // comment's file keeps it.
-  // biome-ignore lint/correctness/useExhaustiveDependencies: only when a comment is opened from the list
+  // biome-ignore lint/correctness/useExhaustiveDependencies: only when an item is opened from the list
   useEffect(() => {
     const scroller = diffScrollRef.current;
-    if (!openedComment || !scroller) return;
-    const { path, id } = openedComment.comment;
-    focus(path);
-    setCollapsed(path, false);
-    return keepInView(scroller, `[data-comment-id="${CSS.escape(id)}"]`, "center");
-  }, [openedComment]);
+    if (!opened || !scroller) return;
+    focus(opened.path);
+    setCollapsed(opened.path, false);
+    return keepInView(scroller, opened.selector, "center");
+  }, [opened]);
 
   // Collapse all files of the chapter (also ones the filter hides), or expand
   // all when none is open.
@@ -379,7 +393,7 @@ function ChapterReviewBody({
           <div className="flex items-center gap-2">
             <CopyMarkdownButton
               ref={copyRef}
-              text={() => chapterToMarkdown(chapter, 2, chapterComments)}
+              text={() => chapterToMarkdown(chapter, 2, chapterComments, findings)}
               aria-label="Copy chapter as Markdown"
               title="Copy chapter as Markdown (c)"
               label="copy"
@@ -584,6 +598,34 @@ function ChapterReviewBody({
             })}
           </ul>
 
+          {findings.length > 0 && (
+            <>
+              <h2 className="mt-6 mb-2 font-mono text-[0.66rem] font-medium uppercase tracking-[0.09em] text-muted-foreground">
+                {findings.length} finding{findings.length === 1 ? "" : "s"}
+              </h2>
+              <ul className="space-y-0.5">
+                {findings.map((f) => (
+                  <li key={f.id}>
+                    <button
+                      type="button"
+                      onClick={() => openFinding(f)}
+                      title={`${f.path}, ${findingLines(f)}: ${f.title}`}
+                      className="w-full rounded-md px-2 py-1.5 text-left text-xs transition-colors hover:bg-background"
+                    >
+                      <span className="flex items-center gap-1.5">
+                        <SeverityTag severity={f.severity} />
+                        <span className="truncate font-mono">
+                          {f.path.slice(f.path.lastIndexOf("/") + 1)}:{f.line}
+                        </span>
+                      </span>
+                      <span className="mt-0.5 block truncate text-muted-foreground">{f.title}</span>
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            </>
+          )}
+
           {chapterComments.length > 0 && (
             <>
               <h2 className="mt-6 mb-2 font-mono text-[0.66rem] font-medium uppercase tracking-[0.09em] text-muted-foreground">
@@ -638,6 +680,7 @@ function ChapterReviewBody({
                     onViewedChange={handleViewedChange}
                     onSetCollapsed={setCollapsed}
                     comments={commentsByPath.get(f.path)}
+                    findings={findingsByPath.get(f.path)}
                     onAddComment={handleAddComment}
                     onEditComment={editComment}
                     onDeleteComment={removeComment}

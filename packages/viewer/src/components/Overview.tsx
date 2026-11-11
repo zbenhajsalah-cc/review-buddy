@@ -1,7 +1,8 @@
-import type { OpenQuestion, ResolvedReview } from "@review-buddy/core/types";
+import type { OpenQuestion, ResolvedFinding, ResolvedReview } from "@review-buddy/core/types";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { readViewedEntries } from "../lib/chapterFileSet.ts";
 import { readComments } from "../lib/comments.ts";
+import { findingCounts, otherFindings } from "../lib/findings.ts";
 import { progressByChapter } from "../lib/progress.ts";
 import { raiseQuestionNote } from "../lib/raiseQuestion.ts";
 import { reviewToMarkdown } from "../lib/reviewMarkdown.ts";
@@ -11,6 +12,7 @@ import { useReviewApi } from "../review-api.tsx";
 import { CopyMarkdownButton, type CopyMarkdownHandle } from "./CopyMarkdownButton.tsx";
 import { DiffStat } from "./DiffStat.tsx";
 import { Evidence } from "./Evidence.tsx";
+import { FindingCard } from "./Finding.tsx";
 import { Markdown } from "./Markdown.tsx";
 import { RiskBadge } from "./RiskBadge.tsx";
 import { ShortcutsDialog } from "./ShortcutsDialog.tsx";
@@ -241,6 +243,8 @@ export function Overview({
 
       <Evidence review={review} />
 
+      {review.findings && review.findings.length > 0 && <Findings findings={review.findings} />}
+
       {/* Chapter list */}
       <h2 className="mt-10 mb-3 flex items-center gap-3 font-mono text-[0.66rem] font-medium uppercase tracking-[0.09em] text-muted-foreground">
         <span>
@@ -256,6 +260,9 @@ export function Overview({
             complete: false,
           };
           const commentCount = comments.filter((c) => c.chapterIndex === ch.index).length;
+          const findingCount = (review.findings ?? []).filter(
+            (f) => f.chapterIndex === ch.index,
+          ).length;
           return (
             <li key={ch.index}>
               <button
@@ -286,6 +293,11 @@ export function Overview({
                     {viewedCount > 0 && ch.fileCount > 0 && (
                       <span className="text-xs text-muted-foreground">
                         {viewedCount}/{ch.fileCount} viewed
+                      </span>
+                    )}
+                    {findingCount > 0 && (
+                      <span className="text-xs text-muted-foreground">
+                        {findingCount} finding{findingCount === 1 ? "" : "s"}
                       </span>
                     )}
                     {commentCount > 0 && (
@@ -412,6 +424,40 @@ function OpenQuestions({
           </li>
         ))}
       </ul>
+    </section>
+  );
+}
+
+/**
+ * Findings from other tools: the counts, and the ones on files the diff does
+ * not have (often pre-existing). The rest show on their lines in the chapters.
+ */
+function Findings({ findings }: { findings: readonly ResolvedFinding[] }) {
+  const others = otherFindings(findings);
+  return (
+    <section
+      aria-labelledby="rb-findings"
+      className="mt-4 rounded-xl border border-border bg-card px-4 py-3.5"
+    >
+      <h2
+        id="rb-findings"
+        className="mb-1 font-mono text-[0.66rem] font-medium uppercase tracking-[0.09em] text-muted-foreground"
+      >
+        Findings
+      </h2>
+      <p className="text-sm">{findingCounts(findings)}</p>
+      {others.length > 0 && (
+        <div className="mt-3">
+          <h3 className="mb-1.5 text-xs font-medium text-muted-foreground">
+            Other findings — on files this change does not touch
+          </h3>
+          <div className="flex flex-col gap-2 text-sm">
+            {others.map((f) => (
+              <FindingCard key={f.id} finding={f} showPath />
+            ))}
+          </div>
+        </div>
+      )}
     </section>
   );
 }

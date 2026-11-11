@@ -38,6 +38,12 @@ Types for both live in `packages/core/src/types.ts`.
     ],
     "not_covered": "The redirect was not tried in a browser."
   },
+  // optional — findings that ANOTHER tool made (not in the desktop app), at most 50
+  "findings": [
+    { "path": "src/dashboard/useSport.ts", "line": 14, "start_line": 13, "side": "new",
+      "severity": "important", "title": "The default sport hides a logged-out user",
+      "body": "With no user, `sports[0]` is returned instead of a redirect.", "source": "/code-review" }
+  ],
   "chapters": [
     {
       "index": 1,
@@ -72,6 +78,7 @@ Types for both live in `packages/core/src/types.ts`.
 - Stats are advisory; never trusted for display.
 - `prologue.open_questions` (optional, 0–3 items, each `{ question, context? }`) holds scope or direction questions ("should we even do this?"). The viewer shows them first, in a "Before you read the code" card; with round-trip on, "Raise with the agent" starts the request-changes note with the question. They pass through `resolveReview` untouched. Like every field, they never hold diff or file text.
 - `verification` (optional) holds the checks the agent ran **in its session, after its last edit**: `checks` (0–20 items, each `{ command, status, summary? }`, `status` = `passed` | `failed` | `not_run`, `summary` at most 200 characters, never pasted output) and `not_covered` (Markdown: what those checks would miss). The agent does not run new commands for it. The viewer shows it in the **Evidence** card under "Reported by the agent", failed first, because it is not proof. It passes through `resolveReview` untouched. The desktop app's agent has no shell, so its `submit_review` schema leaves this field out.
+- `findings` (optional, 0–50 items) holds findings that **another tool** made in the session (`/code-review`, `/security-review`, a CI reviewer). Each is `{ path, line, start_line?, side?, severity, title, body?, source? }`: `side` = `new` (default) | `old`; `start_line` ≤ `line`, only for a range; `severity` = `important` | `nit` | `pre_existing`; `title` one line (at most 200 characters); `body` Markdown (at most 1,000); `source` names the tool. Path and line only — never code text. The agent does not search for bugs for this field and never invents one. The desktop app's schema leaves it out (no other reviewer runs there yet).
 
 ## 2. UI/server contract (`GET /api/review` output)
 
@@ -102,6 +109,15 @@ Types for both live in `packages/core/src/types.ts`.
   },
   "prologue": { /* same as agent contract */ },
   "verification": { /* same as agent contract; absent when the agent sent none */ },
+  "findings": [                          // absent when the agent sent none
+    { "id": "f-3fa1c2d9",                // hash of path + title; "-2" etc. when two collide
+      "path": "src/dashboard/useSport.ts", // the diff's path (new path of a renamed file)
+      "line": 14, "start_line": 13, "side": "new",
+      "severity": "important", "title": "…", "body": "…", "source": "/code-review",
+      "chapterIndex": 1                  // absent: the file is not in the diff
+      // "outsideDiff": true             // the line is outside the hunks that chapter shows
+    }
+  ],
   "stats": { "additions": 124, "deletions": 31, "filesChanged": 7 },  // tool-computed
   "chapters": [
     {
@@ -145,6 +161,8 @@ Types for both live in `packages/core/src/types.ts`.
 3. Recompute `additions`/`deletions` per file, per chapter, and overall.
 4. Any real hunk not claimed by any chapter ⇒ append to a synthetic `"Unsorted changes"` chapter and log it (never drop changes).
 5. Attach `meta` and `pr` (B), derive `language` per file.
+
+**Findings.** After the chapters (and the "Unsorted" and noise chapters) are built, each finding is placed: its file is matched by path EXACTLY (the head path, or a renamed file's old path) — never by basename like a chapter file, because a finding carries another tool's own path and a same-named untouched file must not be rewritten onto a changed one; it goes to the chapter whose resolved hunk shows its `line` on its `side`; else to the first chapter with the file, with `outsideDiff: true` (the viewer lists it under the file header); else, when the file is not in the diff, it has no `chapterIndex` and the Overview lists it under "Other findings". In the chapters, a finding shows under its line like a line comment, with a severity tag; nits are folded; the sidebar lists the chapter's findings; the Overview shows the counts. Answering findings (Fix / Dismiss) and sending the answers to the agent come in plan 019's second part.
 
 **CI checks (`pr.checks`).** Read once, when the review opens, from GitHub — never run by Review Buddy. The plugin reads `statusCheckRollup` from `gh pr view`; the desktop app reads the commit's check runs and statuses from the REST API and follows every page (at most 10 pages of 100 each). The list is never cut, so no failure is dropped and the counts in `ciStatus` are right. When a page fails, or there are more pages than that, `checksIncomplete` is `true`, `ciStatus` ends with "(incomplete)", and the viewer says the list may miss failures. `status` is `passed` | `failed` | `pending` | `skipped`; only `https` links are kept. Without a PR, without `gh`, or when GitHub refuses, the field is absent and the viewer shows no CI row. When the review is not of a PR by ref (working tree or branch), the current branch's PR CI is kept only if its head commit is the local `HEAD`, so the reviewer never sees CI of other code.
 

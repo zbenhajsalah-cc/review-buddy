@@ -1,6 +1,8 @@
 # Plan 019: Findings — show them on the line, answer each one
 
-**Status:** proposed. **Size:** large.
+**Status:** part 1 built ("findings, read only": steps 1–4, plus the sidebar
+list, Overview counts and Markdown copy). Part 2 (answers: steps 5–8) is next.
+**Size:** large.
 
 ## Why
 
@@ -126,6 +128,19 @@ today; passing findings there is a later step.
 10. Skill and prompt template, `pnpm gen:prompts`, contract doc, builds, `pnpm verify:ci`.
 
 Steps 1–4 can ship first as "findings, read only". Steps 5–8 add the answers.
+
+Part 1 notes (decided while building it):
+
+- The sidebar list, the Overview counts and the Markdown copy are read only, so
+  they shipped with part 1. The `n` / `p` shortcuts go with the answers ("open"
+  findings only make sense once a finding can be answered).
+- A finding outside the diff is listed under its file's header. It is not yet
+  placed on its line in the "expand full file" view.
+- A finding on a binary file is "outside the diff" (a binary file has no lines).
+- Ids are FNV-1a (32 bits, hex) of `path + "\n" + title`: core is
+  runtime-neutral and has no crypto.
+- The desktop app's `submit_review` schema leaves `findings` out, like
+  `verification`.
 
 ## Tests
 

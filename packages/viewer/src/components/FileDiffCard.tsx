@@ -1,6 +1,6 @@
 import type { DiffLineAnnotation, FileDiffMetadata, SelectedLineRange } from "@pierre/diffs";
 import { FileDiff, PatchDiff } from "@pierre/diffs/react";
-import type { DisplaySettings, ResolvedFile } from "@review-buddy/core/types";
+import type { DisplaySettings, ResolvedFile, ResolvedFinding } from "@review-buddy/core/types";
 import { memo, useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import {
   type CommentSide,
@@ -18,6 +18,7 @@ import { cn } from "../lib/utils.ts";
 import { useReviewApi } from "../review-api.tsx";
 import { toDiffOptions } from "../settings.ts";
 import { DiffStat } from "./DiffStat.tsx";
+import { FindingCard } from "./Finding.tsx";
 import { CommentCard, CommentForm, CommentThread } from "./LineComments.tsx";
 import { Badge } from "./ui/badge.tsx";
 import { Button } from "./ui/button.tsx";
@@ -28,6 +29,7 @@ import { Switch } from "./ui/switch.tsx";
 type Draft = { range: LineRange; text: string };
 
 const NO_COMMENTS: readonly LineComment[] = [];
+const NO_FINDINGS: readonly ResolvedFinding[] = [];
 
 /** The annotation for a positionKey ("new:12"); its metadata is the key. */
 function annotationAt(key: string): DiffLineAnnotation<string> {
@@ -61,6 +63,7 @@ export const FileDiffCard = memo(function FileDiffCard({
   collapsed,
   focused = false,
   comments = NO_COMMENTS,
+  findings = NO_FINDINGS,
   onViewedChange,
   onSetCollapsed,
   onAddComment,
@@ -74,6 +77,8 @@ export const FileDiffCard = memo(function FileDiffCard({
   focused?: boolean;
   /** This file's comments in this chapter. */
   comments?: readonly LineComment[];
+  /** This file's findings in this chapter (read only). */
+  findings?: readonly ResolvedFinding[];
   onViewedChange: (path: string, checked: boolean) => void;
   onSetCollapsed: (path: string, value: boolean) => void;
   onAddComment: (path: string, range: LineRange, body: string) => void;
@@ -157,10 +162,29 @@ export const FileDiffCard = memo(function FileDiffCard({
     }
     return at;
   }, [comments]);
+  // Findings on a line the diff shows go under it; the others are listed
+  // under the file header.
+  const { findingsAt, outside } = useMemo(() => {
+    const at = new Map<string, ResolvedFinding[]>();
+    const rest: ResolvedFinding[] = [];
+    for (const f of findings) {
+      if (f.outsideDiff) {
+        rest.push(f);
+        continue;
+      }
+      const key = positionKey(f);
+      at.set(key, [...(at.get(key) ?? []), f]);
+    }
+    return { findingsAt: at, outside: rest };
+  }, [findings]);
   // A new annotation array makes @pierre/diffs render the whole file again, so
   // it changes only when the lines with something under them change — not
   // when a comment is edited or a form typed in.
-  const positions = [...new Set([...commentsAt.keys(), ...Object.keys(drafts)])].sort().join(" ");
+  const positions = [
+    ...new Set([...findingsAt.keys(), ...commentsAt.keys(), ...Object.keys(drafts)]),
+  ]
+    .sort()
+    .join(" ");
   const lineAnnotations = useMemo(
     () => (positions === "" ? [] : positions.split(" ").map(annotationAt)),
     [positions],
@@ -171,6 +195,9 @@ export const FileDiffCard = memo(function FileDiffCard({
     return (
       // Keyed by line, so a slot that moves to another line gets a new thread.
       <CommentThread key={key}>
+        {findingsAt.get(key)?.map((f) => (
+          <FindingCard key={f.id} finding={f} />
+        ))}
         {commentsAt.get(key)?.map((c) => {
           const edit = edits[c.id];
           return (
@@ -341,6 +368,21 @@ export const FileDiffCard = memo(function FileDiffCard({
 
       {bodyMounted.current && (
         <div hidden={collapsed}>
+          {outside.length > 0 && (
+            <section
+              aria-label="Findings outside the diff"
+              className="flex flex-col gap-2 border-b border-border px-3 py-2 text-sm"
+            >
+              <h3 className="text-xs text-muted-foreground">
+                {outside.length === 1
+                  ? "1 finding on a line this diff does not show"
+                  : `${outside.length} findings on lines this diff does not show`}
+              </h3>
+              {outside.map((f) => (
+                <FindingCard key={f.id} finding={f} />
+              ))}
+            </section>
+          )}
           {file.binary ? (
             <CardContent className="p-4 text-sm text-muted-foreground">
               Binary file — content not shown.

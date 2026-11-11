@@ -16,10 +16,12 @@
 import { languageOf, type ParsedFile, type ParsedHunk, parseDiff } from "./diff.ts";
 import { isNoiseFile } from "./noise.ts";
 import type {
+  AgentFinding,
   AgentReview,
   PrMetadata,
   ResolvedChapter,
   ResolvedFile,
+  ResolvedFinding,
   ResolvedHunk,
   ResolvedReview,
   ReviewMeta,
@@ -268,6 +270,14 @@ export function resolveReview(
     filesChanged: parsedFiles.length,
   };
 
+  // Findings carry a tool's own path, so they are matched EXACTLY (head or
+  // pre-rename), never by `findFile`'s basename guess: a finding in an
+  // untouched file that shares a basename with a changed one would otherwise be
+  // rewritten onto that file and shown on an unrelated line.
+  const findings = resolveFindings(agent.findings ?? [], chapters, (path) =>
+    byPath.get(normalizePath(path)),
+  );
+
   return {
     review: {
       meta,
@@ -276,10 +286,72 @@ export function resolveReview(
       stats,
       chapters,
       ...(agent.verification ? { verification: agent.verification } : {}),
+      ...(findings.length > 0 ? { findings } : {}),
       warnings,
     },
     warnings,
   };
+}
+
+/** FNV-1a, 32 bits, as 8 hex digits: a short stable id (core has no crypto). */
+function shortHash(text: string): string {
+  let h = 0x811c9dc5;
+  for (let i = 0; i < text.length; i++) {
+    h ^= text.charCodeAt(i);
+    h = Math.imul(h, 0x01000193);
+  }
+  return (h >>> 0).toString(16).padStart(8, "0");
+}
+
+/** True when a resolved hunk shows `line` on `side`. */
+function hunkCovers(h: ResolvedHunk, side: "old" | "new", line: number): boolean {
+  const [start, count] = side === "new" ? [h.new_start, h.new_lines] : [h.old_start, h.old_lines];
+  return count > 0 && line >= start && line < start + count;
+}
+
+/**
+ * Place each finding (plan 019): the chapter whose hunk covers its line; else
+ * the first chapter with its file, marked `outsideDiff`; else (file not in the
+ * diff) no chapter — a review-level finding. Ids are a hash of path + title.
+ */
+function resolveFindings(
+  agentFindings: readonly AgentFinding[],
+  chapters: readonly ResolvedChapter[],
+  exactFile: (path: string) => ParsedFile | undefined,
+): ResolvedFinding[] {
+  const seen = new Map<string, number>();
+  return agentFindings.map((f) => {
+    const side = f.side ?? "new";
+    const parsed = exactFile(f.path);
+    const path = parsed ? parsed.path : normalizePath(f.path);
+    const withFile = parsed
+      ? chapters.filter((ch) => ch.files.some((cf) => cf.path === parsed.path))
+      : [];
+    const covering = withFile.find((ch) =>
+      ch.files.some(
+        (cf) => cf.path === parsed?.path && cf.hunks.some((h) => hunkCovers(h, side, f.line)),
+      ),
+    );
+    const chapter = covering ?? withFile[0];
+
+    const base = `f-${shortHash(`${path}\n${f.title.trim()}`)}`;
+    const n = (seen.get(base) ?? 0) + 1;
+    seen.set(base, n);
+
+    return {
+      id: n === 1 ? base : `${base}-${n}`,
+      path,
+      line: f.line,
+      ...(f.start_line !== undefined && f.start_line < f.line ? { start_line: f.start_line } : {}),
+      side,
+      severity: f.severity,
+      title: f.title.trim(),
+      ...(f.body ? { body: f.body } : {}),
+      ...(f.source ? { source: f.source } : {}),
+      ...(chapter ? { chapterIndex: chapter.index } : {}),
+      ...(chapter && !covering ? { outsideDiff: true } : {}),
+    };
+  });
 }
 
 /**

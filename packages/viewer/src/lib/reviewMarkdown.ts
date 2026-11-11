@@ -1,4 +1,9 @@
-import type { ResolvedChapter, ResolvedFile, ResolvedReview } from "@review-buddy/core/types";
+import type {
+  ResolvedChapter,
+  ResolvedFile,
+  ResolvedFinding,
+  ResolvedReview,
+} from "@review-buddy/core/types";
 import { commentsToMarkdown, type LineComment } from "./comments.ts";
 import {
   AGENT_STATUS_LABEL,
@@ -6,6 +11,7 @@ import {
   ciChecksToShow,
   hasNoEvidence,
 } from "./evidence.ts";
+import { chapterFindings, findingToMarkdown, otherFindings } from "./findings.ts";
 
 function pluralFiles(n: number): string {
   return `${n} file${n === 1 ? "" : "s"}`;
@@ -29,6 +35,7 @@ export function chapterToMarkdown(
   chapter: ResolvedChapter,
   headingLevel: 2 | 3 = 2,
   comments: readonly LineComment[] = [],
+  findings: readonly ResolvedFinding[] = [],
 ): string {
   const heading = "#".repeat(headingLevel);
   const parts: string[] = [
@@ -43,6 +50,10 @@ export function chapterToMarkdown(
 
   if (chapter.files.length > 0) {
     parts.push("", ...chapter.files.map(fileBullet));
+  }
+
+  if (findings.length > 0) {
+    parts.push("", "**Findings**", "", ...findings.map(findingToMarkdown));
   }
 
   if (comments.length > 0) {
@@ -118,10 +129,16 @@ export function reviewToMarkdown(
             c,
             3,
             comments.filter((x) => x.chapterIndex === c.index),
+            chapterFindings(review.findings, c.index),
           ),
         )
         .join("\n\n"),
     );
+  }
+
+  const others = otherFindings(review.findings);
+  if (others.length > 0) {
+    parts.push("", "## Other findings", "", ...others.map(findingToMarkdown));
   }
 
   if (warnings.length > 0) {

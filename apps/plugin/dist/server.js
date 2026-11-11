@@ -23288,6 +23288,55 @@ var review_schema_default = {
         }
       }
     },
+    findings: {
+      type: "array",
+      maxItems: 50,
+      description: "Optional. Findings that ANOTHER tool made in this session (/code-review, /security-review, a CI reviewer), each placed on its file and line. Do not search for bugs yourself for this field and never invent one. Path and line only: never put code text in any field.",
+      items: {
+        type: "object",
+        additionalProperties: false,
+        required: ["path", "line", "severity", "title"],
+        properties: {
+          path: { type: "string", minLength: 1, description: "Repo-relative file path." },
+          line: {
+            type: "integer",
+            minimum: 1,
+            description: "The finding's line (the last line of a range) on `side`."
+          },
+          start_line: {
+            type: "integer",
+            minimum: 1,
+            description: "The first line, for a range."
+          },
+          side: {
+            type: "string",
+            enum: ["new", "old"],
+            description: "'new' (default) = the changed file; 'old' = the base file (a removed line)."
+          },
+          severity: {
+            type: "string",
+            enum: ["important", "nit", "pre_existing"],
+            description: "'pre_existing' = the problem was there before this change."
+          },
+          title: {
+            type: "string",
+            minLength: 1,
+            maxLength: 200,
+            description: "One line."
+          },
+          body: {
+            type: "string",
+            maxLength: 1000,
+            description: "Markdown: why it matters. No code text."
+          },
+          source: {
+            type: "string",
+            maxLength: 100,
+            description: "The tool that found it, e.g. '/code-review'."
+          }
+        }
+      }
+    },
     prologue: {
       type: "object",
       additionalProperties: false,
@@ -23850,11 +23899,30 @@ var Verification = exports_external.object({
   checks: exports_external.array(VerificationCheck).max(20).optional(),
   not_covered: exports_external.string().max(5000).optional()
 });
+var Finding = exports_external.object({
+  path: exports_external.string().trim().min(1, "must not be empty").max(4096),
+  line: exports_external.number().int().min(1),
+  start_line: exports_external.number().int().min(1).optional(),
+  side: exports_external.enum(["old", "new"]).optional(),
+  severity: exports_external.enum(["important", "nit", "pre_existing"]),
+  title: exports_external.string().trim().min(1, "must not be empty").max(200, "one line (at most 200 characters)"),
+  body: exports_external.string().max(1000).optional(),
+  source: exports_external.string().max(100).optional()
+}).superRefine((f, ctx) => {
+  if (f.start_line !== undefined && f.start_line > f.line) {
+    ctx.addIssue({
+      code: exports_external.ZodIssueCode.custom,
+      path: ["start_line"],
+      message: "start_line must not be after line"
+    });
+  }
+});
 var AgentReviewSchema = exports_external.object({
   prologue: Prologue,
   chapters: exports_external.array(Chapter).min(1).max(500),
   source: Source.optional(),
-  verification: Verification.optional()
+  verification: Verification.optional(),
+  findings: exports_external.array(Finding).max(50).optional()
 });
 var describeIssues = (error51) => error51.issues.map((i) => `${i.path.join(".") || "(root)"}: ${i.message}`).join("; ");
 function validateAgentReview(agent) {
@@ -24304,6 +24372,7 @@ function resolveReview(agent, rawDiff, meta3, pr) {
     deletions: parsedFiles.reduce((n, f) => n + f.deletions, 0),
     filesChanged: parsedFiles.length
   };
+  const findings = resolveFindings(agent.findings ?? [], chapters, (path) => byPath.get(normalizePath(path)));
   return {
     review: {
       meta: meta3,
@@ -24312,10 +24381,51 @@ function resolveReview(agent, rawDiff, meta3, pr) {
       stats,
       chapters,
       ...agent.verification ? { verification: agent.verification } : {},
+      ...findings.length > 0 ? { findings } : {},
       warnings
     },
     warnings
   };
+}
+function shortHash(text) {
+  let h = 2166136261;
+  for (let i = 0;i < text.length; i++) {
+    h ^= text.charCodeAt(i);
+    h = Math.imul(h, 16777619);
+  }
+  return (h >>> 0).toString(16).padStart(8, "0");
+}
+function hunkCovers(h, side, line) {
+  const [start, count] = side === "new" ? [h.new_start, h.new_lines] : [h.old_start, h.old_lines];
+  return count > 0 && line >= start && line < start + count;
+}
+function resolveFindings(agentFindings, chapters, exactFile) {
+  const seen = new Map;
+  return agentFindings.map((f) => {
+    const side = f.side ?? "new";
+    const parsed = exactFile(f.path);
+    const path = parsed ? parsed.path : normalizePath(f.path);
+    const withFile = parsed ? chapters.filter((ch) => ch.files.some((cf) => cf.path === parsed.path)) : [];
+    const covering = withFile.find((ch) => ch.files.some((cf) => cf.path === parsed?.path && cf.hunks.some((h) => hunkCovers(h, side, f.line))));
+    const chapter = covering ?? withFile[0];
+    const base = `f-${shortHash(`${path}
+${f.title.trim()}`)}`;
+    const n = (seen.get(base) ?? 0) + 1;
+    seen.set(base, n);
+    return {
+      id: n === 1 ? base : `${base}-${n}`,
+      path,
+      line: f.line,
+      ...f.start_line !== undefined && f.start_line < f.line ? { start_line: f.start_line } : {},
+      side,
+      severity: f.severity,
+      title: f.title.trim(),
+      ...f.body ? { body: f.body } : {},
+      ...f.source ? { source: f.source } : {},
+      ...chapter ? { chapterIndex: chapter.index } : {},
+      ...chapter && !covering ? { outsideDiff: true } : {}
+    };
+  });
 }
 function allowedPaths(review) {
   const paths = new Set;

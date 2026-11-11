@@ -58,7 +58,7 @@ describe("the tool list", () => {
     ]);
   });
 
-  test("submit_review's input schema is the shared JSON schema, minus cwd, source and verification", async () => {
+  test("submit_review's input schema is the shared JSON schema, minus cwd, source, verification and findings", async () => {
     const { client } = await connect();
     const { tools } = await client.listTools();
     const schema = tools.find((t) => t.name === "submit_review")!.inputSchema;

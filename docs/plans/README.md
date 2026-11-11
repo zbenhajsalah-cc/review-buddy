@@ -4,7 +4,7 @@ These five plans come from reading Anthropic's post
 [How the Claude Code team does code review](https://claude.dev/blog/solving-code-review-at-anthropic/)
 and asking what Review Buddy should take from it.
 
-**Status:** 017 and 018 are built. The other three are proposed.
+**Status:** 017 and 018 are built. 019 part 1 (findings, read only) is built; its part 2 (answers) is next. 020 and 021 are proposed.
 
 ## The rule that decides what we build
 

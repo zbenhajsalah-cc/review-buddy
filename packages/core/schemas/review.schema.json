@@ -73,6 +73,55 @@
         }
       }
     },
+    "findings": {
+      "type": "array",
+      "maxItems": 50,
+      "description": "Optional. Findings that ANOTHER tool made in this session (/code-review, /security-review, a CI reviewer), each placed on its file and line. Do not search for bugs yourself for this field and never invent one. Path and line only: never put code text in any field.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["path", "line", "severity", "title"],
+        "properties": {
+          "path": { "type": "string", "minLength": 1, "description": "Repo-relative file path." },
+          "line": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "The finding's line (the last line of a range) on `side`."
+          },
+          "start_line": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "The first line, for a range."
+          },
+          "side": {
+            "type": "string",
+            "enum": ["new", "old"],
+            "description": "'new' (default) = the changed file; 'old' = the base file (a removed line)."
+          },
+          "severity": {
+            "type": "string",
+            "enum": ["important", "nit", "pre_existing"],
+            "description": "'pre_existing' = the problem was there before this change."
+          },
+          "title": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200,
+            "description": "One line."
+          },
+          "body": {
+            "type": "string",
+            "maxLength": 1000,
+            "description": "Markdown: why it matters. No code text."
+          },
+          "source": {
+            "type": "string",
+            "maxLength": 100,
+            "description": "The tool that found it, e.g. '/code-review'."
+          }
+        }
+      }
+    },
     "prologue": {
       "type": "object",
       "additionalProperties": false,

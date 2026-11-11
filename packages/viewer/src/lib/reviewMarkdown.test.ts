@@ -4,6 +4,7 @@ import type { ResolvedChapter, ResolvedReview } from "@review-buddy/core/types";
 import {
   fakeResolvedReview,
   fakeReviewWithEvidence,
+  fakeReviewWithFindings,
   fakeReviewWithQuestions,
 } from "../stories/fixtures.ts";
 import type { LineComment } from "./comments.ts";
@@ -216,4 +217,20 @@ test("incomplete CI is said in the copy", () => {
     "Some checks could not be read, so this list may miss failures.",
   );
   expect(reviewToMarkdown(fakeReviewWithEvidence)).not.toContain("could not be read");
+});
+
+test("findings: under their chapter, and the others in their own section", () => {
+  const md = reviewToMarkdown(fakeReviewWithFindings);
+  const ch2 = md.indexOf("### 02 Refactor auth middleware");
+  const ch3 = md.indexOf("### 03 Adjust retry backoff");
+  const findings = md.indexOf("**Findings**");
+  expect(findings).toBeGreaterThan(ch2);
+  expect(findings).toBeLessThan(ch3);
+  expect(md).toContain(
+    "- **Important** `src/server/auth/session.ts` line 120 (new): The session cache is never cleared on logout (outside the diff)",
+  );
+  expect(md).toContain(
+    "## Other findings\n\n- **Pre-existing** `src/legacy/cookies.ts` line 14 (new): Cookies are set without SameSite (from /security-review)",
+  );
+  expect(reviewToMarkdown(fakeResolvedReview)).not.toContain("Findings");
 });

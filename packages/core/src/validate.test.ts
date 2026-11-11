@@ -99,6 +99,44 @@ test("rejects a long summary (pasted output) and an empty command", () => {
   expect(validateAgentReview(withChecks({ checks: [empty] }))).toContain("command");
 });
 
+const withFindings = (findings: unknown) => ({ ...good, findings });
+const aFinding = (over: Record<string, unknown> = {}) => ({
+  path: "src/a.ts",
+  line: 4,
+  severity: "important",
+  title: "Off by one",
+  ...over,
+});
+
+test("accepts findings of each severity and side, and none at all", () => {
+  for (const severity of ["important", "nit", "pre_existing"]) {
+    expect(validateAgentReview(withFindings([aFinding({ severity })]))).toBeNull();
+  }
+  expect(validateAgentReview(withFindings([aFinding({ side: "old", start_line: 2 })]))).toBeNull();
+  expect(validateAgentReview(withFindings([]))).toBeNull();
+});
+
+test("rejects a bad finding: severity, line, empty title, long title or body", () => {
+  expect(validateAgentReview(withFindings([aFinding({ severity: "blocker" })]))).toContain(
+    "findings.0.severity",
+  );
+  expect(validateAgentReview(withFindings([aFinding({ line: 0 })]))).toContain("line");
+  expect(validateAgentReview(withFindings([aFinding({ title: " " })]))).toContain("title");
+  expect(validateAgentReview(withFindings([aFinding({ title: "x".repeat(201) })]))).toContain(
+    "title",
+  );
+  expect(validateAgentReview(withFindings([aFinding({ body: "x".repeat(1001) })]))).toContain(
+    "body",
+  );
+  expect(validateAgentReview(withFindings([aFinding({ start_line: 9 })]))).toContain("start_line");
+});
+
+test("rejects more than 50 findings", () => {
+  const many = Array.from({ length: 51 }, (_, i) => aFinding({ title: `t${i}` }));
+  expect(validateAgentReview(withFindings(many))).toContain("findings");
+  expect(validateAgentReview(withFindings(many.slice(0, 50)))).toBeNull();
+});
+
 test("rejects source.type pr without a ref (silent-worktree bug)", () => {
   const bad = { ...good, source: { type: "pr" } };
   const msg = validateAgentReview(bad);

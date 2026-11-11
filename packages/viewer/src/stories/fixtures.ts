@@ -235,6 +235,56 @@ export const fakeReviewWithEvidence: ResolvedReview = {
   },
 };
 
+/** A review with findings of each severity, in and outside the diff. */
+export const fakeReviewWithFindings: ResolvedReview = {
+  ...fakeResolvedReview,
+  findings: [
+    {
+      id: "f-0000aaaa",
+      path: "src/server/auth/middleware.ts",
+      line: 20,
+      start_line: 19,
+      side: "new",
+      severity: "important",
+      title: "An expired token is accepted when the clock skew is negative",
+      body: "`skewMs` can be negative, so the check passes **after** expiry.",
+      source: "/code-review",
+      chapterIndex: 2,
+    },
+    {
+      id: "f-0000bbbb",
+      path: "src/server/auth/session.ts",
+      line: 6,
+      side: "new",
+      severity: "nit",
+      title: "Name the 30-minute constant",
+      body: "A named constant reads better than `1800000`.",
+      source: "/code-review",
+      chapterIndex: 2,
+    },
+    {
+      id: "f-0000cccc",
+      path: "src/server/auth/session.ts",
+      line: 120,
+      side: "new",
+      severity: "important",
+      title: "The session cache is never cleared on logout",
+      chapterIndex: 2,
+      outsideDiff: true,
+    },
+    {
+      id: "f-0000dddd",
+      path: "src/legacy/cookies.ts",
+      line: 14,
+      side: "new",
+      severity: "pre_existing",
+      title: "Cookies are set without SameSite",
+      body: "Not from this change, but the new middleware reads these cookies.",
+      source: "/security-review",
+    },
+  ],
+};
+
 /**
  * In-memory ReviewApi for stories and tests. Serves `review`, never touches the
  * network, and returns "" (unavailable) for any file not in `files`.

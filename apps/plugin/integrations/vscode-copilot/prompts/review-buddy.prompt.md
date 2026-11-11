@@ -118,12 +118,26 @@ the agent" and shows the PR's CI from GitHub next to them.
 - If you ran nothing, omit `checks` and say so in `not_covered`. If you are reviewing
   someone else's PR and ran nothing, omit the whole field.
 
+### Findings — `findings`
+
+Optional. If **another tool** made findings in this session (`/code-review`,
+`/security-review`, a CI reviewer), pass them so the reviewer sees each one on its line.
+
+- Each is `{ path, line, start_line?, side?, severity, title, body?, source? }`: `side` is
+  `new` (default) or `old`; `start_line` only for a range; `severity` is `important`, `nit`
+  or `pre_existing` (the problem was there before this change); `title` is one line;
+  `body` is short Markdown (at most 1,000 characters); `source` names the tool.
+- At most 50. **Path and line only — never code text** in any field.
+- **Do not search for bugs yourself in this step, and never invent a finding.**
+- A finding without a file and a line is not a finding: leave it out.
+- With no findings from another tool, omit the field.
+
 Call the **`submit_review`** tool on the `review-buddy` MCP server with
-`{ cwd, source, prologue, chapters }` (plus `verification` when you have it) —
-`cwd` is the absolute repo root from Step 0, and `source` is what you
-determined there (`worktree` / `pr` / `branch`). For a PR, `source` is
-REQUIRED — omitting it makes the tool fall back to the local working tree, and
-the viewer shows an empty diff.
+`{ cwd, source, prologue, chapters }` (plus `verification` and `findings` when you have
+them) — `cwd` is the absolute repo root from Step 0, and `source` is what you determined
+there (`worktree` / `pr` / `branch`). For a PR, `source` is REQUIRED — omitting it makes the tool fall back
+to the local working tree, and the viewer shows an empty diff.
+
 
 The tool opens the review in the reviewer's browser and returns its URL
 immediately. Relay the URL to the user (in case no browser window opened) and

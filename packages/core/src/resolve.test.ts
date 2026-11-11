@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { resolveReview } from "./resolve.ts";
-import type { AgentReview, PrMetadata, ReviewMeta } from "./types.ts";
+import type { AgentFinding, AgentReview, PrMetadata, ReviewMeta } from "./types.ts";
 
 const SAMPLE = `diff --git a/src/dashboard/useSport.ts b/src/dashboard/useSport.ts
 index 1111111..2222222 100644
@@ -596,5 +596,98 @@ index 1111111..2222222 100644
       'Chapter 1: none of the anchors for "package-lock.json" matched — ' +
         'its changes will appear under "Generated & noise files".',
     );
+  });
+});
+
+describe("resolveReview — findings (plan 019)", () => {
+  const finding = (over: Partial<AgentFinding>): AgentFinding => ({
+    path: "src/dashboard/useSport.ts",
+    line: 13,
+    severity: "important",
+    title: "Default sport hides a logged-out user",
+    ...over,
+  });
+  const resolve = (findings: AgentFinding[], diff = SAMPLE) =>
+    resolveReview({ ...AGENT, findings }, diff, META, PR).review.findings ?? [];
+
+  test("a line in a chapter's hunk goes to that chapter", () => {
+    const [f] = resolve([finding({ source: "/code-review", body: "Why." })]);
+    expect(f).toMatchObject({
+      path: "src/dashboard/useSport.ts",
+      line: 13,
+      side: "new",
+      chapterIndex: 1,
+      source: "/code-review",
+      body: "Why.",
+    });
+    expect(f!.outsideDiff).toBeUndefined();
+    expect(f!.id).toMatch(/^f-[0-9a-f]{8}$/);
+  });
+
+  test("a file in two chapters: the chapter whose hunk covers the line", () => {
+    // useSport.ts's second hunk (+43,3) is unclaimed, so it is in "Unsorted changes" (3).
+    const [f] = resolve([finding({ line: 44, title: "Second hunk" })]);
+    expect(f!.chapterIndex).toBe(3);
+    expect(f!.outsideDiff).toBeUndefined();
+  });
+
+  test("the old side counts old line numbers", () => {
+    const [f] = resolve([finding({ line: 41, side: "old", title: "Removed bar" })]);
+    expect(f!.chapterIndex).toBe(3);
+  });
+
+  test("a line outside every hunk: the first chapter with the file, outsideDiff", () => {
+    const [f] = resolve([finding({ line: 30 })]);
+    expect(f!.chapterIndex).toBe(1);
+    expect(f!.outsideDiff).toBe(true);
+  });
+
+  test("a file not in the diff: no chapter (a review-level finding)", () => {
+    const [f] = resolve([finding({ path: "src/legacy.ts", severity: "pre_existing" })]);
+    expect(f!.path).toBe("src/legacy.ts");
+    expect(f!.chapterIndex).toBeUndefined();
+    expect(f!.outsideDiff).toBeUndefined();
+  });
+
+  test("an untouched file sharing a basename with a changed one stays unmatched", () => {
+    // SAMPLE's only useSport.ts is src/dashboard/useSport.ts; a finding in a
+    // DIFFERENT file of the same name must not be rewritten onto it.
+    const [f] = resolve([
+      finding({ path: "src/legacy/useSport.ts", line: 13, severity: "pre_existing" }),
+    ]);
+    expect(f!.path).toBe("src/legacy/useSport.ts");
+    expect(f!.chapterIndex).toBeUndefined();
+    expect(f!.outsideDiff).toBeUndefined();
+  });
+
+  test("a renamed file named by its old path gets the new path", () => {
+    const rename = `diff --git a/old-name.ts b/new-name.ts
+similarity index 90%
+rename from old-name.ts
+rename to new-name.ts
+index 5555555..6666666 100644
+--- a/old-name.ts
++++ b/new-name.ts
+@@ -1,2 +1,2 @@
+-a
++b
+ c
+`;
+    const [f] = resolve([finding({ path: "./old-name.ts", line: 1 })], SAMPLE + rename);
+    expect(f!.path).toBe("new-name.ts");
+    expect(f!.chapterIndex).toBe(3); // unclaimed by the agent → Unsorted changes
+  });
+
+  test("ids are stable, and two findings with the same path and title differ", () => {
+    const a = resolve([finding({}), finding({ line: 14 })]);
+    const b = resolve([finding({ line: 99 })]);
+    expect(a[0]!.id).toBe(b[0]!.id);
+    expect(a[1]!.id).toBe(`${a[0]!.id}-2`);
+  });
+
+  test("start_line is kept for a range, and no findings → no field", () => {
+    const [f] = resolve([finding({ start_line: 12, line: 14 })]);
+    expect(f!.start_line).toBe(12);
+    expect("findings" in resolveReview(AGENT, SAMPLE, META, PR).review).toBe(false);
   });
 });

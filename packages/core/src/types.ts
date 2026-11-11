@@ -109,6 +109,29 @@ export interface Verification {
   not_covered?: string;
 }
 
+/**
+ * A finding from another tool (`/code-review`, `/security-review`, a CI
+ * reviewer). Review Buddy does not look for bugs: it shows these on their
+ * line. Path and line only — never code text.
+ */
+export type FindingSeverity = "important" | "nit" | "pre_existing";
+export interface AgentFinding {
+  path: string;
+  /** The finding's (last) line, on `side`. */
+  line: number;
+  /** The first line, for a range. */
+  start_line?: number;
+  /** Omit ⇒ "new". */
+  side?: CommentSide;
+  severity: FindingSeverity;
+  /** One line. */
+  title: string;
+  /** Markdown, at most 1,000 characters. */
+  body?: string;
+  /** The tool that found it. */
+  source?: string;
+}
+
 /** Exactly what the agent emits via submit_review. */
 export interface AgentReview {
   prologue: Prologue;
@@ -117,6 +140,8 @@ export interface AgentReview {
   source?: ReviewSource;
   /** Optional: the checks the agent ran (Evidence card). */
   verification?: Verification;
+  /** Optional: findings from other tools, shown on their lines (max 50). */
+  findings?: AgentFinding[];
   /**
    * Absolute repo root. Standalone (non-Claude Code) harnesses only — there is
    * no hook event to supply a cwd, so the agent passes it. Ignored by the hook.
@@ -167,6 +192,29 @@ export interface PrMetadata {
   checksIncomplete?: boolean;
   /** PR head commit SHA (PR mode only) — drives file-content expansion. */
   headRefOid?: string;
+}
+
+/** A finding placed in the review. */
+export interface ResolvedFinding {
+  /** Stable: a short hash of path + title (a suffix when two collide). */
+  id: string;
+  /** The path as the diff names it (the new path of a renamed file). */
+  path: string;
+  line: number;
+  start_line?: number;
+  side: CommentSide;
+  severity: FindingSeverity;
+  title: string;
+  body?: string;
+  source?: string;
+  /**
+   * The chapter that shows it: the one whose hunk covers the line, else the
+   * first with the file. Undefined: the file is not in the diff (normal for
+   * `pre_existing`); the Overview lists it under "Other findings".
+   */
+  chapterIndex?: number;
+  /** The line is in the file but outside every hunk shown in that chapter. */
+  outsideDiff?: boolean;
 }
 
 /** A resolved hunk: anchor + real content attached from git diff (B). */
@@ -220,6 +268,8 @@ export interface ResolvedReview {
   chapters: ResolvedChapter[];
   /** The agent's reported checks, passed through as sent. */
   verification?: Verification;
+  /** Findings from other tools, placed by `resolveFindings`. Absent when none. */
+  findings?: ResolvedFinding[];
   /**
    * Resolution warnings — places the agent's narrative didn't map cleanly onto
    * the real diff (unmatched anchors, files not in the diff, unsorted changes).

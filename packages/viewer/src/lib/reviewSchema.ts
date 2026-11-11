@@ -109,6 +109,20 @@ const ReviewStatsSchema = z.object({
   filesChanged: z.number(),
 });
 
+const ResolvedFindingSchema = z.object({
+  id: z.string(),
+  path: z.string(),
+  line: z.number(),
+  start_line: z.number().optional(),
+  side: z.enum(["old", "new"]),
+  severity: z.enum(["important", "nit", "pre_existing"]),
+  title: z.string(),
+  body: z.string().optional(),
+  source: z.string().optional(),
+  chapterIndex: z.number().optional(),
+  outsideDiff: z.boolean().optional(),
+});
+
 export const ReviewSchema = z.object({
   meta: ReviewMetaSchema,
   pr: PrMetadataSchema,
@@ -116,6 +130,7 @@ export const ReviewSchema = z.object({
   stats: ReviewStatsSchema,
   chapters: z.array(ResolvedChapterSchema),
   verification: VerificationSchema.optional(),
+  findings: z.array(ResolvedFindingSchema).optional(),
   warnings: z.array(z.string()),
 });
 

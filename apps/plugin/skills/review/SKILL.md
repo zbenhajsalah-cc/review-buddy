@@ -111,12 +111,28 @@ the agent" and shows the PR's CI from GitHub next to them.
 - If you ran nothing, omit `checks` and say so in `not_covered`. If you are reviewing
   someone else's PR and ran nothing, omit the whole field.
 
-Call **`submit_review`** with `{ source, prologue, chapters }` (plus `verification` when you
-have it) matching the schema — where `source` is the object you determined in Step 0
-(`worktree` / `pr` / `branch`). This is how the hook knows which diff to re-capture; for a PR it is REQUIRED (omitting it makes the hook
-fall back to the local working tree, and the viewer shows an empty diff). Calling the tool
-opens the review in the reviewer's browser and pauses for their review. The reviewer can
-leave **line comments** on the diff, then finish in one of two ways.
+### Findings — `findings`
+
+Optional. If **another tool** made findings in this session (`/code-review`,
+`/security-review`, a CI reviewer), pass them so the reviewer sees each one on its line.
+
+- Each is `{ path, line, start_line?, side?, severity, title, body?, source? }`: `side` is
+  `new` (default) or `old`; `start_line` only for a range; `severity` is `important`, `nit`
+  or `pre_existing` (the problem was there before this change); `title` is one line;
+  `body` is short Markdown (at most 1,000 characters); `source` names the tool.
+- At most 50. **Path and line only — never code text** in any field.
+- **Do not search for bugs yourself in this step, and never invent a finding.**
+- A finding without a file and a line is not a finding: leave it out.
+- With no findings from another tool, omit the field.
+
+Call **`submit_review`** with `{ source, prologue, chapters }` (plus `verification` and
+`findings` when you have them) matching the schema — where `source` is the object you
+determined in Step 0 (`worktree` / `pr` / `branch`). This is how the hook knows which diff
+to re-capture; for a PR it is REQUIRED (omitting it makes the hook fall back to the local
+working tree, and the viewer shows an empty diff). Calling the tool opens the review in
+the reviewer's browser and pauses for their review. The reviewer can leave **line
+comments** on the diff, then finish in one of two ways.
+
 
 ### If the reviewer approves
 

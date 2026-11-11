@@ -4,6 +4,7 @@ import {
   fakeResolvedReview,
   fakeReviewApi,
   fakeReviewWithEvidence,
+  fakeReviewWithFindings,
   fakeReviewWithQuestions,
 } from "../stories/fixtures.ts";
 import { Overview } from "./Overview.tsx";
@@ -59,6 +60,13 @@ export const WithOpenQuestions: Story = {
 export const WithEvidence: Story = {
   args: {
     review: fakeReviewWithEvidence,
+    onBeginReview: () => {},
+  },
+};
+
+export const WithFindings: Story = {
+  args: {
+    review: fakeReviewWithFindings,
     onBeginReview: () => {},
   },
 };

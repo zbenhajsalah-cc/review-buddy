@@ -3,7 +3,7 @@ import { afterEach, expect, mock, test } from "bun:test";
 import { act, cleanup, fireEvent, screen } from "@testing-library/react";
 import { renderWithApi } from "../../test/render.tsx";
 import { commentsToMarkdown, type LineComment } from "../lib/comments.ts";
-import { fakeResolvedReview, fakeReviewApi } from "../stories/fixtures.ts";
+import { fakeResolvedReview, fakeReviewApi, fakeReviewWithFindings } from "../stories/fixtures.ts";
 
 mock.module("@pierre/diffs/react", () => ({
   PatchDiff: () => <div data-testid="patch-diff" />,
@@ -626,4 +626,34 @@ test("round-trip: a raised question opens the request-changes note with it", asy
     verdict: "request_changes",
     summary: "> Should this be its own PR?\n\nYes, split it.",
   });
+});
+
+test("the sidebar lists the chapter's findings, most severe first, and opens one", () => {
+  renderWithApi(
+    <ChapterReview
+      review={fakeReviewWithFindings}
+      position={1}
+      onNavigate={() => {}}
+      onExit={() => {}}
+    />,
+  );
+  expect(screen.getByRole("heading", { name: "3 findings" })).toBeDefined();
+  const items = screen
+    .getAllByRole("button")
+    .filter((b) => b.getAttribute("title")?.includes("line"))
+    .map((b) => b.getAttribute("title"));
+  expect(items.slice(0, 3)).toEqual([
+    "src/server/auth/middleware.ts, lines 19-20 (new): An expired token is accepted when the clock skew is negative",
+    "src/server/auth/session.ts, line 120 (new): The session cache is never cleared on logout",
+    "src/server/auth/session.ts, line 6 (new): Name the 30-minute constant",
+  ]);
+  // The finding outside the diff is listed under its file's header.
+  expect(inCard(SESSION, '[aria-label="Findings outside the diff"]')).not.toBeNull();
+  // The review-level finding (a file not in the diff) is not in any chapter.
+  expect(screen.queryByText("Cookies are set without SameSite")).toBeNull();
+});
+
+test("a chapter without findings has no findings list", () => {
+  renderChapter2();
+  expect(screen.queryByRole("heading", { name: /findings?$/ })).toBeNull();
 });
