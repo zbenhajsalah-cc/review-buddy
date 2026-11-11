@@ -270,3 +270,62 @@ test.serial("capturePr falls back to local git when gh yields no JSON", () => {
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test.serial("capturePr reads CI checks, and keeps them only for the commit under review", () => {
+  const dir = mkdtempSync(join(tmpdir(), "rb-git-"));
+  try {
+    const git = (...a: string[]) => execFileSync("git", a, { cwd: dir, encoding: "utf8" });
+    git("init", "-q");
+    git("config", "user.email", "t@t.t");
+    git("config", "user.name", "t");
+    git("config", "commit.gpgsign", "false");
+    writeFileSync(join(dir, "f.ts"), "x\n");
+    git("add", "-A");
+    git("commit", "-q", "-m", "base");
+    const localHead = git("rev-parse", "HEAD").trim();
+
+    const rollup = [
+      { __typename: "CheckRun", name: "lint", status: "COMPLETED", conclusion: "SUCCESS" },
+      { __typename: "CheckRun", name: "test", status: "COMPLETED", conclusion: "FAILURE" },
+    ];
+    let answer: Record<string, unknown> = {};
+    const origExec = childProcess.execFileSync;
+    const ghSpy = spyOn(childProcess, "execFileSync").mockImplementation(((
+      cmd: string,
+      args?: readonly string[],
+      opts?: Parameters<typeof origExec>[2],
+    ) => {
+      if (cmd === "gh") return `${JSON.stringify({ title: "T", ...answer })}\n`;
+      return origExec(cmd, args ?? [], opts);
+    }) as typeof origExec);
+
+    try {
+      // A PR by ref: its head commit is what is reviewed.
+      answer = { headRefOid: "a".repeat(40), statusCheckRollup: rollup };
+      const byRef = capturePr(dir, "main", "12");
+      expect(byRef.checks).toEqual([
+        { name: "test", status: "failed" },
+        { name: "lint", status: "passed" },
+      ]);
+      expect(byRef.ciStatus).toBe("1 failed, 1 passed");
+
+      // The current branch's PR at the local HEAD: kept.
+      answer = { headRefOid: localHead, statusCheckRollup: rollup };
+      expect(capturePr(dir, "main").checks).toHaveLength(2);
+
+      // The PR's head is another commit: its CI is not for this code.
+      answer = { headRefOid: "b".repeat(40), statusCheckRollup: rollup };
+      const other = capturePr(dir, "main");
+      expect(other.checks).toBeUndefined();
+      expect(other.ciStatus).toBeUndefined();
+
+      // No rollup at all.
+      answer = { headRefOid: "a".repeat(40) };
+      expect(capturePr(dir, "main", "12").checks).toBeUndefined();
+    } finally {
+      ghSpy.mockRestore();
+    }
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});

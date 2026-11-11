@@ -30,6 +30,14 @@ Types for both live in `packages/core/src/types.ts`.
         "context": "The PR description only mentions the blank dashboard." }
     ]
   },
+  // optional — the checks the agent ran in its session (not in the desktop app)
+  "verification": {
+    "checks": [
+      { "command": "pnpm test", "status": "passed", "summary": "214 tests passed" },
+      { "command": "pnpm e2e", "status": "not_run" }
+    ],
+    "not_covered": "The redirect was not tried in a browser."
+  },
   "chapters": [
     {
       "index": 1,
@@ -63,6 +71,7 @@ Types for both live in `packages/core/src/types.ts`.
 - A file may appear in multiple chapters with different hunk anchors.
 - Stats are advisory; never trusted for display.
 - `prologue.open_questions` (optional, 0–3 items, each `{ question, context? }`) holds scope or direction questions ("should we even do this?"). The viewer shows them first, in a "Before you read the code" card; with round-trip on, "Raise with the agent" starts the request-changes note with the question. They pass through `resolveReview` untouched. Like every field, they never hold diff or file text.
+- `verification` (optional) holds the checks the agent ran **in its session, after its last edit**: `checks` (0–20 items, each `{ command, status, summary? }`, `status` = `passed` | `failed` | `not_run`, `summary` at most 200 characters, never pasted output) and `not_covered` (Markdown: what those checks would miss). The agent does not run new commands for it. The viewer shows it in the **Evidence** card under "Reported by the agent", failed first, because it is not proof. It passes through `resolveReview` untouched. The desktop app's agent has no shell, so its `submit_review` schema leaves this field out.
 
 ## 2. UI/server contract (`GET /api/review` output)
 
@@ -81,10 +90,18 @@ Types for both live in `packages/core/src/types.ts`.
     "createdAt": "2026-06-15T09:00:00Z",
     "base": "main",
     "head": "fix/null-sport",
-    "url": "https://github.com/acme/app/pull/123",   // optional (phase 2)
-    "ciStatus": "passing"                              // optional (phase 2)
+    "url": "https://github.com/acme/app/pull/123",   // optional
+    "headRefOid": "7e8e705…",                          // optional: the PR's head commit
+    "ciStatus": "1 failed, 12 passed",                 // optional: short summary of `checks`
+    "checksIncomplete": true,                          // optional: some checks could not be read
+    "checks": [                                        // optional: CI of headRefOid, failed first, never cut
+      { "name": "CI / test (windows)", "status": "failed",
+        "url": "https://github.com/acme/app/actions/runs/1/job/3" },
+      { "name": "CI / lint", "status": "passed" }
+    ]
   },
   "prologue": { /* same as agent contract */ },
+  "verification": { /* same as agent contract; absent when the agent sent none */ },
   "stats": { "additions": 124, "deletions": 31, "filesChanged": 7 },  // tool-computed
   "chapters": [
     {
@@ -128,5 +145,7 @@ Types for both live in `packages/core/src/types.ts`.
 3. Recompute `additions`/`deletions` per file, per chapter, and overall.
 4. Any real hunk not claimed by any chapter ⇒ append to a synthetic `"Unsorted changes"` chapter and log it (never drop changes).
 5. Attach `meta` and `pr` (B), derive `language` per file.
+
+**CI checks (`pr.checks`).** Read once, when the review opens, from GitHub — never run by Review Buddy. The plugin reads `statusCheckRollup` from `gh pr view`; the desktop app reads the commit's check runs and statuses from the REST API and follows every page (at most 10 pages of 100 each). The list is never cut, so no failure is dropped and the counts in `ciStatus` are right. When a page fails, or there are more pages than that, `checksIncomplete` is `true`, `ciStatus` ends with "(incomplete)", and the viewer says the list may miss failures. `status` is `passed` | `failed` | `pending` | `skipped`; only `https` links are kept. Without a PR, without `gh`, or when GitHub refuses, the field is absent and the viewer shows no CI row. When the review is not of a PR by ref (working tree or branch), the current branch's PR CI is kept only if its head commit is the local `HEAD`, so the reviewer never sees CI of other code.
 
 `/api/file-content?path=&side=base|head` serves full files on demand for "expand full file" and word-level context (source C) — never inlined into `/api/review`.

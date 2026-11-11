@@ -10,6 +10,7 @@ import { cn } from "../lib/utils.ts";
 import { useReviewApi } from "../review-api.tsx";
 import { CopyMarkdownButton, type CopyMarkdownHandle } from "./CopyMarkdownButton.tsx";
 import { DiffStat } from "./DiffStat.tsx";
+import { Evidence } from "./Evidence.tsx";
 import { Markdown } from "./Markdown.tsx";
 import { RiskBadge } from "./RiskBadge.tsx";
 import { ShortcutsDialog } from "./ShortcutsDialog.tsx";
@@ -237,6 +238,8 @@ export function Overview({
           )}
         </section>
       )}
+
+      <Evidence review={review} />
 
       {/* Chapter list */}
       <h2 className="mt-10 mb-3 flex items-center gap-3 font-mono text-[0.66rem] font-medium uppercase tracking-[0.09em] text-muted-foreground">

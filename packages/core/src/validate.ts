@@ -43,6 +43,16 @@ const Source = z
     }
   });
 
+const VerificationCheck = z.object({
+  command: z.string().trim().min(1, "must not be empty").max(500),
+  status: z.enum(["passed", "failed", "not_run"]),
+  summary: z.string().max(200, "one short line (at most 200 characters)").optional(),
+});
+const Verification = z.object({
+  checks: z.array(VerificationCheck).max(20).optional(),
+  not_covered: z.string().max(5000).optional(),
+});
+
 /** Structural schema for the agent's review payload (hook backstop; mirrors the
  *  load-bearing constraints of ../schemas/review.schema.json, not every field).
  *  When present, `source` is validated; unknown keys (e.g. advisory `stats`) are
@@ -51,6 +61,7 @@ export const AgentReviewSchema = z.object({
   prologue: Prologue,
   chapters: z.array(Chapter).min(1).max(500),
   source: Source.optional(),
+  verification: Verification.optional(),
 });
 
 const describeIssues = (error: z.ZodError): string =>

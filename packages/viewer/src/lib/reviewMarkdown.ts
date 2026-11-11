@@ -1,5 +1,11 @@
 import type { ResolvedChapter, ResolvedFile, ResolvedReview } from "@review-buddy/core/types";
 import { commentsToMarkdown, type LineComment } from "./comments.ts";
+import {
+  AGENT_STATUS_LABEL,
+  agentChecksInOrder,
+  ciChecksToShow,
+  hasNoEvidence,
+} from "./evidence.ts";
 
 function pluralFiles(n: number): string {
   return `${n} file${n === 1 ? "" : "s"}`;
@@ -99,6 +105,10 @@ export function reviewToMarkdown(
     );
   }
 
+  if (!hasNoEvidence(review)) {
+    parts.push("", "## Evidence", "", evidenceToMarkdown(review));
+  }
+
   if (chapters.length > 0) {
     parts.push("", "## Chapters", "");
     parts.push(
@@ -119,4 +129,36 @@ export function reviewToMarkdown(
   }
 
   return parts.join("\n");
+}
+
+/** Check names, commands and states only: never any output. */
+function evidenceToMarkdown(review: ResolvedReview): string {
+  const out: string[] = [];
+  const ci = review.pr.checks ?? [];
+  if (ci.length > 0) {
+    out.push(`**CI (GitHub)**: ${review.pr.ciStatus || `${ci.length} checks`}`);
+    const shown = ciChecksToShow(ci);
+    if (shown.length > 0) out.push("", ...shown.map((c) => `- ${c.name} — ${c.status}`));
+    if (review.pr.checksIncomplete) {
+      out.push("", "Some checks could not be read, so this list may miss failures.");
+    }
+  }
+  const agent = agentChecksInOrder(review.verification?.checks ?? []);
+  if (agent.length > 0) {
+    if (out.length > 0) out.push("");
+    out.push(
+      "**Reported by the agent**",
+      "",
+      ...agent.map(
+        (c) =>
+          `- \`${c.command}\` — ${AGENT_STATUS_LABEL[c.status]}${c.summary ? ` (${c.summary})` : ""}`,
+      ),
+    );
+  }
+  const notCovered = review.verification?.not_covered?.trim();
+  if (notCovered) {
+    if (out.length > 0) out.push("");
+    out.push(`**Not covered:** ${notCovered}`);
+  }
+  return out.join("\n");
 }

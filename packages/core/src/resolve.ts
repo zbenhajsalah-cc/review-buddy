@@ -269,7 +269,15 @@ export function resolveReview(
   };
 
   return {
-    review: { meta, pr, prologue: agent.prologue, stats, chapters, warnings },
+    review: {
+      meta,
+      pr,
+      prologue: agent.prologue,
+      stats,
+      chapters,
+      ...(agent.verification ? { verification: agent.verification } : {}),
+      warnings,
+    },
     warnings,
   };
 }

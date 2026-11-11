@@ -1,6 +1,6 @@
 # Plan 018: Evidence panel
 
-**Status:** proposed. **Size:** small to medium.
+**Status:** built. **Size:** small to medium.
 
 ## Why
 
@@ -105,7 +105,19 @@ can be a second step.
 - "How it was tested" and "How to revert" fields. They belong in the PR
   template, and the PR description is already shown on the Overview.
 
-## Open question
+## Decided
 
-- CI status is read once, when the review opens. Should the card have a
-  refresh button? Proposed: no in the first version.
+- CI status is read once, when the review opens. No refresh button in the
+  first version.
+- The card sits after the Prologue/Description tabs (so both tabs show it),
+  before the chapter list.
+- CI lists failed and pending checks by name; passed and skipped are counts.
+  A link opens all of the PR's checks on GitHub.
+- Working tree or branch review: the current branch's PR CI is shown only when
+  the PR's head commit is the local `HEAD`. Otherwise it is CI of other code.
+- Desktop: built in the same PR. CI is read on the first `pr()` call from the
+  check-runs and statuses APIs, every page (at most 10 pages of 100). A page
+  that fails, or more pages than that, marks the CI "incomplete" in the card,
+  so a part is never shown as the whole. A token without the checks
+  permission only hides the row (or marks it incomplete when statuses exist). The desktop agent has no shell, so its `submit_review`
+  schema leaves `verification` out.

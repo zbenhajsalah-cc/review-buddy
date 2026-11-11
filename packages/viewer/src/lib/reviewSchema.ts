@@ -38,6 +38,12 @@ const ReviewMetaSchema = z.object({
   promptVersion: z.string(),
 });
 
+const CiCheckSchema = z.object({
+  name: z.string(),
+  status: z.enum(["passed", "failed", "pending", "skipped"]),
+  url: z.string().optional(),
+});
+
 const PrMetadataSchema = z.object({
   title: z.string(),
   description: z.string(),
@@ -47,6 +53,22 @@ const PrMetadataSchema = z.object({
   head: z.string(),
   url: z.string().optional(),
   ciStatus: z.string().optional(),
+  checks: z.array(CiCheckSchema).optional(),
+  checksIncomplete: z.boolean().optional(),
+  headRefOid: z.string().optional(),
+});
+
+const VerificationSchema = z.object({
+  checks: z
+    .array(
+      z.object({
+        command: z.string(),
+        status: z.enum(["passed", "failed", "not_run"]),
+        summary: z.string().optional(),
+      }),
+    )
+    .optional(),
+  not_covered: z.string().optional(),
 });
 
 const ResolvedHunkSchema = z.object({
@@ -93,6 +115,7 @@ export const ReviewSchema = z.object({
   prologue: PrologueSchema,
   stats: ReviewStatsSchema,
   chapters: z.array(ResolvedChapterSchema),
+  verification: VerificationSchema.optional(),
   warnings: z.array(z.string()),
 });
 

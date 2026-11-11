@@ -89,12 +89,34 @@ export interface ReviewSource {
   ref?: string;
 }
 
+/**
+ * One check the agent ran in its session (or skipped). Reported by the
+ * agent, so the viewer labels it as such: it is not proof.
+ */
+export type VerificationStatus = "passed" | "failed" | "not_run";
+export interface VerificationCheck {
+  /** The command, e.g. `pnpm test:core`. */
+  command: string;
+  status: VerificationStatus;
+  /** One short line, e.g. "214 tests passed". Never pasted output. */
+  summary?: string;
+}
+
+/** What the agent checked, and what those checks would miss. */
+export interface Verification {
+  checks?: VerificationCheck[];
+  /** Markdown. */
+  not_covered?: string;
+}
+
 /** Exactly what the agent emits via submit_review. */
 export interface AgentReview {
   prologue: Prologue;
   chapters: AgentChapter[];
   /** How to capture the diff (see ReviewSource). Omit ⇒ worktree. */
   source?: ReviewSource;
+  /** Optional: the checks the agent ran (Evidence card). */
+  verification?: Verification;
   /**
    * Absolute repo root. Standalone (non-Claude Code) harnesses only — there is
    * no hook event to supply a cwd, so the agent passes it. Ignored by the hook.
@@ -113,6 +135,15 @@ export interface ReviewMeta {
   promptVersion: string;
 }
 
+/** A CI check's state, from GitHub. */
+export type CiCheckStatus = "passed" | "failed" | "pending" | "skipped";
+export interface CiCheck {
+  name: string;
+  status: CiCheckStatus;
+  /** The check's page on GitHub (https only). */
+  url?: string;
+}
+
 /** Source B — from git/gh, not the agent. */
 export interface PrMetadata {
   title: string;
@@ -122,7 +153,18 @@ export interface PrMetadata {
   base: string;
   head: string;
   url?: string; // phase 2
-  ciStatus?: string; // phase 2
+  /** Short CI summary, e.g. "12 passed, 1 failed". Set with `checks`. */
+  ciStatus?: string;
+  /**
+   * The CI checks of the PR's head commit (`headRefOid`), read once when the
+   * review opens. Undefined when there is no PR, no `gh`, or no checks.
+   */
+  checks?: CiCheck[];
+  /**
+   * True when some checks could not be read (a page failed, or too many
+   * pages): `checks` may miss failures.
+   */
+  checksIncomplete?: boolean;
   /** PR head commit SHA (PR mode only) — drives file-content expansion. */
   headRefOid?: string;
 }
@@ -176,6 +218,8 @@ export interface ResolvedReview {
   prologue: Prologue;
   stats: ReviewStats;
   chapters: ResolvedChapter[];
+  /** The agent's reported checks, passed through as sent. */
+  verification?: Verification;
   /**
    * Resolution warnings — places the agent's narrative didn't map cleanly onto
    * the real diff (unmatched anchors, files not in the diff, unsorted changes).

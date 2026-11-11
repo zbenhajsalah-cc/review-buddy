@@ -17,6 +17,8 @@
  * Dependencies are passed in (no Electron import), so this is tested with bun
  * against recorded responses (fixtures/).
  */
+
+import { checksFromRest, ciMetadata } from "@review-buddy/core/checks";
 import { type ParsedFile, parseDiff } from "@review-buddy/core/diff";
 import type { ReviewDataSource } from "@review-buddy/core/source";
 import type { PrMetadata } from "@review-buddy/core/types";
@@ -160,6 +162,9 @@ export function encodePath(path: string): string {
   return parts.map(encodeURIComponent).join("/");
 }
 
+/** Pages of CI read per list (100 each): a commit with more is marked incomplete. */
+const MAX_CI_PAGES = 10;
+
 interface PullJson {
   title?: string;
   body?: string | null;
@@ -244,12 +249,56 @@ export async function openGitHubPr(prRef: PrRef, deps: OpenDeps): Promise<GitHub
     return diffLoad;
   };
 
+  // 4. CI of the head commit, read on the first `pr()` (and kept). Fail-open:
+  // a token without the checks permission, or GitHub down, only hides the row.
+  // Both lists are paged; a page that fails, or more pages than we read,
+  // marks the evidence incomplete instead of passing a part off as the whole.
+  const allPages = async (
+    path: string,
+    key: "check_runs" | "statuses",
+  ): Promise<{ items: unknown[]; complete: boolean } | undefined> => {
+    const items: unknown[] = [];
+    for (let page = 1; page <= MAX_CI_PAGES; page++) {
+      let body: unknown;
+      let link = "";
+      try {
+        const res = await get(`${repoUrl}/commits/${headSha}/${path}?per_page=100&page=${page}`);
+        link = res.headers.get("link") ?? "";
+        body = res.ok ? await res.json() : undefined;
+      } catch {
+        body = undefined;
+      }
+      const list = (body as Record<string, unknown> | undefined)?.[key];
+      if (!Array.isArray(list)) return page === 1 ? undefined : { items, complete: false };
+      items.push(...list);
+      // GitHub sends rel="next" while more pages exist.
+      if (!/rel="next"/.test(link)) return { items, complete: true };
+    }
+    return { items, complete: false };
+  };
+  let prLoad: Promise<PrMetadata> | null = null;
+  const loadPr = () => {
+    prLoad ??= (async () => {
+      const [runs, statuses] = await Promise.all([
+        allPages("check-runs", "check_runs"),
+        allPages("status", "statuses"),
+      ]);
+      const checks = checksFromRest(
+        runs && { check_runs: runs.items },
+        statuses && { statuses: statuses.items },
+      );
+      const incomplete = !runs?.complete || !statuses?.complete;
+      return { ...pr, ...ciMetadata(checks, incomplete) };
+    })();
+    return prLoad;
+  };
+
   return {
     ref,
     headSha,
     baseSha,
     diff: async () => (await loadDiff()).raw,
-    pr: async () => pr,
+    pr: loadPr,
     files: async () =>
       [...(await loadDiff()).files.values()].map(({ path, oldPath, changeType, binary }) =>
         oldPath === undefined

@@ -41,12 +41,14 @@ export const MAX_PART_CHARS = 40_000;
 export const MAX_LINE_CHARS = 2_000;
 
 /**
- * The shared submit_review JSON schema without `cwd` and `source`: the app
- * already knows the PR, and the desktop prompt says not to pass them.
+ * The shared submit_review JSON schema without `cwd` and `source` (the app
+ * already knows the PR, and the desktop prompt says not to pass them) and
+ * without `verification` (the desktop agent has no shell, so it runs no
+ * checks; the app reads the PR's CI from GitHub instead).
  */
 export function desktopReviewSchema() {
   const { $schema: _s, $id: _i, title: _t, ...schema } = reviewSchema;
-  const { cwd: _c, source: _src, ...properties } = schema.properties;
+  const { cwd: _c, source: _src, verification: _v, ...properties } = schema.properties;
   return { ...schema, properties };
 }
 

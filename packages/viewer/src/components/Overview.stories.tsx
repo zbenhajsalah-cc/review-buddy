@@ -1,6 +1,11 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { ReviewApiProvider } from "../review-api.tsx";
-import { fakeResolvedReview, fakeReviewApi, fakeReviewWithQuestions } from "../stories/fixtures.ts";
+import {
+  fakeResolvedReview,
+  fakeReviewApi,
+  fakeReviewWithEvidence,
+  fakeReviewWithQuestions,
+} from "../stories/fixtures.ts";
 import { Overview } from "./Overview.tsx";
 
 const meta = {
@@ -49,4 +54,11 @@ export const WithOpenQuestions: Story = {
       </ReviewApiProvider>
     ),
   ],
+};
+
+export const WithEvidence: Story = {
+  args: {
+    review: fakeReviewWithEvidence,
+    onBeginReview: () => {},
+  },
 };

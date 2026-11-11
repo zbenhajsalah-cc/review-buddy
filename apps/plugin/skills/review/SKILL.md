@@ -94,9 +94,26 @@ analysis on them — skip them when grouping, and don't count them in your narra
 
 ## Step 4 — Submit
 
-Call **`submit_review`** with `{ source, prologue, chapters }` matching the schema — where
-`source` is the object you determined in Step 0 (`worktree` / `pr` / `branch`). This is how
-the hook knows which diff to re-capture; for a PR it is REQUIRED (omitting it makes the hook
+### Evidence — `verification`
+
+Optional. The checks **you ran in this session after your last edit** (tests, typecheck,
+lint, build), so the reviewer can see what was checked. The viewer labels them "Reported by
+the agent" and shows the PR's CI from GitHub next to them.
+
+- `checks` (at most 20): `{ command, status, summary? }`. `status` is `passed`, `failed` or
+  `not_run`. `summary` is one short line (e.g. "214 tests passed"), never pasted output.
+- Use `not_run` for a check the project has and you skipped. Be honest: a missing check
+  tells the reviewer to look harder.
+- `not_covered` (Markdown): what these checks would miss (e.g. "the Windows path code was
+  not run on Windows").
+- **Do not run new commands for this field.** Running checks is the project's job (CI,
+  hooks). Report only what you already ran.
+- If you ran nothing, omit `checks` and say so in `not_covered`. If you are reviewing
+  someone else's PR and ran nothing, omit the whole field.
+
+Call **`submit_review`** with `{ source, prologue, chapters }` (plus `verification` when you
+have it) matching the schema — where `source` is the object you determined in Step 0
+(`worktree` / `pr` / `branch`). This is how the hook knows which diff to re-capture; for a PR it is REQUIRED (omitting it makes the hook
 fall back to the local working tree, and the viewer shows an empty diff). Calling the tool
 opens the review in the reviewer's browser and pauses for their review. The reviewer can
 leave **line comments** on the diff, then finish in one of two ways.

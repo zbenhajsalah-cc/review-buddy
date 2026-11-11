@@ -34,6 +34,45 @@
         }
       ]
     },
+    "verification": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Optional. The checks YOU ran in this session after your last edit (tests, typecheck, lint), shown to the reviewer as evidence. Do not run new commands for this field.",
+      "properties": {
+        "checks": {
+          "type": "array",
+          "maxItems": 20,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["command", "status"],
+            "properties": {
+              "command": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 500,
+                "description": "The command, e.g. `pnpm test`."
+              },
+              "status": {
+                "type": "string",
+                "enum": ["passed", "failed", "not_run"],
+                "description": "'not_run' = a check the project has that you skipped."
+              },
+              "summary": {
+                "type": "string",
+                "maxLength": 200,
+                "description": "One short line, e.g. '214 tests passed'. Never pasted output."
+              }
+            }
+          }
+        },
+        "not_covered": {
+          "type": "string",
+          "maxLength": 5000,
+          "description": "Markdown: what these checks would miss. If you ran nothing, say so here."
+        }
+      }
+    },
     "prologue": {
       "type": "object",
       "additionalProperties": false,

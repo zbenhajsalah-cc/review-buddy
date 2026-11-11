@@ -110,11 +110,29 @@ analysis on them — skip them when grouping, and don't count them in your narra
 ## Step 4 — Submit
 
 {{#standalone}}
+### Evidence — `verification`
+
+Optional. The checks **you ran in this session after your last edit** (tests, typecheck,
+lint, build), so the reviewer can see what was checked. The viewer labels them "Reported by
+the agent" and shows the PR's CI from GitHub next to them.
+
+- `checks` (at most 20): `{ command, status, summary? }`. `status` is `passed`, `failed` or
+  `not_run`. `summary` is one short line (e.g. "214 tests passed"), never pasted output.
+- Use `not_run` for a check the project has and you skipped. Be honest: a missing check
+  tells the reviewer to look harder.
+- `not_covered` (Markdown): what these checks would miss (e.g. "the Windows path code was
+  not run on Windows").
+- **Do not run new commands for this field.** Running checks is the project's job (CI,
+  hooks). Report only what you already ran.
+- If you ran nothing, omit `checks` and say so in `not_covered`. If you are reviewing
+  someone else's PR and ran nothing, omit the whole field.
+
 Call the **`submit_review`** tool on the `review-buddy` MCP server with
-`{ cwd, source, prologue, chapters }` — `cwd` is the absolute repo root from
-Step 0, and `source` is what you determined there (`worktree` / `pr` /
-`branch`). For a PR, `source` is REQUIRED — omitting it makes the tool fall
-back to the local working tree, and the viewer shows an empty diff.
+`{ cwd, source, prologue, chapters }` (plus `verification` when you have it) —
+`cwd` is the absolute repo root from Step 0, and `source` is what you
+determined there (`worktree` / `pr` / `branch`). For a PR, `source` is
+REQUIRED — omitting it makes the tool fall back to the local working tree, and
+the viewer shows an empty diff.
 
 The tool opens the review in the reviewer's browser and returns its URL
 immediately. Relay the URL to the user (in case no browser window opened) and

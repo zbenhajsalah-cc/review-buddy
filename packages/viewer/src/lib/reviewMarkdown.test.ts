@@ -1,7 +1,11 @@
 /// <reference types="bun-types" />
 import { expect, test } from "bun:test";
 import type { ResolvedChapter, ResolvedReview } from "@review-buddy/core/types";
-import { fakeResolvedReview, fakeReviewWithQuestions } from "../stories/fixtures.ts";
+import {
+  fakeResolvedReview,
+  fakeReviewWithEvidence,
+  fakeReviewWithQuestions,
+} from "../stories/fixtures.ts";
 import type { LineComment } from "./comments.ts";
 import { chapterToMarkdown, reviewToMarkdown } from "./reviewMarkdown.ts";
 
@@ -136,6 +140,31 @@ test("open questions appear in the copy, and nothing without them", () => {
   expect(reviewToMarkdown(fakeResolvedReview)).not.toContain("Before you read the code");
 });
 
+test("evidence appears in the copy (names and states only), and nothing without it", () => {
+  const md = reviewToMarkdown(fakeReviewWithEvidence);
+  expect(md).toContain(
+    [
+      "## Evidence",
+      "",
+      "**CI (GitHub)**: 1 failed, 1 pending, 12 passed",
+      "",
+      "- CI / test (windows) — failed",
+      "- CI / e2e — pending",
+      "",
+      "**Reported by the agent**",
+      "",
+      "- `pnpm test:viewer` — failed (1 snapshot differs)",
+      "- `pnpm test:core` — passed (214 tests passed)",
+      "- `pnpm typecheck` — passed",
+      "- `pnpm smoke:plugin` — not run",
+      "",
+      "**Not covered:** The Windows path handling was not run on Windows.",
+    ].join("\n"),
+  );
+  expect(md.indexOf("## Evidence")).toBeLessThan(md.indexOf("## Chapters"));
+  expect(reviewToMarkdown(fakeResolvedReview)).not.toContain("## Evidence");
+});
+
 test("untitled review falls back like Overview", () => {
   const review: ResolvedReview = {
     ...fakeResolvedReview,
@@ -176,4 +205,15 @@ test("the full review puts each comment under its own chapter", () => {
   expect(ch1 < first && first < ch2).toBe(true);
   expect(ch3 < second).toBe(true);
   expect(md.match(/\*\*Comments\*\*/g)?.length).toBe(2);
+});
+
+test("incomplete CI is said in the copy", () => {
+  const review = {
+    ...fakeReviewWithEvidence,
+    pr: { ...fakeReviewWithEvidence.pr, checksIncomplete: true },
+  };
+  expect(reviewToMarkdown(review)).toContain(
+    "Some checks could not be read, so this list may miss failures.",
+  );
+  expect(reviewToMarkdown(fakeReviewWithEvidence)).not.toContain("could not be read");
 });

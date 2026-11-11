@@ -7,6 +7,7 @@ import { execFile, execFileSync } from "node:child_process";
 import { existsSync, readFileSync, realpathSync } from "node:fs";
 import { join, sep } from "node:path";
 import { promisify } from "node:util";
+import { checksFromRollup, ciMetadata } from "../checks.ts";
 import type { PrMetadata } from "../types.ts";
 
 /** git's hash of the empty tree — used to diff a repo with no commits yet. */
@@ -149,6 +150,7 @@ interface GhPr {
   headRefName?: string;
   url?: string;
   headRefOid?: string;
+  statusCheckRollup?: unknown;
 }
 
 /**
@@ -165,12 +167,23 @@ export function capturePr(cwd: string, base: string, ref?: string): PrMetadata {
     assertPrRef(ref);
     ghArgs.push(ref);
   }
-  ghArgs.push("--json", "title,body,author,createdAt,baseRefName,headRefName,url,headRefOid");
+  ghArgs.push(
+    "--json",
+    "title,body,author,createdAt,baseRefName,headRefName,url,headRefOid,statusCheckRollup",
+  );
   const ghJson = run("gh", cwd, ghArgs, true).trim();
 
   if (ghJson.startsWith("{")) {
     try {
       const pr = JSON.parse(ghJson) as GhPr;
+      // CI is for the PR's head commit. Without a ref, the PR is the one of
+      // the current branch: keep its CI only when the local HEAD is that
+      // commit, so the reviewer never sees CI of other code.
+      let checks = checksFromRollup(pr.statusCheckRollup);
+      if (checks && !ref) {
+        const local = git(cwd, ["rev-parse", "HEAD"], true).trim();
+        if (!pr.headRefOid || local !== pr.headRefOid) checks = undefined;
+      }
       return {
         title: pr.title ?? branch,
         description: pr.body ?? "",
@@ -180,6 +193,7 @@ export function capturePr(cwd: string, base: string, ref?: string): PrMetadata {
         head: pr.headRefName ?? branch,
         url: pr.url,
         headRefOid: pr.headRefOid,
+        ...ciMetadata(checks),
       };
     } catch {
       /* fall through to git fallback */

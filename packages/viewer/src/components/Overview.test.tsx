@@ -7,6 +7,9 @@ import { reviewToMarkdown } from "../lib/reviewMarkdown.ts";
 import { fakeResolvedReview, fakeReviewApi, fakeReviewWithQuestions } from "../stories/fixtures.ts";
 import { Overview } from "./Overview.tsx";
 
+/** The overview's chapter list heading ("3 chapters", "3 chapters · 1 of 3 complete"). */
+const CHAPTER_LIST = /^\d+ chapters?/;
+
 // fakeReviewApi()'s reviewKey is "fake-review".
 const VIEWED_KEY = "rb.viewed.fake-review";
 const COMMENTS_KEY = "rb.comments.fake-review";
@@ -22,7 +25,9 @@ test("no viewed entries → no progress UI and heading has no complete text", ()
 
   expect(screen.queryByRole("progressbar")).toBeNull();
   expect(screen.queryByText(/viewed/)).toBeNull();
-  expect(screen.getByRole("heading", { level: 2 }).textContent).toBe("3 chapters");
+  expect(screen.getByRole("heading", { level: 2, name: CHAPTER_LIST }).textContent).toBe(
+    "3 chapters",
+  );
 });
 
 test("partial progress → viewed label and progressbar aria-valuenow match", () => {
@@ -35,7 +40,9 @@ test("partial progress → viewed label and progressbar aria-valuenow match", ()
   expect(bar.getAttribute("aria-valuenow")).toBe("1");
   expect(bar.getAttribute("aria-valuemax")).toBe("2");
   expect(bar.getAttribute("aria-label")).toBe("Refactor auth middleware: 1 of 2 files viewed");
-  expect(screen.getByRole("heading", { level: 2 }).textContent).toBe("3 chapters");
+  expect(screen.getByRole("heading", { level: 2, name: CHAPTER_LIST }).textContent).toBe(
+    "3 chapters",
+  );
 });
 
 test("all files in a chapter viewed → chapter complete and heading shows count", () => {
@@ -47,7 +54,7 @@ test("all files in a chapter viewed → chapter complete and heading shows count
 
   expect(screen.getByText("2/2 viewed")).toBeTruthy();
   expect(screen.getByText("✓")).toBeTruthy();
-  expect(screen.getByRole("heading", { level: 2 }).textContent).toBe(
+  expect(screen.getByRole("heading", { level: 2, name: CHAPTER_LIST }).textContent).toBe(
     "3 chapters · 1 of 3 complete",
   );
 });
@@ -70,7 +77,9 @@ test("entry for a different chapter index does not leak into this chapter's coun
 
   expect(screen.queryByText(/viewed/)).toBeNull();
   expect(screen.queryByRole("progressbar")).toBeNull();
-  expect(screen.getByRole("heading", { level: 2 }).textContent).toBe("3 chapters");
+  expect(screen.getByRole("heading", { level: 2, name: CHAPTER_LIST }).textContent).toBe(
+    "3 chapters",
+  );
 });
 
 test("Enter on document.body begins review at chapter 0", () => {
@@ -282,4 +291,10 @@ test("round-trip on → 'Raise with the agent' starts the note with the question
     0,
     "> Is a fixed backoff still right, now that `docs/QUEUE.md` asks for jitter?\n\n",
   );
+});
+
+test("the Evidence card shows on the overview, with a muted line when nothing was reported", () => {
+  renderWithApi(<Overview review={fakeResolvedReview} onBeginReview={() => {}} />);
+  const card = screen.getByRole("region", { name: "Evidence" });
+  expect(card.textContent).toContain("No checks were reported for this change.");
 });

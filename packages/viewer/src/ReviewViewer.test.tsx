@@ -4,6 +4,9 @@ import { act, cleanup, fireEvent, render, screen } from "@testing-library/react"
 import type { ReactNode } from "react";
 import { fakeResolvedReview, fakeReviewApi, fakeReviewWithQuestions } from "./stories/fixtures.ts";
 
+/** The overview's chapter list heading ("3 chapters", "3 chapters · 1 of 3 complete"). */
+const CHAPTER_LIST = /^\d+ chapters?/;
+
 // The real pool loads a Vite `?worker` module, which only exists in a Vite build.
 mock.module("./workerPool.tsx", () => ({
   ReviewWorkerPoolProvider: ({ children }: { children: ReactNode }) => children,
@@ -32,7 +35,7 @@ function goTo(url: string) {
 test("loads the review through the api and shows the overview", async () => {
   render(<ReviewViewer api={fakeReviewApi()} />);
   expect(screen.getByText("Loading review…")).toBeTruthy();
-  expect(await screen.findByRole("heading", { level: 2 })).toBeTruthy();
+  expect(await screen.findByRole("heading", { level: 2, name: CHAPTER_LIST })).toBeTruthy();
   expect(screen.getByText(fakeResolvedReview.chapters[0]!.title)).toBeTruthy();
 });
 
@@ -62,7 +65,7 @@ test("a new api (another review) starts fresh and keeps that review's saved prog
   const b = fakeReviewApi({ overrides: { reviewKey: "review-b" } });
 
   const { rerender } = render(<ReviewViewer api={a} />);
-  await screen.findByRole("heading", { level: 2 });
+  await screen.findByRole("heading", { level: 2, name: CHAPTER_LIST });
   act(() => {
     fireEvent.keyDown(document.body, { key: "Enter" }); // into chapter 1 of review A
   });
@@ -70,7 +73,7 @@ test("a new api (another review) starts fresh and keeps that review's saved prog
 
   rerender(<ReviewViewer api={b} />);
   // Back on the overview of review B, and B's progress is untouched.
-  await screen.findByRole("heading", { level: 2 });
+  await screen.findByRole("heading", { level: 2, name: CHAPTER_LIST });
   expect(screen.queryByText(/^Chapter 1 of/)).toBeNull();
   expect(JSON.parse(localStorage.getItem("rb.viewed.review-b") ?? "[]")).toEqual(["1:kept.ts"]);
 });
@@ -78,7 +81,7 @@ test("a new api (another review) starts fresh and keeps that review's saved prog
 test('afterDone "keep": Done stays marked when the reviewer goes back and opens a chapter', async () => {
   const done = mock(async () => {});
   render(<ReviewViewer api={fakeReviewApi({ overrides: { done, afterDone: "keep" } })} />);
-  await screen.findByRole("heading", { level: 2 });
+  await screen.findByRole("heading", { level: 2, name: CHAPTER_LIST });
   act(() => {
     fireEvent.keyDown(document.body, { key: "Enter" });
   });
@@ -90,7 +93,7 @@ test('afterDone "keep": Done stays marked when the reviewer goes back and opens 
   expect(screen.getByRole("button", { name: "Done ✓" })).toBeTruthy();
 
   fireEvent.click(screen.getByRole("button", { name: /Overview/ }));
-  await screen.findByRole("heading", { level: 2 });
+  await screen.findByRole("heading", { level: 2, name: CHAPTER_LIST });
   act(() => {
     fireEvent.keyDown(document.body, { key: "Enter" });
   });
@@ -109,30 +112,30 @@ test("urlHash: opens the chapter in the hash, and each move is in the URL", asyn
   expect(location.hash).toBe("#/chapter/3");
 
   fireEvent.click(screen.getByRole("button", { name: /Overview/ }));
-  await screen.findByRole("heading", { level: 2 });
+  await screen.findByRole("heading", { level: 2, name: CHAPTER_LIST });
   expect(location.hash).toBe("");
 });
 
 test("urlHash: Back and Forward bring the view along", async () => {
   render(<ReviewViewer api={fakeReviewApi()} urlHash />);
-  await screen.findByRole("heading", { level: 2 });
+  await screen.findByRole("heading", { level: 2, name: CHAPTER_LIST });
 
   goTo("/#/chapter/3");
   expect(screen.getByText(/^Chapter 3 of/)).toBeTruthy();
   goTo("/");
-  expect(await screen.findByRole("heading", { level: 2 })).toBeTruthy();
+  expect(await screen.findByRole("heading", { level: 2, name: CHAPTER_LIST })).toBeTruthy();
 });
 
 test("urlHash: a chapter the review does not have shows the overview", async () => {
   history.replaceState(null, "", "/#/chapter/9");
   render(<ReviewViewer api={fakeReviewApi()} urlHash />);
-  expect(await screen.findByRole("heading", { level: 2 })).toBeTruthy();
+  expect(await screen.findByRole("heading", { level: 2, name: CHAPTER_LIST })).toBeTruthy();
 });
 
 test("without urlHash the URL is not read or changed", async () => {
   history.replaceState(null, "", "/#/chapter/2");
   render(<ReviewViewer api={fakeReviewApi()} />);
-  await screen.findByRole("heading", { level: 2 });
+  await screen.findByRole("heading", { level: 2, name: CHAPTER_LIST });
   act(() => {
     fireEvent.keyDown(document.body, { key: "Enter" });
   });
@@ -142,7 +145,7 @@ test("without urlHash the URL is not read or changed", async () => {
 
 test("Done (close): Back does not open the review again", async () => {
   render(<ReviewViewer api={fakeReviewApi()} urlHash />);
-  await screen.findByRole("heading", { level: 2 });
+  await screen.findByRole("heading", { level: 2, name: CHAPTER_LIST });
   act(() => {
     fireEvent.keyDown(document.body, { key: "Enter" });
   });
@@ -155,7 +158,7 @@ test("Done (close): Back does not open the review again", async () => {
 
   goTo("/");
   expect(screen.getByText("Review submitted — you can close this tab.")).toBeTruthy();
-  expect(screen.queryByRole("heading", { level: 2 })).toBeNull();
+  expect(screen.queryByRole("heading", { level: 2, name: CHAPTER_LIST })).toBeNull();
 });
 
 test("the review focus file opens its chapter with that file focused", async () => {
@@ -169,7 +172,7 @@ test("the review focus file opens its chapter with that file focused", async () 
 test("tabTitle: the tab says the review and the chapter, and gets its title back", async () => {
   document.title = "Review Buddy";
   const { unmount } = render(<ReviewViewer api={fakeReviewApi()} tabTitle />);
-  await screen.findByRole("heading", { level: 2 });
+  await screen.findByRole("heading", { level: 2, name: CHAPTER_LIST });
   expect(document.title).toBe("Add greeting suffix · Review Buddy");
   act(() => {
     fireEvent.keyDown(document.body, { key: "Enter" });
@@ -182,7 +185,7 @@ test("tabTitle: the tab says the review and the chapter, and gets its title back
 test("without tabTitle the tab title is not changed", async () => {
   document.title = "Review Buddy";
   render(<ReviewViewer api={fakeReviewApi()} />);
-  await screen.findByRole("heading", { level: 2 });
+  await screen.findByRole("heading", { level: 2, name: CHAPTER_LIST });
   expect(document.title).toBe("Review Buddy");
 });
 

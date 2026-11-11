@@ -67,6 +67,38 @@ test("rejects an empty open question", () => {
   expect(validateAgentReview(withQuestions([{ question: "  " }]))).toContain("question");
 });
 
+const withChecks = (verification: unknown) => ({ ...good, verification });
+const check = (n: number, status = "passed") => ({ command: `pnpm test:${n}`, status });
+
+test("accepts verification with each status, and none at all", () => {
+  for (const status of ["passed", "failed", "not_run"]) {
+    expect(validateAgentReview(withChecks({ checks: [check(1, status)] }))).toBeNull();
+  }
+  expect(validateAgentReview(withChecks({ not_covered: "Ran nothing." }))).toBeNull();
+  expect(validateAgentReview(withChecks({}))).toBeNull();
+  expect(validateAgentReview(good)).toBeNull();
+});
+
+test("rejects an unknown check status", () => {
+  const msg = validateAgentReview(withChecks({ checks: [check(1, "skipped")] }));
+  expect(msg).toContain("verification.checks.0.status");
+});
+
+test("rejects more than 20 checks", () => {
+  const checks = Array.from({ length: 21 }, (_, i) => check(i));
+  expect(validateAgentReview(withChecks({ checks }))).toContain("verification.checks");
+  expect(validateAgentReview(withChecks({ checks: checks.slice(0, 20) }))).toBeNull();
+});
+
+test("rejects a long summary (pasted output) and an empty command", () => {
+  const long = { ...check(1), summary: "x".repeat(201) };
+  expect(validateAgentReview(withChecks({ checks: [long] }))).toContain("summary");
+  const short = { ...check(1), summary: "x".repeat(200) };
+  expect(validateAgentReview(withChecks({ checks: [short] }))).toBeNull();
+  const empty = { command: " ", status: "passed" };
+  expect(validateAgentReview(withChecks({ checks: [empty] }))).toContain("command");
+});
+
 test("rejects source.type pr without a ref (silent-worktree bug)", () => {
   const bad = { ...good, source: { type: "pr" } };
   const msg = validateAgentReview(bad);

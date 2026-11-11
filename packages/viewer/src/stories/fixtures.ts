@@ -203,6 +203,38 @@ export const fakeReviewWithQuestions: ResolvedReview = {
   },
 };
 
+/** A review with CI checks from GitHub and the agent's reported checks. */
+export const fakeReviewWithEvidence: ResolvedReview = {
+  ...fakeResolvedReview,
+  pr: {
+    ...fakeResolvedReview.pr,
+    url: "https://github.com/octocat/hello-world/pull/42",
+    headRefOid: "7e8e70534d5fdb0a8ef1a5a0bf8407774b007b00",
+    ciStatus: "1 failed, 1 pending, 12 passed",
+    checks: [
+      {
+        name: "CI / test (windows)",
+        status: "failed",
+        url: "https://github.com/octocat/hello-world/actions/runs/1/job/3",
+      },
+      { name: "CI / e2e", status: "pending" },
+      ...Array.from({ length: 12 }, (_, i) => ({
+        name: `CI / check ${i + 1}`,
+        status: "passed" as const,
+      })),
+    ],
+  },
+  verification: {
+    checks: [
+      { command: "pnpm test:core", status: "passed", summary: "214 tests passed" },
+      { command: "pnpm typecheck", status: "passed" },
+      { command: "pnpm smoke:plugin", status: "not_run" },
+      { command: "pnpm test:viewer", status: "failed", summary: "1 snapshot differs" },
+    ],
+    not_covered: "The Windows path handling was not run on Windows.",
+  },
+};
+
 /**
  * In-memory ReviewApi for stories and tests. Serves `review`, never touches the
  * network, and returns "" (unavailable) for any file not in `files`.

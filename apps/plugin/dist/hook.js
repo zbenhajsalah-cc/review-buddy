@@ -14416,10 +14416,20 @@ var Source = exports_external.object({
     });
   }
 });
+var VerificationCheck = exports_external.object({
+  command: exports_external.string().trim().min(1, "must not be empty").max(500),
+  status: exports_external.enum(["passed", "failed", "not_run"]),
+  summary: exports_external.string().max(200, "one short line (at most 200 characters)").optional()
+});
+var Verification = exports_external.object({
+  checks: exports_external.array(VerificationCheck).max(20).optional(),
+  not_covered: exports_external.string().max(5000).optional()
+});
 var AgentReviewSchema = exports_external.object({
   prologue: Prologue,
   chapters: exports_external.array(Chapter).min(1).max(500),
-  source: Source.optional()
+  source: Source.optional(),
+  verification: Verification.optional()
 });
 var describeIssues = (error51) => error51.issues.map((i) => `${i.path.join(".") || "(root)"}: ${i.message}`).join("; ");
 function validateAgentReview(agent) {
@@ -14470,6 +14480,86 @@ import { execFile, execFileSync } from "child_process";
 import { existsSync, readFileSync, realpathSync } from "fs";
 import { join, sep } from "path";
 import { promisify } from "util";
+
+// ../../packages/core/src/checks.ts
+var FAILED = new Set([
+  "failure",
+  "error",
+  "timed_out",
+  "cancelled",
+  "action_required",
+  "startup_failure",
+  "stale"
+]);
+var PASSED = new Set(["success"]);
+var SKIPPED = new Set(["skipped", "neutral"]);
+function ciCheckStatus(status, conclusion) {
+  const c = typeof conclusion === "string" ? conclusion.toLowerCase() : "";
+  if (PASSED.has(c))
+    return "passed";
+  if (FAILED.has(c))
+    return "failed";
+  if (SKIPPED.has(c))
+    return "skipped";
+  const s = typeof status === "string" ? status.toLowerCase() : "";
+  if (s === "completed" && c)
+    return "skipped";
+  return "pending";
+}
+function safeUrl(url2) {
+  if (typeof url2 !== "string")
+    return;
+  return /^https:\/\/[^\s/?#]+[^\s]*$/i.test(url2) ? url2 : undefined;
+}
+var str = (v) => typeof v === "string" ? v.trim() : "";
+var ORDER = { failed: 0, pending: 1, passed: 2, skipped: 3 };
+function sortCiChecks(checks3) {
+  return [...checks3].sort((a, b) => ORDER[a.status] - ORDER[b.status] || a.name.localeCompare(b.name));
+}
+function checksFromRollup(rollup) {
+  if (!Array.isArray(rollup))
+    return;
+  const checks3 = [];
+  for (const item of rollup) {
+    if (!item || typeof item !== "object")
+      continue;
+    const r = item;
+    if (r.__typename === "StatusContext" || "context" in r && "state" in r) {
+      const name = str(r.context);
+      if (!name)
+        continue;
+      checks3.push({ name, status: ciCheckStatus("", r.state), url: safeUrl(r.targetUrl) });
+    } else {
+      const name = str(r.name);
+      if (!name)
+        continue;
+      const workflow = str(r.workflowName);
+      checks3.push({
+        name: workflow && workflow !== name ? `${workflow} / ${name}` : name,
+        status: ciCheckStatus(r.status, r.conclusion),
+        url: safeUrl(r.detailsUrl)
+      });
+    }
+  }
+  return finish(checks3);
+}
+function finish(checks3) {
+  if (checks3.length === 0)
+    return;
+  return sortCiChecks(checks3).map((c) => c.url ? c : { name: c.name, status: c.status });
+}
+function ciSummary(checks3) {
+  const count = (s) => checks3.filter((c) => c.status === s).length;
+  return ["failed", "pending", "passed", "skipped"].map((s) => [count(s), s]).filter(([n]) => n > 0).map(([n, s]) => `${n} ${s}`).join(", ");
+}
+function ciMetadata(checks3, incomplete = false) {
+  if (!checks3 || checks3.length === 0)
+    return {};
+  const summary = ciSummary(checks3);
+  return incomplete ? { checks: checks3, ciStatus: `${summary} (incomplete)`, checksIncomplete: true } : { checks: checks3, ciStatus: summary };
+}
+
+// ../../packages/core/src/node/git.ts
 var EMPTY_TREE = "4b825dc642cb6eb9a060e54bf8d69288fbee4904";
 var MAX_BUFFER = 1024 * 1024 * 128;
 var execFileAsync = promisify(execFile);
@@ -14553,11 +14643,17 @@ function capturePr(cwd, base, ref) {
     assertPrRef(ref);
     ghArgs.push(ref);
   }
-  ghArgs.push("--json", "title,body,author,createdAt,baseRefName,headRefName,url,headRefOid");
+  ghArgs.push("--json", "title,body,author,createdAt,baseRefName,headRefName,url,headRefOid,statusCheckRollup");
   const ghJson = run("gh", cwd, ghArgs, true).trim();
   if (ghJson.startsWith("{")) {
     try {
       const pr = JSON.parse(ghJson);
+      let checks3 = checksFromRollup(pr.statusCheckRollup);
+      if (checks3 && !ref) {
+        const local = git(cwd, ["rev-parse", "HEAD"], true).trim();
+        if (!pr.headRefOid || local !== pr.headRefOid)
+          checks3 = undefined;
+      }
       return {
         title: pr.title ?? branch,
         description: pr.body ?? "",
@@ -14566,7 +14662,8 @@ function capturePr(cwd, base, ref) {
         base: pr.baseRefName ?? base,
         head: pr.headRefName ?? branch,
         url: pr.url,
-        headRefOid: pr.headRefOid
+        headRefOid: pr.headRefOid,
+        ...ciMetadata(checks3)
       };
     } catch {}
   }
@@ -15044,7 +15141,15 @@ function resolveReview(agent, rawDiff, meta3, pr) {
     filesChanged: parsedFiles.length
   };
   return {
-    review: { meta: meta3, pr, prologue: agent.prologue, stats, chapters, warnings },
+    review: {
+      meta: meta3,
+      pr,
+      prologue: agent.prologue,
+      stats,
+      chapters,
+      ...agent.verification ? { verification: agent.verification } : {},
+      warnings
+    },
     warnings
   };
 }

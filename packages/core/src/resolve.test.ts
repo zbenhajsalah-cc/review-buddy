@@ -107,6 +107,16 @@ describe("resolveReview", () => {
     );
   });
 
+  test("passes the verification through, and leaves it out when missing", () => {
+    const verification = {
+      checks: [{ command: "pnpm test", status: "passed" as const, summary: "12 passed" }],
+      not_covered: "Windows paths.",
+    };
+    const agent = { ...AGENT, verification };
+    expect(resolveReview(agent, SAMPLE, META, PR).review.verification).toEqual(verification);
+    expect("verification" in review).toBe(false);
+  });
+
   test("attaches the real hunk content for an anchored hunk", () => {
     const ch1 = review.chapters[0]!;
     expect(ch1.fileCount).toBe(1);
