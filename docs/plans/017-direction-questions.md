@@ -1,6 +1,6 @@
 # Plan 017: "Before you read the code" — direction questions
 
-**Status:** proposed. **Size:** small.
+**Status:** built. **Size:** small.
 
 ## Why
 
@@ -79,9 +79,10 @@ No change. The field passes through `resolveReview` untouched.
 
 - Answers typed in the viewer per question. The request-changes note is enough.
 
-## Open question
+## Open question (decided)
 
-- Should the desktop prompt (`{{#desktop}}`) also ask for questions? Proposed:
-  yes, same text. The desktop has no agent to "raise" to, so the button is
-  hidden there and the questions go into the copied Markdown and the GitHub
-  review summary.
+- Should the desktop prompt (`{{#desktop}}`) also ask for questions? **Yes,
+  same text** (Step 2 is shared by every prompt). The desktop has no agent to
+  "raise" to (round-trip is off there), so the button is hidden and the
+  questions go into the copied Markdown. Adding them to the GitHub review
+  summary is left for later: today that text is the reviewer's own summary.

@@ -99,6 +99,14 @@ describe("resolveReview", () => {
     expect(review.prologue.review_focus.file).toBe("src/dashboard/useSport.ts");
   });
 
+  test("passes the open questions through untouched", () => {
+    const open_questions = [{ question: "Is a second cache right?", context: "docs/ARCH.md" }];
+    const agent = { ...AGENT, prologue: { ...AGENT.prologue, open_questions } };
+    expect(resolveReview(agent, SAMPLE, META, PR).review.prologue.open_questions).toEqual(
+      open_questions,
+    );
+  });
+
   test("attaches the real hunk content for an anchored hunk", () => {
     const ch1 = review.chapters[0]!;
     expect(ch1.fileCount).toBe(1);

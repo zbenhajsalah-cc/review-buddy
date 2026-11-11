@@ -2,7 +2,7 @@
 import { afterEach, expect, mock, test } from "bun:test";
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import type { ReactNode } from "react";
-import { fakeResolvedReview, fakeReviewApi } from "./stories/fixtures.ts";
+import { fakeResolvedReview, fakeReviewApi, fakeReviewWithQuestions } from "./stories/fixtures.ts";
 
 // The real pool loads a Vite `?worker` module, which only exists in a Vite build.
 mock.module("./workerPool.tsx", () => ({
@@ -184,4 +184,17 @@ test("without tabTitle the tab title is not changed", async () => {
   render(<ReviewViewer api={fakeReviewApi()} />);
   await screen.findByRole("heading", { level: 2 });
   expect(document.title).toBe("Review Buddy");
+});
+
+test("raising an open question opens the first chapter with the note started", async () => {
+  render(
+    <ReviewViewer api={fakeReviewApi({ review: fakeReviewWithQuestions, roundtrip: true })} />,
+  );
+  const [raise] = await screen.findAllByRole("button", { name: "Raise with the agent" });
+  act(() => {
+    fireEvent.click(raise!);
+  });
+  const note = (await screen.findByPlaceholderText("What should change?")) as HTMLTextAreaElement;
+  expect(note.value).toStartWith("> The task was a greeting change.");
+  expect(screen.getByText("Chapter 1 of 3")).toBeTruthy();
 });

@@ -43,6 +43,30 @@ test("rejects a missing prologue field", () => {
   expect(validateAgentReview({ ...good, prologue: restProl })).not.toBeNull();
 });
 
+const withQuestions = (open_questions: unknown) => ({
+  ...good,
+  prologue: { ...good.prologue, open_questions },
+});
+const question = (n: number) => ({ question: `Should we do ${n}?`, context: "docs/x.md" });
+
+test("accepts 0 to 3 open questions, and none at all", () => {
+  for (const n of [0, 1, 2, 3]) {
+    const qs = Array.from({ length: n }, (_, i) => question(i));
+    expect(validateAgentReview(withQuestions(qs))).toBeNull();
+  }
+  expect(validateAgentReview(withQuestions([{ question: "No context?" }]))).toBeNull();
+});
+
+test("rejects more than 3 open questions", () => {
+  const qs = [1, 2, 3, 4].map(question);
+  expect(validateAgentReview(withQuestions(qs))).toContain("open_questions");
+});
+
+test("rejects an empty open question", () => {
+  expect(validateAgentReview(withQuestions([{ question: "" }]))).toContain("question");
+  expect(validateAgentReview(withQuestions([{ question: "  " }]))).toContain("question");
+});
+
 test("rejects source.type pr without a ref (silent-worktree bug)", () => {
   const bad = { ...good, source: { type: "pr" } };
   const msg = validateAgentReview(bad);

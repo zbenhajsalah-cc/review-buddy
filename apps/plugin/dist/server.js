@@ -23281,6 +23281,27 @@ var review_schema_default = {
             },
             file: { type: "string", description: "The single file to scrutinize most." }
           }
+        },
+        open_questions: {
+          type: "array",
+          maxItems: 3,
+          description: "Optional. Scope or direction questions for the reviewer, shown before the code. Most reviews have none.",
+          items: {
+            type: "object",
+            additionalProperties: false,
+            required: ["question"],
+            properties: {
+              question: {
+                type: "string",
+                minLength: 1,
+                description: "One sentence: should this change be made this way at all?"
+              },
+              context: {
+                type: "string",
+                description: "Why you ask, naming the file or doc that is the evidence."
+              }
+            }
+          }
         }
       }
     },
@@ -23657,11 +23678,16 @@ function repoToplevel(cwd) {
 // ../../packages/core/src/validate.ts
 var KeyChange = exports_external.object({ headline: exports_external.string(), detail: exports_external.string() });
 var ReviewFocus = exports_external.object({ summary: exports_external.string(), file: exports_external.string() });
+var OpenQuestion = exports_external.object({
+  question: exports_external.string().trim().min(1, "must not be empty"),
+  context: exports_external.string().optional()
+});
 var Prologue = exports_external.object({
   why: exports_external.string(),
   what: exports_external.string(),
   key_changes: exports_external.array(KeyChange),
-  review_focus: ReviewFocus
+  review_focus: ReviewFocus,
+  open_questions: exports_external.array(OpenQuestion).max(3).optional()
 });
 var Hunk = exports_external.object({ old_start: exports_external.number(), new_start: exports_external.number() });
 var AgentFile = exports_external.object({

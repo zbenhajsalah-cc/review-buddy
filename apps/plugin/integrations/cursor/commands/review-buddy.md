@@ -53,6 +53,15 @@ Read **every** hunk. Each hunk header is `@@ -old_start,old_count +new_start,new
   (e.g. what safe default is used).
 - **review_focus**: the single riskiest/subtlest area, phrased as a concrete check, plus
   the specific `file` to scrutinize.
+- **open_questions** (optional, at most 3): "should we even do this?" questions, shown
+  to the reviewer *before* the code. Each is `{ question, context }`: `question` is one
+  sentence; `context` says why you ask and names the evidence (a file or a doc). Add one
+  only when you saw one of these:
+  - the diff is clearly larger than its stated goal;
+  - a simpler way exists and you can name it;
+  - the change goes against a decision written in the repo (`CLAUDE.md`, a doc, a comment).
+
+  Most reviews have **no** questions: then omit the field. Never invent one to fill it.
 
 Write for a reviewer who has NOT seen the code yet.
 

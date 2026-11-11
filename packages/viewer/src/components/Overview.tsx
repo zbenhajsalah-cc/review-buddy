@@ -1,8 +1,9 @@
-import type { ResolvedReview } from "@review-buddy/core/types";
-import { useMemo, useRef, useState } from "react";
+import type { OpenQuestion, ResolvedReview } from "@review-buddy/core/types";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { readViewedEntries } from "../lib/chapterFileSet.ts";
 import { readComments } from "../lib/comments.ts";
 import { progressByChapter } from "../lib/progress.ts";
+import { raiseQuestionNote } from "../lib/raiseQuestion.ts";
 import { reviewToMarkdown } from "../lib/reviewMarkdown.ts";
 import { useShortcuts } from "../lib/shortcuts.ts";
 import { cn } from "../lib/utils.ts";
@@ -20,16 +21,25 @@ type Tab = "prologue" | "description";
 export function Overview({
   review,
   onBeginReview,
+  onRaiseQuestion,
 }: {
   review: ResolvedReview;
   /** `file`: open the chapter at that file (the review focus). */
   onBeginReview: (position: number, file?: string) => void;
+  /**
+   * Open the chapter with the request-changes note started with `note` (an
+   * open question raised with the agent). Without it, or with round-trip
+   * off, the questions are shown without the button.
+   */
+  onRaiseQuestion?: (position: number, note: string) => void;
 }) {
   const [tab, setTab] = useState<Tab>("prologue");
   const { pr, meta, prologue, stats, chapters, warnings } = review;
   const [warningsOpen, setWarningsOpen] = useState(warnings.length <= 3);
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
-  const { reviewKey } = useReviewApi();
+  const api = useReviewApi();
+  const { reviewKey } = api;
+  const [roundtrip, setRoundtrip] = useState(false);
   const [viewedEntries] = useState(() => readViewedEntries(reviewKey));
   const [comments] = useState(() => readComments(reviewKey));
   const copyRef = useRef<CopyMarkdownHandle>(null);
@@ -46,6 +56,17 @@ export function Overview({
     : -1;
   const startAt = Math.max(resumeAt, 0);
   const focus = findFocusFile(chapters, prologue.review_focus.file);
+  const questions = prologue.open_questions ?? [];
+  const canRaise = roundtrip && !!onRaiseQuestion && chapters.length > 0;
+
+  // Raising a question needs round-trip: the note goes to the agent.
+  useEffect(() => {
+    if (questions.length === 0) return;
+    api
+      .getConfig()
+      .then((c) => setRoundtrip(c.roundtrip))
+      .catch(() => {});
+  }, [api, questions.length]);
 
   useShortcuts({
     SHOW_SHORTCUTS: {
@@ -140,6 +161,15 @@ export function Overview({
             </ul>
           )}
         </div>
+      )}
+
+      {questions.length > 0 && (
+        <OpenQuestions
+          questions={questions}
+          onRaise={
+            canRaise ? (q) => onRaiseQuestion?.(startAt, raiseQuestionNote(q.question)) : undefined
+          }
+        />
       )}
 
       {/* Tabs */}
@@ -328,6 +358,59 @@ function findFocusFile(
     if (found) return { position, path: found.path };
   }
   return null;
+}
+
+/**
+ * "Before you read the code": the agent's scope and direction questions, first,
+ * so the reviewer can object to the approach before reading every chapter.
+ */
+function OpenQuestions({
+  questions,
+  onRaise,
+}: {
+  questions: readonly OpenQuestion[];
+  onRaise?: (question: OpenQuestion) => void;
+}) {
+  return (
+    <section
+      aria-labelledby="rb-open-questions"
+      className="mb-6 rounded-xl border border-border border-l-[3px] border-l-risk-medium bg-card px-4 py-3.5"
+    >
+      <h2
+        id="rb-open-questions"
+        className="mb-2 font-mono text-[0.66rem] font-medium uppercase tracking-[0.09em] text-muted-foreground"
+      >
+        Before you read the code
+      </h2>
+      <ul className="space-y-3">
+        {questions.map((q) => (
+          <li key={q.question} className="flex items-start justify-between gap-3">
+            <div className="min-w-0">
+              <Markdown value={q.question} variant="inline" className="text-[0.95rem]" />
+              {q.context && (
+                <Markdown
+                  value={q.context}
+                  variant="inline"
+                  className="mt-0.5 text-sm text-muted-foreground"
+                />
+              )}
+            </div>
+            {onRaise && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => onRaise(q)}
+                className="shrink-0"
+                title="Start a request-changes note with this question"
+              >
+                Raise with the agent
+              </Button>
+            )}
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
 }
 
 function TabButton({

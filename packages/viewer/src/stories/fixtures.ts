@@ -188,6 +188,21 @@ export const fakeResolvedReview: ResolvedReview = {
   warnings: [],
 };
 
+/** The same review, with scope questions for the reviewer before the code. */
+export const fakeReviewWithQuestions: ResolvedReview = {
+  ...fakeResolvedReview,
+  prologue: {
+    ...fakeResolvedReview.prologue,
+    open_questions: [
+      {
+        question: "The task was a greeting change. Should the auth refactor be its own PR?",
+        context: "Chapter 2 rewires `middleware.ts`, which the PR description does not mention.",
+      },
+      { question: "Is a fixed backoff still right, now that `docs/QUEUE.md` asks for jitter?" },
+    ],
+  },
+};
+
 /**
  * In-memory ReviewApi for stories and tests. Serves `review`, never touches the
  * network, and returns "" (unavailable) for any file not in `files`.
