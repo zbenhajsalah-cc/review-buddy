@@ -1,4 +1,5 @@
 import type {
+  FindingAnswer,
   ResolvedChapter,
   ResolvedFile,
   ResolvedFinding,
@@ -11,7 +12,7 @@ import {
   ciChecksToShow,
   hasNoEvidence,
 } from "./evidence.ts";
-import { chapterFindings, findingToMarkdown, otherFindings } from "./findings.ts";
+import { answersById, chapterFindings, findingToMarkdown, otherFindings } from "./findings.ts";
 
 function pluralFiles(n: number): string {
   return `${n} file${n === 1 ? "" : "s"}`;
@@ -28,15 +29,18 @@ function fileBullet(file: ResolvedFile): string {
 }
 
 /**
- * Narrative + inventory Markdown for one chapter, and the reviewer's comments
- * on it. Never includes hunk line content.
+ * Narrative + inventory Markdown for one chapter, with the reviewer's comments
+ * on it and the findings it carries (each with its answer, when it has one).
+ * Never includes hunk line content.
  */
 export function chapterToMarkdown(
   chapter: ResolvedChapter,
   headingLevel: 2 | 3 = 2,
   comments: readonly LineComment[] = [],
   findings: readonly ResolvedFinding[] = [],
+  answers: readonly FindingAnswer[] = [],
 ): string {
+  const answerOf = answersById(answers);
   const heading = "#".repeat(headingLevel);
   const parts: string[] = [
     `${heading} ${String(chapter.index).padStart(2, "0")} ${chapter.title}`,
@@ -53,7 +57,12 @@ export function chapterToMarkdown(
   }
 
   if (findings.length > 0) {
-    parts.push("", "**Findings**", "", ...findings.map(findingToMarkdown));
+    parts.push(
+      "",
+      "**Findings**",
+      "",
+      ...findings.map((f) => findingToMarkdown(f, answerOf.get(f.id))),
+    );
   }
 
   if (comments.length > 0) {
@@ -70,7 +79,9 @@ export function chapterToMarkdown(
 export function reviewToMarkdown(
   review: ResolvedReview,
   comments: readonly LineComment[] = [],
+  answers: readonly FindingAnswer[] = [],
 ): string {
+  const answerOf = answersById(answers);
   const title = review.pr.title || "Untitled review";
   const { pr, prologue, stats, chapters, warnings } = review;
 
@@ -130,6 +141,7 @@ export function reviewToMarkdown(
             3,
             comments.filter((x) => x.chapterIndex === c.index),
             chapterFindings(review.findings, c.index),
+            answers,
           ),
         )
         .join("\n\n"),
@@ -138,7 +150,12 @@ export function reviewToMarkdown(
 
   const others = otherFindings(review.findings);
   if (others.length > 0) {
-    parts.push("", "## Other findings", "", ...others.map(findingToMarkdown));
+    parts.push(
+      "",
+      "## Other findings",
+      "",
+      ...others.map((f) => findingToMarkdown(f, answerOf.get(f.id))),
+    );
   }
 
   if (warnings.length > 0) {

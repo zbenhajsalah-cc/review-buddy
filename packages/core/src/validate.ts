@@ -1,5 +1,6 @@
 import { z } from "zod";
 import type { DoneResult } from "./types.ts";
+import { MAX_FINDING_REASON } from "./types.ts";
 
 const KeyChange = z.object({ headline: z.string(), detail: z.string() });
 const ReviewFocus = z.object({ summary: z.string(), file: z.string() });
@@ -117,11 +118,21 @@ const ReviewCommentSchema = z.object({
   body: z.string().max(50_000),
 });
 
+// An answer names a finding by id and says what the reviewer decided. The
+// findings themselves are capped at 50 (AgentReviewSchema), so the answers are
+// too; an id for a finding this review does not have is simply not joined.
+const FindingAnswerSchema = z.object({
+  id: z.string().min(1).max(100),
+  decision: z.enum(["fix", "dismiss"]),
+  reason: z.string().max(MAX_FINDING_REASON).optional(),
+});
+
 /** Shape of POST /api/done. Unknown keys are dropped. */
 export const DoneResultSchema = z.object({
   verdict: z.enum(["approve", "request_changes"]).optional(),
   summary: z.string().max(50_000).optional(),
   comments: z.array(ReviewCommentSchema).max(2000).optional(),
+  findings: z.array(FindingAnswerSchema).max(50).optional(),
 });
 
 /**

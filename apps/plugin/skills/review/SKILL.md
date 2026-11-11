@@ -131,7 +131,8 @@ determined in Step 0 (`worktree` / `pr` / `branch`). This is how the hook knows 
 to re-capture; for a PR it is REQUIRED (omitting it makes the hook fall back to the local
 working tree, and the viewer shows an empty diff). Calling the tool opens the review in
 the reviewer's browser and pauses for their review. The reviewer can leave **line
-comments** on the diff, then finish in one of two ways.
+comments** on the diff and answer each finding you passed (fix it, or dismiss it with a
+reason), then finish in one of two ways.
 
 
 ### If the reviewer approves
@@ -140,6 +141,11 @@ The tool call goes through. Any note or line comments come with it as additional
 ("Reviewer approved, with comments"). Answer their questions and make the small fixes they
 ask for; do not call `submit_review` again unless the user asks. With no comments, briefly
 acknowledge and continue.
+
+If you passed `findings`, the feedback also says what the reviewer decided about each
+one: the ones under **Findings to fix** are yours to fix, and the ones under
+**Dismissed by the reviewer** must not be raised again — the reason says why.
+
 
 ### If your review is denied with feedback
 
@@ -150,3 +156,8 @@ version of the file, `(old)` one in the base version. Read the reason as review 
 make the requested edits, then call `submit_review` **again with the same `source`**.
 Acknowledge what you changed between submissions. Re-submit at most **3 times**; if the
 reviewer still requests changes, stop and ask the human directly rather than looping.
+
+If you passed `findings`, the feedback also says what the reviewer decided about each
+one: the ones under **Findings to fix** are yours to fix, and the ones under
+**Dismissed by the reviewer** must not be raised again — the reason says why.
+

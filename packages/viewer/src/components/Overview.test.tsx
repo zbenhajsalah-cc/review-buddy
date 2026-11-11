@@ -1,6 +1,6 @@
 /// <reference types="bun-types" />
 import { afterEach, expect, mock, test } from "bun:test";
-import { act, cleanup, fireEvent, screen } from "@testing-library/react";
+import { act, cleanup, fireEvent, screen, waitFor } from "@testing-library/react";
 import { renderWithApi } from "../../test/render.tsx";
 import type { LineComment } from "../lib/comments.ts";
 import { reviewToMarkdown } from "../lib/reviewMarkdown.ts";
@@ -314,6 +314,26 @@ test("findings: the counts, other findings, and a count on each chapter card", (
   // The chapter findings are not repeated on the overview.
   expect(card.textContent).not.toContain("Name the 30-minute constant");
   expect(screen.getByText("3 findings")).toBeDefined(); // chapter 2's card
+});
+
+test('findings: with round-trip, an "other" finding is answered on the overview', async () => {
+  renderWithApi(
+    <Overview review={fakeReviewWithFindings} onBeginReview={() => {}} />,
+    fakeReviewApi({ review: fakeReviewWithFindings, roundtrip: true }),
+  );
+  const card = await screen.findByRole("region", { name: "Findings" });
+  await waitFor(() => expect(screen.getByRole("button", { name: "Fix" })).toBeDefined());
+  expect(card.textContent).toContain("4 with no answer yet");
+
+  // The pre-existing one belongs to no chapter, so this is the only place it
+  // can be answered.
+  fireEvent.click(screen.getByRole("button", { name: "Fix" }));
+  expect(JSON.parse(localStorage.getItem("rb.findings.fake-review") ?? "[]")).toEqual([
+    { id: "f-0000dddd", decision: "fix" },
+  ]);
+  expect(card.textContent).toContain("3 with no answer yet");
+  expect(screen.getByText("3 findings · 3 unanswered")).toBeDefined(); // chapter 2's card
+  localStorage.removeItem("rb.findings.fake-review");
 });
 
 test("no findings → no Findings card", () => {

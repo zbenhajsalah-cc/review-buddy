@@ -158,3 +158,8 @@ changes, stop and ask the human directly rather than looping.
 If the reviewer approved with comments, answer their questions and make the
 small fixes they ask for; do not call `submit_review` again unless the user
 asks.
+
+If you passed `findings`, the verdict also says what the reviewer decided
+about each one: the ones under **Findings to fix** are yours to fix, and the
+ones under **Dismissed by the reviewer** must not be raised again — the reason
+says why.

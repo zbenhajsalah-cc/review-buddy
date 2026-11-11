@@ -192,6 +192,33 @@ test("parseDoneResult: a verdict with a note and comments; unknown keys are drop
   });
 });
 
+test("parseDoneResult: finding answers, with the reason trimmed of nothing it does not have", () => {
+  const parsed = parseDoneResult({
+    verdict: "approve",
+    findings: [
+      { id: "ab12cd34", decision: "fix" },
+      { id: "ef56", decision: "dismiss", reason: "intentional, used by the codegen" },
+    ],
+  });
+  expect(parsed).toEqual({
+    ok: true,
+    value: {
+      verdict: "approve",
+      findings: [
+        { id: "ab12cd34", decision: "fix" },
+        { id: "ef56", decision: "dismiss", reason: "intentional, used by the codegen" },
+      ],
+    },
+  });
+});
+
+test("parseDoneResult: at most one answer per finding of the cap (50)", () => {
+  const answer = (i: number) => ({ id: `f${i}`, decision: "fix" as const });
+  const fifty = Array.from({ length: 50 }, (_, i) => answer(i));
+  expect(parseDoneResult({ findings: fifty }).ok).toBe(true);
+  expect(parseDoneResult({ findings: [...fifty, answer(50)] }).ok).toBe(false);
+});
+
 test("parseDoneResult: names what is malformed", () => {
   const bad = (body: unknown) => {
     const parsed = parseDoneResult(body);
@@ -206,5 +233,7 @@ test("parseDoneResult: names what is malformed", () => {
   expect(
     bad({ comments: [{ chapterIndex: 1, path: "a.ts", side: "new", line: 0, body: "" }] }),
   ).toContain("comments.0.line");
+  expect(bad({ findings: [{ id: "f1", decision: "maybe" }] })).toContain("findings.0.decision");
+  expect(bad({ findings: [{ decision: "fix" }] })).toContain("findings.0.id");
   expect(bad(null)).toContain("(root)");
 });

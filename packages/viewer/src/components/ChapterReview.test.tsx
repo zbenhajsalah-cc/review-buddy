@@ -1,5 +1,6 @@
 /// <reference types="bun-types" />
 import { afterEach, expect, mock, test } from "bun:test";
+import type { ResolvedReview } from "@review-buddy/core/types";
 import { act, cleanup, fireEvent, screen } from "@testing-library/react";
 import { renderWithApi } from "../../test/render.tsx";
 import { commentsToMarkdown, type LineComment } from "../lib/comments.ts";
@@ -16,12 +17,14 @@ const { ChapterReview } = await import("./ChapterReview.tsx");
 const VIEWED_KEY = "rb.viewed.fake-review";
 const COLLAPSED_KEY = "rb.collapsed.fake-review";
 const COMMENTS_KEY = "rb.comments.fake-review";
+const ANSWERS_KEY = "rb.findings.fake-review";
 
 afterEach(() => {
   cleanup();
   localStorage.removeItem(VIEWED_KEY);
   localStorage.removeItem(COLLAPSED_KEY);
   localStorage.removeItem(COMMENTS_KEY);
+  localStorage.removeItem(ANSWERS_KEY);
   // biome-ignore lint/suspicious/noDocumentCookie: drop the "hide viewed" preference
   document.cookie = "rb.hideViewed=; path=/; max-age=0";
 });
@@ -656,4 +659,202 @@ test("the sidebar lists the chapter's findings, most severe first, and opens one
 test("a chapter without findings has no findings list", () => {
   renderChapter2();
   expect(screen.queryByRole("heading", { name: /findings?$/ })).toBeNull();
+});
+
+/* ---------------- answering findings (plan 019 part 2) ---------------- */
+
+/** Chapter 2 of the findings fixture, with round-trip on. */
+function renderFindings(done = mock(async () => {})) {
+  const rendered = renderWithApi(
+    <ChapterReview
+      review={fakeReviewWithFindings}
+      position={1}
+      onNavigate={() => {}}
+      onExit={() => {}}
+    />,
+    fakeReviewApi({ review: fakeReviewWithFindings, roundtrip: true, overrides: { done } }),
+  );
+  return { ...rendered, done };
+}
+
+const MIDDLEWARE_FINDING = "f-0000aaaa";
+/** The important finding on a line this chapter's diff does not show. */
+const OUTSIDE_FINDING = "f-0000cccc";
+
+test("without round-trip the findings are read only", () => {
+  renderWithApi(
+    <ChapterReview
+      review={fakeReviewWithFindings}
+      position={1}
+      onNavigate={() => {}}
+      onExit={() => {}}
+    />,
+  );
+  expect(screen.queryByRole("button", { name: "Fix" })).toBeNull();
+  expect(screen.getByRole("heading", { name: "3 findings" })).toBeDefined();
+});
+
+test("round-trip: Fix is remembered, shown in the sidebar, and counted as answered", async () => {
+  renderFindings();
+  await screen.findByRole("button", { name: "Request changes" });
+  expect(screen.getByRole("heading", { name: "3 findings · 3 unanswered" })).toBeDefined();
+
+  // The one finding with a card of its own in this mocked diff: the important
+  // one outside the hunks, listed under session.ts's header.
+  const card = document.querySelector(`[data-finding-id="${OUTSIDE_FINDING}"]`);
+  expect(card).not.toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: "Fix" }));
+
+  expect(JSON.parse(localStorage.getItem(ANSWERS_KEY) ?? "[]")).toEqual([
+    { id: OUTSIDE_FINDING, decision: "fix" },
+  ]);
+  expect(screen.getByRole("heading", { name: "3 findings · 2 unanswered" })).toBeDefined();
+  expect(card!.getAttribute("data-answered")).toBe("fix");
+  // The sidebar item says what was decided.
+  const item = screen
+    .getAllByRole("button")
+    .find((b) => b.getAttribute("title")?.includes("session cache is never cleared"));
+  expect(item?.textContent).toContain("To fix");
+
+  // And it can be taken back.
+  fireEvent.click(screen.getByRole("button", { name: "Undo" }));
+  expect(localStorage.getItem(ANSWERS_KEY)).toBe("[]");
+  expect(screen.getByRole("heading", { name: "3 findings · 3 unanswered" })).toBeDefined();
+});
+
+test("round-trip: Done sends the answers and asks first about an unanswered important finding", async () => {
+  localStorage.setItem(VIEWED_KEY, JSON.stringify(ALL_VIEWED));
+  localStorage.setItem(
+    ANSWERS_KEY,
+    JSON.stringify([
+      { id: MIDDLEWARE_FINDING, decision: "fix" },
+      { id: "f-0000bbbb", decision: "dismiss", reason: "fine as it is" },
+      { id: "gone", decision: "fix" },
+    ]),
+  );
+  const { done } = renderFindings();
+  await screen.findByRole("button", { name: "Request changes" });
+
+  // f-0000cccc (important, outside the diff) still has no answer: it asks.
+  fireEvent.click(screen.getByRole("button", { name: "Done" }));
+  expect(screen.getByText(/1 important finding has no answer\./)).toBeDefined();
+  expect(done).not.toHaveBeenCalled();
+
+  await act(async () => {
+    fireEvent.click(screen.getByRole("button", { name: "Finish anyway" }));
+  });
+  // The stale answer ("gone" is in no review) stays behind.
+  expect(done).toHaveBeenCalledWith({
+    verdict: "approve",
+    findings: [
+      { id: MIDDLEWARE_FINDING, decision: "fix" },
+      { id: "f-0000bbbb", decision: "dismiss", reason: "fine as it is" },
+    ],
+  });
+  expect(localStorage.getItem(ANSWERS_KEY)).toBeNull();
+});
+
+test("round-trip: every important finding answered, Done goes straight through", async () => {
+  localStorage.setItem(VIEWED_KEY, JSON.stringify(ALL_VIEWED));
+  localStorage.setItem(
+    ANSWERS_KEY,
+    JSON.stringify([
+      { id: MIDDLEWARE_FINDING, decision: "fix" },
+      { id: "f-0000cccc", decision: "dismiss", reason: "logout is out of scope" },
+    ]),
+  );
+  const { done } = renderFindings();
+  await screen.findByRole("button", { name: "Request changes" });
+  await act(async () => {
+    fireEvent.click(screen.getByRole("button", { name: "Done" }));
+  });
+  expect(screen.queryByText(/no answer/)).toBeNull();
+  expect(done).toHaveBeenCalled();
+});
+
+test("round-trip: Request changes sends the answers with the note", async () => {
+  localStorage.setItem(ANSWERS_KEY, JSON.stringify([{ id: MIDDLEWARE_FINDING, decision: "fix" }]));
+  const { done } = renderFindings();
+  fireEvent.click(await screen.findByRole("button", { name: "Request changes" }));
+  expect(screen.getByText("Your answers to 1 finding go too.")).toBeDefined();
+  fireEvent.change(screen.getByPlaceholderText("What should change?"), {
+    target: { value: "Fix the skew." },
+  });
+  await act(async () => {
+    fireEvent.click(screen.getByRole("button", { name: "Submit request" }));
+  });
+  expect(done).toHaveBeenCalledWith({
+    verdict: "request_changes",
+    summary: "Fix the skew.",
+    findings: [{ id: MIDDLEWARE_FINDING, decision: "fix" }],
+  });
+});
+
+test("round-trip: n and p walk the findings with no answer", async () => {
+  renderFindings();
+  await screen.findByRole("button", { name: "Request changes" });
+
+  // Nothing opened yet: n starts at the most severe one, in middleware.ts.
+  fireEvent.keyDown(document, { key: "n" });
+  expect(inCard(MIDDLEWARE, "[data-focused]")).not.toBeNull();
+
+  // p from there wraps to the last one in the list, in session.ts.
+  fireEvent.keyDown(document, { key: "p" });
+  expect(inCard(SESSION, "[data-focused]")).not.toBeNull();
+});
+
+test("round-trip: with every finding answered, n has nowhere to go", async () => {
+  localStorage.setItem(
+    ANSWERS_KEY,
+    JSON.stringify(
+      (fakeReviewWithFindings.findings ?? []).map((f) => ({ id: f.id, decision: "fix" })),
+    ),
+  );
+  renderFindings();
+  await screen.findByRole("button", { name: "Request changes" });
+  fireEvent.keyDown(document, { key: "n" });
+  expect(document.querySelector("[data-focused]")).toBeNull();
+});
+
+test("round-trip: n wraps even when two findings' ids share a prefix", async () => {
+  // resolveFindings gives two findings with the same path and title ids like
+  // "f-1234" and "f-1234-2", so one id is a prefix of the other.
+  const sameTitle: ResolvedReview = {
+    ...fakeReviewWithFindings,
+    findings: [
+      {
+        id: "f-1234",
+        path: MIDDLEWARE,
+        line: 20,
+        side: "new",
+        severity: "important",
+        title: "Same title, twice",
+        chapterIndex: 2,
+      },
+      {
+        id: "f-1234-2",
+        path: SESSION,
+        line: 6,
+        side: "new",
+        severity: "important",
+        title: "Same title, twice",
+        chapterIndex: 2,
+      },
+    ],
+  };
+  renderWithApi(
+    <ChapterReview review={sameTitle} position={1} onNavigate={() => {}} onExit={() => {}} />,
+    fakeReviewApi({ review: sameTitle, roundtrip: true }),
+  );
+  await screen.findByRole("button", { name: "Request changes" });
+
+  fireEvent.keyDown(document, { key: "n" });
+  expect(inCard(MIDDLEWARE, "[data-focused]")).not.toBeNull();
+  fireEvent.keyDown(document, { key: "n" });
+  expect(inCard(SESSION, "[data-focused]")).not.toBeNull();
+  // The third press wraps back to the first, rather than matching "f-1234"
+  // inside "f-1234-2" and staying put.
+  fireEvent.keyDown(document, { key: "n" });
+  expect(inCard(MIDDLEWARE, "[data-focused]")).not.toBeNull();
+  expect(inCard(SESSION, "[data-focused]")).toBeNull();
 });

@@ -1,6 +1,12 @@
 import type { DiffLineAnnotation, FileDiffMetadata, SelectedLineRange } from "@pierre/diffs";
 import { FileDiff, PatchDiff } from "@pierre/diffs/react";
-import type { DisplaySettings, ResolvedFile, ResolvedFinding } from "@review-buddy/core/types";
+import type {
+  DisplaySettings,
+  FindingAnswer,
+  FindingDecision,
+  ResolvedFile,
+  ResolvedFinding,
+} from "@review-buddy/core/types";
 import { memo, useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import {
   type CommentSide,
@@ -13,6 +19,7 @@ import {
   toAnnotationSide,
 } from "../lib/comments.ts";
 import { buildExpandedDiff, canExpand, requiredSides } from "../lib/expand.ts";
+import { answersById } from "../lib/findings.ts";
 import { fileToPatch } from "../lib/patch.ts";
 import { cn } from "../lib/utils.ts";
 import { useReviewApi } from "../review-api.tsx";
@@ -30,6 +37,7 @@ type Draft = { range: LineRange; text: string };
 
 const NO_COMMENTS: readonly LineComment[] = [];
 const NO_FINDINGS: readonly ResolvedFinding[] = [];
+const NO_ANSWERS: readonly FindingAnswer[] = [];
 
 /** The annotation for a positionKey ("new:12"); its metadata is the key. */
 function annotationAt(key: string): DiffLineAnnotation<string> {
@@ -64,11 +72,14 @@ export const FileDiffCard = memo(function FileDiffCard({
   focused = false,
   comments = NO_COMMENTS,
   findings = NO_FINDINGS,
+  answers = NO_ANSWERS,
   onViewedChange,
   onSetCollapsed,
   onAddComment,
   onEditComment,
   onDeleteComment,
+  onAnswerFinding,
+  onClearFindingAnswer,
 }: {
   file: ResolvedFile;
   settings: DisplaySettings;
@@ -77,13 +88,18 @@ export const FileDiffCard = memo(function FileDiffCard({
   focused?: boolean;
   /** This file's comments in this chapter. */
   comments?: readonly LineComment[];
-  /** This file's findings in this chapter (read only). */
+  /** This file's findings in this chapter. */
   findings?: readonly ResolvedFinding[];
+  /** The whole review's answers — the card picks out its findings'. */
+  answers?: readonly FindingAnswer[];
   onViewedChange: (path: string, checked: boolean) => void;
   onSetCollapsed: (path: string, value: boolean) => void;
   onAddComment: (path: string, range: LineRange, body: string) => void;
   onEditComment: (id: string, body: string) => void;
   onDeleteComment: (id: string) => void;
+  /** Omit ⇒ the findings are read only (round-trip off). */
+  onAnswerFinding?: (id: string, decision: FindingDecision, reason?: string) => void;
+  onClearFindingAnswer?: (id: string) => void;
 }) {
   const api = useReviewApi();
   const [copied, setCopied] = useState(false);
@@ -177,6 +193,7 @@ export const FileDiffCard = memo(function FileDiffCard({
     }
     return { findingsAt: at, outside: rest };
   }, [findings]);
+  const answerOf = useMemo(() => answersById(answers), [answers]);
   // A new annotation array makes @pierre/diffs render the whole file again, so
   // it changes only when the lines with something under them change — not
   // when a comment is edited or a form typed in.
@@ -196,7 +213,13 @@ export const FileDiffCard = memo(function FileDiffCard({
       // Keyed by line, so a slot that moves to another line gets a new thread.
       <CommentThread key={key}>
         {findingsAt.get(key)?.map((f) => (
-          <FindingCard key={f.id} finding={f} />
+          <FindingCard
+            key={f.id}
+            finding={f}
+            answer={answerOf.get(f.id)}
+            onAnswer={onAnswerFinding}
+            onClearAnswer={onClearFindingAnswer}
+          />
         ))}
         {commentsAt.get(key)?.map((c) => {
           const edit = edits[c.id];
@@ -379,7 +402,13 @@ export const FileDiffCard = memo(function FileDiffCard({
                   : `${outside.length} findings on lines this diff does not show`}
               </h3>
               {outside.map((f) => (
-                <FindingCard key={f.id} finding={f} />
+                <FindingCard
+                  key={f.id}
+                  finding={f}
+                  answer={answerOf.get(f.id)}
+                  onAnswer={onAnswerFinding}
+                  onClearAnswer={onClearFindingAnswer}
+                />
               ))}
             </section>
           )}

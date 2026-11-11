@@ -24,3 +24,24 @@ export const Important: Story = { args: { finding: important! } };
 /** Folded: the body opens on a click. */
 export const Nit: Story = { args: { finding: nit! } };
 export const PreExisting: Story = { args: { finding: preExisting!, showPath: true } };
+
+/** With round-trip on, each finding is answered: Fix, or Dismiss with a reason. */
+export const Answerable: Story = {
+  args: { finding: important!, onAnswer: () => {}, onClearAnswer: () => {} },
+};
+export const AnsweredToFix: Story = {
+  args: {
+    finding: important!,
+    answer: { id: important!.id, decision: "fix" },
+    onAnswer: () => {},
+    onClearAnswer: () => {},
+  },
+};
+export const AnsweredDismissed: Story = {
+  args: {
+    finding: nit!,
+    answer: { id: nit!.id, decision: "dismiss", reason: "intentional, used by the codegen" },
+    onAnswer: () => {},
+    onClearAnswer: () => {},
+  },
+};

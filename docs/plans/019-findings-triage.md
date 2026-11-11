@@ -1,7 +1,8 @@
 # Plan 019: Findings — show them on the line, answer each one
 
-**Status:** part 1 built ("findings, read only": steps 1–4, plus the sidebar
-list, Overview counts and Markdown copy). Part 2 (answers: steps 5–8) is next.
+**Status:** built, in two parts. Part 1 ("findings, read only"): steps 1–4, plus
+the sidebar list, Overview counts and Markdown copy. Part 2 (the answers): steps
+5–10.
 **Size:** large.
 
 ## Why
@@ -142,6 +143,33 @@ Part 1 notes (decided while building it):
 - The desktop app's `submit_review` schema leaves `findings` out, like
   `verification`.
 
+Part 2 notes (decided while building it):
+
+- A dismissal needs a reason for an `important` finding, and not for a nit or a
+  pre-existing one — the open question below, settled as proposed.
+- The answers are keyed by finding id in `rb.findings.<reviewKey>`, and
+  `clearReviewFileState` drops them with the viewed marks and the comments.
+- The join from answer to finding happens in `POST /api/done`
+  (`answeredFindings`), not in the browser: the agent is told the tool's own
+  path, line and title, and the finding's body — which the agent wrote — never
+  travels back. An id the review does not have is dropped, which is what a
+  stale answer from an earlier round looks like.
+- `answersToSend` already leaves such an answer behind, so the browser does not
+  send what the server would only drop.
+- The two blocks share the existing 6,000-character cap with the comments.
+  Comments come first, but the answers keep up to a third of the room while
+  they need it, so many long comments cannot swallow them; both blocks count
+  what did not fit.
+- Approving with an unanswered `important` finding reuses the check that
+  already asks about unviewed files and dropped comments, rather than adding a
+  second dialog.
+- `n` / `p` walk the chapter's unanswered findings and wrap; with round-trip
+  off they are not bound at all.
+- The Overview answers the "other findings" (on files the diff does not touch):
+  they belong to no chapter, so it is the only place they appear.
+- The desktop app is unchanged: its round-trip is off and its `submit_review`
+  has no `findings`, so its findings stay read only.
+
 ## Tests
 
 - `resolve.test.ts`: in a hunk; outside hunks; file not in diff; file in two
@@ -158,6 +186,7 @@ Part 1 notes (decided while building it):
 
 ## Open questions
 
-- Should "Dismiss" need a reason? Proposed: needed for `important`, optional for the rest.
+- ~~Should "Dismiss" need a reason?~~ **Settled:** needed for `important`, optional
+  for the rest.
 - With plan 020, a dismissed finding that comes back in the next round is
   hidden by its id. Without 020 it shows again. Accept this until 020 ships.

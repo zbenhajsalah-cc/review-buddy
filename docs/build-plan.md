@@ -118,11 +118,12 @@ returns the same text; detached shows no verdict UI. A hook `deny` is honored in
 
 - In-context AI agent (`/api/ai/*`) for questions within the PR context.
 
-## Proposed next: review enhancements (plans 017–021)
+## Review enhancements (plans 017–021)
 
-Five plans in `docs/plans/` (start at `docs/plans/README.md`), none built yet:
-direction questions shown first (017), an evidence panel (018), findings from
-other tools shown on the line and answered by the reviewer (019), rounds that
+Five plans in `docs/plans/` (start at `docs/plans/README.md`). **Built:** direction
+questions shown first (017), an evidence panel (018), and findings from other tools
+shown on their line and answered by the reviewer (019 — part 1 read only, part 2 the
+answers, which travel to the agent with the verdict). **Proposed:** rounds that
 show what changed since "Request changes" and keep viewed marks (020, which
 closes the "persist viewed state" item of Phase 2), and attention scaled by risk
 with sensitive paths (021). The README there also lists what was left to the

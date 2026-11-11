@@ -14,9 +14,14 @@ import { createHash, timingSafeEqual } from "node:crypto";
 import { existsSync } from "node:fs";
 import { join, resolve, sep } from "node:path";
 import { languageOf } from "@review-buddy/core/diff";
+import { answeredFindings } from "@review-buddy/core/messages";
 import { allowedPaths } from "@review-buddy/core/resolve";
 import type { ReviewDataSource } from "@review-buddy/core/source";
-import type { ResolvedReview, DoneResult as ViewerDoneResult } from "@review-buddy/core/types";
+import type {
+  AnsweredFinding,
+  ResolvedReview,
+  DoneResult as ViewerDoneResult,
+} from "@review-buddy/core/types";
 import { parseDoneResult } from "@review-buddy/core/validate";
 import { VIEWER_CSP } from "@review-buddy/core/viewer-csp";
 
@@ -41,6 +46,13 @@ export interface ServerContext {
 
 /** What the viewer sent (validated), or how the server stopped. No verdict ⇒ approve. */
 export interface DoneResult extends ViewerDoneResult {
+  /**
+   * `findings` (answers by id) joined onto the review this server served, so
+   * the agent is told the tool's own location and title for each one. Joined
+   * here because this is where the resolved review is: the browser never sends
+   * a finding's text back. Empty when nothing was answered.
+   */
+  answered?: AnsweredFinding[];
   /** True when the server was stopped before the reviewer finished (e.g. a
    *  newer review superseded it) — `stop()` settles `done` with this so
    *  awaiting callers never hang on a server that can't receive /api/done. */
@@ -167,7 +179,11 @@ export function startServer(ctx: ServerContext): RunningServer {
         }
         const parsed = parseDoneResult(raw);
         if (!parsed.ok) return json({ error: parsed.error }, 400);
-        const body: DoneResult = parsed.value;
+        const answered = answeredFindings(ctx.review.findings, parsed.value.findings);
+        const body: DoneResult = {
+          ...parsed.value,
+          ...(answered.length > 0 ? { answered } : {}),
+        };
         // Resolve on the next tick so THIS response flushes to the client
         // before the hook tears the server down (otherwise the client sees an
         // empty reply / connection reset).

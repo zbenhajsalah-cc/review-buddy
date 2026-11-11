@@ -147,6 +147,23 @@ Reviewer requested changes:
 - `src/ui/src/api.ts` lines 20-24 (new): missing await on postDone
 ```
 
+**Shipped — the answers to the findings** (plan 019 part 2). A review can carry
+findings another tool made (`ResolvedReview.findings`), and the reviewer answers
+each one. The answers travel as `DoneResult.findings`
+(`{ id, decision: "fix" | "dismiss", reason? }`): the finding's id and the
+decision, never its text. `POST /api/done` joins them onto the review that
+server served (`answeredFindings`), so the agent is told the tool's own
+location, severity and title; a stale id is dropped. The text is two lists,
+after the comments:
+```
+Findings to fix:
+- `src/cache.ts` line 42 (new): Cache key ignores the tenant id
+Dismissed by the reviewer (do not raise these again):
+- `src/a.ts` line 7 (new): Unused import — "intentional, used by the codegen"
+```
+Both verdicts carry them. Approving while an `important` finding has no answer
+asks once, in the same check as unviewed files; it never blocks.
+
 **Open — token budget.** `permissionDecisionReason` is unbounded in principle but
 a very long reason wastes context and may be truncated by Claude Code. The Phase 2
 build should cap the serialized reason (e.g. summary + first N annotations, with a
@@ -276,12 +293,16 @@ plain Done.
 ## 7. What shipped
 
 - **Line comments** (viewer): `packages/viewer/src/lib/comments.ts`.
-- **Round-trip** (plugin), on by default: `DoneResult { verdict?, summary?, comments? }`
-  on `POST /api/done`, validated by the server; the hook denies on "request changes" and
+- **Round-trip** (plugin), on by default:
+  `DoneResult { verdict?, summary?, comments?, findings? }` on `POST /api/done`,
+  validated by the server; the hook denies on "request changes" and
   allows otherwise, with the text from `core/messages.ts`. Standalone blocking returns
   the same text; standalone detached shows no verdict UI.
+- **Answers to findings** (plan 019 part 2): `DoneResult.findings`, joined onto the
+  served review by `answeredFindings` and sent as two lists (to fix / dismissed).
 - Answered: deny under `bypassPermissions` (§1: honored), the token budget (§2: 6,000
-  characters), verdict validation (§5).
+  characters), verdict validation (§5), and the cap the two blocks share (comments
+  first, with a third of the room kept for the answers while they need it).
 - Still open: the viewed-state round-trip (`/api/file-viewed`; each submission gets a
   new port, so viewed marks do not survive a re-submit), a hook-side re-submit counter
   (§3), Approve + coverage (§4), per-chapter verdicts (§4), and posting line comments to

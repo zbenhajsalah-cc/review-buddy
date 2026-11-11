@@ -13,8 +13,11 @@ import { parseStored, usePersistedState } from "./usePersistedState.ts";
 
 const PREFIXES = ["viewed", "collapsed"] as const;
 type Prefix = (typeof PREFIXES)[number];
-/** Everything stored per review: the file flags, and the line comments (comments.ts). */
-const STORED = [...PREFIXES, "comments"] as const;
+/**
+ * Everything stored per review: the file flags, the line comments
+ * (comments.ts), and the answers to the findings (findings.ts).
+ */
+const STORED = [...PREFIXES, "comments", "findings"] as const;
 
 /** The localStorage key of one kind of state of one review. */
 export const reviewStorageKey = (name: (typeof STORED)[number], reviewKey: string) =>
@@ -60,7 +63,7 @@ export function readViewedEntries(reviewKey: string): readonly string[] {
 }
 
 /**
- * Drop THIS review's viewed + collapsed state and its comments. Called when the review is
+ * Drop THIS review's viewed + collapsed state, its comments and its answers. Called when the review is
  * submitted (Done) so a completed review doesn't leave its keys behind. Scoped
  * to this review's keys only — it never touches another review's keys, so it
  * cannot disturb a parallel review (another origin in the plugin, another

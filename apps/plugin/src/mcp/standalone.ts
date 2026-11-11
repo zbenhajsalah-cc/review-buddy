@@ -161,13 +161,13 @@ export async function handleStandaloneSubmit(
       "This review was superseded by a newer submit_review call; no verdict was collected.",
     );
   }
-  const { verdict, summary, comments } = result;
+  const { verdict, summary, comments, answered } = result;
   if (verdict === "request_changes") {
-    return ok(withNotes(requestChangesMessage(summary, comments), warnings));
+    return ok(withNotes(requestChangesMessage(summary, comments, answered), warnings));
   }
   const approved = joinMessages(
     "Review complete — the reviewer finished walking through it.",
-    approvalMessage(summary, comments),
+    approvalMessage(summary, comments, answered),
   )!;
   return ok(withNotes(approved, warnings));
 }

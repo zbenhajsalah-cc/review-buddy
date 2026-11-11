@@ -279,6 +279,72 @@ describe("HTTP server", () => {
     expect(await server.done).toEqual({ verdict: "approve" });
   });
 
+  test("POST /api/done joins the answers onto the findings this server served", async () => {
+    const withFindings: ResolvedReview = {
+      ...review,
+      findings: [
+        {
+          id: "f1",
+          path: "app.ts",
+          line: 2,
+          side: "new",
+          severity: "important",
+          title: "b is wrong",
+          body: "The agent's own words.",
+          chapterIndex: 1,
+        },
+      ],
+    };
+    const s = startServer({ review: withFindings, cwd: dir, source: localGitSource(dir) });
+    try {
+      const res = await fetch(`http://127.0.0.1:${s.port}/api/done`, {
+        method: "POST",
+        headers: { "content-type": "application/json", "x-review-buddy-token": s.token },
+        body: JSON.stringify({
+          verdict: "approve",
+          findings: [
+            { id: "f1", decision: "dismiss", reason: "intentional" },
+            { id: "stale", decision: "fix" },
+          ],
+        }),
+      });
+      expect(res.status).toBe(200);
+      const done = await s.done;
+      // The location, severity and title come from the review, not the browser,
+      // and the agent's own body does not travel back.
+      expect(done.answered).toEqual([
+        {
+          path: "app.ts",
+          line: 2,
+          start_line: undefined,
+          side: "new",
+          severity: "important",
+          title: "b is wrong",
+          decision: "dismiss",
+          reason: "intentional",
+        },
+      ]);
+      expect(done.findings).toHaveLength(2); // what the viewer sent, as it sent it
+    } finally {
+      s.stop();
+    }
+  });
+
+  test("POST /api/done with nothing answered carries no answers", async () => {
+    const s = startServer({ review, cwd: dir, source: localGitSource(dir) });
+    try {
+      const res = await fetch(`http://127.0.0.1:${s.port}/api/done`, {
+        method: "POST",
+        headers: { "content-type": "application/json", "x-review-buddy-token": s.token },
+        body: JSON.stringify({ verdict: "approve", findings: [{ id: "f1", decision: "fix" }] }),
+      });
+      expect(res.status).toBe(200);
+      expect((await s.done).answered).toBeUndefined();
+    } finally {
+      s.stop();
+    }
+  });
+
   test("POST /api/done rejects an oversized body (content-length guard)", async () => {
     const agent: AgentReview = {
       prologue: {

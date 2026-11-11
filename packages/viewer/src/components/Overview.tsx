@@ -1,8 +1,20 @@
-import type { OpenQuestion, ResolvedFinding, ResolvedReview } from "@review-buddy/core/types";
+import type {
+  FindingAnswer,
+  FindingDecision,
+  OpenQuestion,
+  ResolvedFinding,
+  ResolvedReview,
+} from "@review-buddy/core/types";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { readViewedEntries } from "../lib/chapterFileSet.ts";
 import { readComments } from "../lib/comments.ts";
-import { findingCounts, otherFindings } from "../lib/findings.ts";
+import {
+  answersById,
+  findingCounts,
+  openFindings,
+  otherFindings,
+  useFindingAnswers,
+} from "../lib/findings.ts";
 import { progressByChapter } from "../lib/progress.ts";
 import { raiseQuestionNote } from "../lib/raiseQuestion.ts";
 import { reviewToMarkdown } from "../lib/reviewMarkdown.ts";
@@ -45,6 +57,7 @@ export function Overview({
   const [roundtrip, setRoundtrip] = useState(false);
   const [viewedEntries] = useState(() => readViewedEntries(reviewKey));
   const [comments] = useState(() => readComments(reviewKey));
+  const { answers, answer, clearAnswer } = useFindingAnswers();
   const copyRef = useRef<CopyMarkdownHandle>(null);
 
   const chapterProgress = useMemo(
@@ -62,14 +75,16 @@ export function Overview({
   const questions = prologue.open_questions ?? [];
   const canRaise = roundtrip && !!onRaiseQuestion && chapters.length > 0;
 
-  // Raising a question needs round-trip: the note goes to the agent.
+  const findings = review.findings ?? [];
+  // Raising a question and answering a finding both need round-trip: they go
+  // to the agent.
   useEffect(() => {
-    if (questions.length === 0) return;
+    if (questions.length === 0 && findings.length === 0) return;
     api
       .getConfig()
       .then((c) => setRoundtrip(c.roundtrip))
       .catch(() => {});
-  }, [api, questions.length]);
+  }, [api, questions.length, findings.length]);
 
   useShortcuts({
     SHOW_SHORTCUTS: {
@@ -99,7 +114,7 @@ export function Overview({
           <div className="flex shrink-0 items-center gap-0.5">
             <CopyMarkdownButton
               ref={copyRef}
-              text={() => reviewToMarkdown(review, readComments(reviewKey))}
+              text={() => reviewToMarkdown(review, readComments(reviewKey), answers)}
               aria-label="Copy review as Markdown"
               title="Copy review as Markdown (c)"
               label="copy"
@@ -243,7 +258,14 @@ export function Overview({
 
       <Evidence review={review} />
 
-      {review.findings && review.findings.length > 0 && <Findings findings={review.findings} />}
+      {findings.length > 0 && (
+        <Findings
+          findings={findings}
+          answers={answers}
+          onAnswer={roundtrip ? answer : undefined}
+          onClearAnswer={roundtrip ? clearAnswer : undefined}
+        />
+      )}
 
       {/* Chapter list */}
       <h2 className="mt-10 mb-3 flex items-center gap-3 font-mono text-[0.66rem] font-medium uppercase tracking-[0.09em] text-muted-foreground">
@@ -260,9 +282,9 @@ export function Overview({
             complete: false,
           };
           const commentCount = comments.filter((c) => c.chapterIndex === ch.index).length;
-          const findingCount = (review.findings ?? []).filter(
-            (f) => f.chapterIndex === ch.index,
-          ).length;
+          const chapterFindingList = findings.filter((f) => f.chapterIndex === ch.index);
+          const findingCount = chapterFindingList.length;
+          const openCount = roundtrip ? openFindings(chapterFindingList, answers).length : 0;
           return (
             <li key={ch.index}>
               <button
@@ -298,6 +320,7 @@ export function Overview({
                     {findingCount > 0 && (
                       <span className="text-xs text-muted-foreground">
                         {findingCount} finding{findingCount === 1 ? "" : "s"}
+                        {openCount > 0 && ` · ${openCount} unanswered`}
                       </span>
                     )}
                     {commentCount > 0 && (
@@ -431,9 +454,25 @@ function OpenQuestions({
 /**
  * Findings from other tools: the counts, and the ones on files the diff does
  * not have (often pre-existing). The rest show on their lines in the chapters.
+ *
+ * The "other" ones belong to no chapter, so this is the only place they can be
+ * answered — `onAnswer` is omitted with round-trip off, and then every card
+ * here is read only, like the ones in the chapters.
  */
-function Findings({ findings }: { findings: readonly ResolvedFinding[] }) {
+function Findings({
+  findings,
+  answers,
+  onAnswer,
+  onClearAnswer,
+}: {
+  findings: readonly ResolvedFinding[];
+  answers: readonly FindingAnswer[];
+  onAnswer?: (id: string, decision: FindingDecision, reason?: string) => void;
+  onClearAnswer?: (id: string) => void;
+}) {
   const others = otherFindings(findings);
+  const answerOf = answersById(answers);
+  const open = onAnswer ? openFindings(findings, answers).length : 0;
   return (
     <section
       aria-labelledby="rb-findings"
@@ -446,6 +485,11 @@ function Findings({ findings }: { findings: readonly ResolvedFinding[] }) {
         Findings
       </h2>
       <p className="text-sm">{findingCounts(findings)}</p>
+      {open > 0 && (
+        <p className="mt-0.5 text-xs text-muted-foreground">
+          {open} with no answer yet — answer each one with Fix or Dismiss, in its chapter.
+        </p>
+      )}
       {others.length > 0 && (
         <div className="mt-3">
           <h3 className="mb-1.5 text-xs font-medium text-muted-foreground">
@@ -453,7 +497,14 @@ function Findings({ findings }: { findings: readonly ResolvedFinding[] }) {
           </h3>
           <div className="flex flex-col gap-2 text-sm">
             {others.map((f) => (
-              <FindingCard key={f.id} finding={f} showPath />
+              <FindingCard
+                key={f.id}
+                finding={f}
+                showPath
+                answer={answerOf.get(f.id)}
+                onAnswer={onAnswer}
+                onClearAnswer={onClearAnswer}
+              />
             ))}
           </div>
         </div>

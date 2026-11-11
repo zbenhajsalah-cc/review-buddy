@@ -16,7 +16,15 @@ import {
   toReviewComments,
   useComments,
 } from "../lib/comments.ts";
-import { chapterFindings, findingLines } from "../lib/findings.ts";
+import {
+  answersById,
+  answersToSend,
+  chapterFindings,
+  DECISION_LABEL,
+  findingLines,
+  openFindings,
+  useFindingAnswers,
+} from "../lib/findings.ts";
 import { keepFileInView, keepInView } from "../lib/keepFileInView.ts";
 import { reviewProgress } from "../lib/progress.ts";
 import { chapterToMarkdown } from "../lib/reviewMarkdown.ts";
@@ -156,6 +164,8 @@ function ChapterReviewBody({
     viewed: number;
     total: number;
     comments: number;
+    /** Important findings, anywhere in the review, with no answer. */
+    important: number;
   } | null>(null);
   // A preference, so a cookie: the plugin serves each review on a new port,
   // and localStorage is per port while cookies are per host.
@@ -175,6 +185,11 @@ function ChapterReviewBody({
     () => chapterFindings(review.findings, chapterIndex),
     [review.findings, chapterIndex],
   );
+  const { answers, answer: answerFinding, clearAnswer } = useFindingAnswers();
+  const answerOf = useMemo(() => answersById(answers), [answers]);
+  // The chapter's findings with no answer, in the order they are listed: what
+  // n / p walk through, and what Done asks about.
+  const openHere = useMemo(() => openFindings(findings, answers), [findings, answers]);
   const findingsByPath = useMemo(() => {
     const byPath = new Map<string, ResolvedFinding[]>();
     for (const f of findings) byPath.set(f.path, [...(byPath.get(f.path) ?? []), f]);
@@ -190,11 +205,16 @@ function ChapterReviewBody({
       addComment({ ...range, chapterIndex, path, body }),
     [addComment, chapterIndex],
   );
-  // The comment last opened from the list (a new object each time, so the
-  // same one opens again).
-  // A comment or finding opened from the sidebar list: its file and the
-  // selector of its card. A new object each time, so opening it again scrolls.
-  const [opened, setOpened] = useState<{ path: string; selector: string } | null>(null);
+  // A comment or finding opened from the sidebar list: its file, the selector
+  // of its card, and the finding's id when it is one — `n` / `p` step from it,
+  // and two findings' ids can share a prefix (`f-1234`, `f-1234-2`), so the
+  // selector is no way to tell which one is open. A new object each time, so
+  // opening the same one again scrolls to it again.
+  const [opened, setOpened] = useState<{
+    path: string;
+    selector: string;
+    findingId?: string;
+  } | null>(null);
   const diffScrollRef = useRef<HTMLDivElement>(null);
   const copyRef = useRef<CopyMarkdownHandle>(null);
 
@@ -272,14 +292,14 @@ function ChapterReviewBody({
     return keepFileInView(scroller, openFile);
   }, [chapterIndex, openFile]);
 
-  const openItem = (path: string, selector: string) => {
+  const openItem = (path: string, selector: string, findingId?: string) => {
     if (!matching.some((f) => f.path === path)) setFilter("");
-    setOpened({ path, selector });
+    setOpened({ path, selector, findingId });
   };
   const openComment = (comment: LineComment) =>
     openItem(comment.path, `[data-comment-id="${CSS.escape(comment.id)}"]`);
   const openFinding = (finding: ResolvedFinding) =>
-    openItem(finding.path, `[data-finding-id="${CSS.escape(finding.id)}"]`);
+    openItem(finding.path, `[data-finding-id="${CSS.escape(finding.id)}"]`, finding.id);
   // After the filter reset above (its effect clears the focus), so the
   // comment's file keeps it.
   // biome-ignore lint/correctness/useExhaustiveDependencies: only when an item is opened from the list
@@ -298,10 +318,23 @@ function ChapterReviewBody({
     for (const f of chapter.files) setCollapsed(f.path, anyExpanded);
   };
 
+  // n / p: the next (or previous) finding with no answer, from the one last
+  // opened. Only with round-trip, where "unanswered" means anything.
+  const stepFinding = (delta: 1 | -1) => {
+    if (openHere.length === 0) return;
+    const at = openHere.findIndex((f) => f.id === opened?.findingId);
+    const next = at === -1 ? (delta === 1 ? 0 : openHere.length - 1) : at + delta;
+    const target = openHere[(next + openHere.length) % openHere.length];
+    if (target) openFinding(target);
+  };
+
   useChapterShortcuts({
     shortcutsActive,
     onShowShortcuts: () => setShortcutsOpen(true),
     onCopyMarkdown: () => copyRef.current?.copy(),
+    hasOpenFindings: roundtrip && openHere.length > 0,
+    onNextFinding: () => stepFinding(1),
+    onPrevFinding: () => stepFinding(-1),
     hasNext: !!next,
     hasPrev: !!prev,
     onNextChapter: () => onNavigate(position + 1),
@@ -338,24 +371,35 @@ function ChapterReviewBody({
     }
   };
 
-  // With round-trip on, the comments go to the agent with the verdict.
-  const sentComments = () =>
-    allComments.length > 0 ? { comments: toReviewComments(allComments) } : {};
+  // With round-trip on, the comments and the answers to the findings go to the
+  // agent with the verdict.
+  const sentFeedback = () => {
+    const sendable = answersToSend(review.findings, answers);
+    return {
+      ...(allComments.length > 0 ? { comments: toReviewComments(allComments) } : {}),
+      ...(sendable.length > 0 ? { findings: sendable } : {}),
+    };
+  };
   const finish = () => {
     setUnfinished(null);
-    void submit(roundtrip ? { verdict: "approve", ...sentComments() } : undefined);
+    void submit(roundtrip ? { verdict: "approve", ...sentFeedback() } : undefined);
   };
   // Done asks first while files are not marked viewed (over the whole review),
-  // and when it would drop comments: without round-trip, the plugin's Done
-  // ends the review and clears them without sending them.
+  // while an important finding has no answer, and when it would drop comments:
+  // without round-trip, the plugin's Done ends the review and clears them
+  // without sending them. It only asks — blocking a merge is the project's
+  // policy, not ours.
   const done = () => {
     const progress = reviewProgress(chapters, readViewedEntries(api.reviewKey));
     const comments = api.afterDone === "keep" || roundtrip ? 0 : allComments.length;
-    if (progress.viewed >= progress.total && comments === 0) return finish();
+    const important = roundtrip
+      ? openFindings(review.findings, answers).filter((f) => f.severity === "important").length
+      : 0;
+    if (progress.viewed >= progress.total && comments === 0 && important === 0) return finish();
     setRequesting(false);
-    setUnfinished({ ...progress, comments });
+    setUnfinished({ ...progress, comments, important });
   };
-  const requestChanges = () => submit({ verdict: "request_changes", summary, ...sentComments() });
+  const requestChanges = () => submit({ verdict: "request_changes", summary, ...sentFeedback() });
 
   if (submitted) return <ReviewSubmitted />;
 
@@ -393,7 +437,7 @@ function ChapterReviewBody({
           <div className="flex items-center gap-2">
             <CopyMarkdownButton
               ref={copyRef}
-              text={() => chapterToMarkdown(chapter, 2, chapterComments, findings)}
+              text={() => chapterToMarkdown(chapter, 2, chapterComments, findings, answers)}
               aria-label="Copy chapter as Markdown"
               title="Copy chapter as Markdown (c)"
               label="copy"
@@ -429,8 +473,8 @@ function ChapterReviewBody({
               title={
                 !roundtrip
                   ? undefined
-                  : allComments.length > 0
-                    ? "Approve, and send your comments to the agent"
+                  : allComments.length > 0 || answers.length > 0
+                    ? "Approve, and send your comments and answers to the agent"
                     : "Approve"
               }
             >
@@ -443,6 +487,9 @@ function ChapterReviewBody({
               <p>
                 {unfinished.viewed < unfinished.total &&
                   `Viewed ${unfinished.viewed} of ${unfinished.total} file${unfinished.total === 1 ? "" : "s"}. `}
+                {unfinished.important === 1 && "1 important finding has no answer. "}
+                {unfinished.important > 1 &&
+                  `${unfinished.important} important findings have no answer. `}
                 {unfinished.comments === 1 && "Done does not send your comment, and clears it. "}
                 {unfinished.comments > 1 &&
                   `Done does not send your ${unfinished.comments} comments, and clears them. `}
@@ -482,6 +529,8 @@ function ChapterReviewBody({
                 <span className="text-xs text-muted-foreground">
                   {allComments.length === 1 && "Your comment goes too."}
                   {allComments.length > 1 && `Your ${allComments.length} comments go too.`}
+                  {answers.length > 0 &&
+                    `${allComments.length > 0 ? " " : ""}Your answers to ${answers.length} finding${answers.length === 1 ? "" : "s"} go too.`}
                 </span>
                 <Button
                   size="sm"
@@ -602,26 +651,37 @@ function ChapterReviewBody({
             <>
               <h2 className="mt-6 mb-2 font-mono text-[0.66rem] font-medium uppercase tracking-[0.09em] text-muted-foreground">
                 {findings.length} finding{findings.length === 1 ? "" : "s"}
+                {roundtrip && openHere.length > 0 && ` · ${openHere.length} unanswered`}
               </h2>
               <ul className="space-y-0.5">
-                {findings.map((f) => (
-                  <li key={f.id}>
-                    <button
-                      type="button"
-                      onClick={() => openFinding(f)}
-                      title={`${f.path}, ${findingLines(f)}: ${f.title}`}
-                      className="w-full rounded-md px-2 py-1.5 text-left text-xs transition-colors hover:bg-background"
-                    >
-                      <span className="flex items-center gap-1.5">
-                        <SeverityTag severity={f.severity} />
-                        <span className="truncate font-mono">
-                          {f.path.slice(f.path.lastIndexOf("/") + 1)}:{f.line}
+                {findings.map((f) => {
+                  const given = answerOf.get(f.id);
+                  return (
+                    <li key={f.id}>
+                      <button
+                        type="button"
+                        onClick={() => openFinding(f)}
+                        title={`${f.path}, ${findingLines(f)}: ${f.title}`}
+                        className="w-full rounded-md px-2 py-1.5 text-left text-xs transition-colors hover:bg-background"
+                      >
+                        <span className="flex items-center gap-1.5">
+                          <SeverityTag severity={f.severity} />
+                          <span className="truncate font-mono">
+                            {f.path.slice(f.path.lastIndexOf("/") + 1)}:{f.line}
+                          </span>
+                          {given && (
+                            <span className="ml-auto shrink-0 text-[0.65rem] text-muted-foreground">
+                              {DECISION_LABEL[given.decision]}
+                            </span>
+                          )}
                         </span>
-                      </span>
-                      <span className="mt-0.5 block truncate text-muted-foreground">{f.title}</span>
-                    </button>
-                  </li>
-                ))}
+                        <span className="mt-0.5 block truncate text-muted-foreground">
+                          {f.title}
+                        </span>
+                      </button>
+                    </li>
+                  );
+                })}
               </ul>
             </>
           )}
@@ -681,9 +741,14 @@ function ChapterReviewBody({
                     onSetCollapsed={setCollapsed}
                     comments={commentsByPath.get(f.path)}
                     findings={findingsByPath.get(f.path)}
+                    answers={answers}
                     onAddComment={handleAddComment}
                     onEditComment={editComment}
                     onDeleteComment={removeComment}
+                    // Answering a finding sends it to the agent, so it needs
+                    // round-trip; without it the cards stay read only.
+                    onAnswerFinding={roundtrip ? answerFinding : undefined}
+                    onClearFindingAnswer={roundtrip ? clearAnswer : undefined}
                   />
                 </div>
               ))}

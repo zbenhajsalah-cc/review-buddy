@@ -23495,6 +23495,7 @@ function standaloneMode(argv = process.argv) {
 import { isAbsolute } from "path";
 
 // ../../packages/core/src/messages.ts
+var FINDING_SEVERITIES = ["important", "nit", "pre_existing"];
 function describeLines(r) {
   if (r.startLine === undefined)
     return `line ${r.line} (${r.side})`;
@@ -23510,6 +23511,10 @@ function commentToMarkdown(c) {
 var MAX_FEEDBACK_CHARS = 6000;
 var MAX_SUMMARY_CHARS = 2000;
 var MAX_COMMENT_CHARS = 1000;
+var MAX_REASON_CHARS = 300;
+var SEPARATOR = `
+
+`;
 var cut = (text, max) => text.length <= max ? text : `${text.slice(0, max).trimEnd()} \u2026 (cut)`;
 function commentsBlock(comments, budget) {
   const sorted = [...comments].sort((a, b) => a.path.localeCompare(b.path) || a.line - b.line);
@@ -23531,30 +23536,112 @@ function commentsBlock(comments, budget) {
   return lines.join(`
 `);
 }
-function feedback(head, comments) {
-  if (comments.length === 0)
-    return head;
-  return `${head}
-
-${commentsBlock(comments, MAX_FEEDBACK_CHARS - head.length)}`;
+function answeredFindings(findings, answers) {
+  if (!findings?.length || !answers?.length)
+    return [];
+  const byId = new Map(findings.map((f) => [f.id, f]));
+  const seen = new Set;
+  const out = [];
+  for (const a of answers) {
+    const f = byId.get(a.id);
+    if (!f || seen.has(a.id))
+      continue;
+    seen.add(a.id);
+    const reason = a.reason?.trim();
+    out.push({
+      path: f.path,
+      line: f.line,
+      start_line: f.start_line,
+      side: f.side,
+      severity: f.severity,
+      title: f.title,
+      decision: a.decision,
+      ...reason ? { reason } : {}
+    });
+  }
+  return out.sort((a, b) => FINDING_SEVERITIES.indexOf(a.severity) - FINDING_SEVERITIES.indexOf(b.severity) || a.path.localeCompare(b.path) || a.line - b.line);
+}
+function findingToMarkdown(f) {
+  const where = describeLines({ side: f.side, line: f.line, startLine: f.start_line });
+  const reason = f.reason ? ` \u2014 "${cut(f.reason, MAX_REASON_CHARS)}"` : "";
+  return `- \`${f.path}\` ${where}: ${f.title}${reason}`;
+}
+function findingsBlock(findings, budget) {
+  const groups = [
+    { decision: "fix", head: "Findings to fix:" },
+    {
+      decision: "dismiss",
+      head: "Dismissed by the reviewer (do not raise these again):"
+    }
+  ];
+  const lines = [];
+  let used = 0;
+  let omitted = 0;
+  for (const group of groups) {
+    const items = findings.filter((f) => f.decision === group.decision).map(findingToMarkdown);
+    if (items.length === 0)
+      continue;
+    const start = lines.length;
+    let kept = 0;
+    lines.push(group.head);
+    used += group.head.length + 1;
+    for (const item of items) {
+      if (used + item.length + 1 > budget) {
+        omitted++;
+        continue;
+      }
+      lines.push(item);
+      used += item.length + 1;
+      kept++;
+    }
+    if (kept === 0) {
+      lines.length = start;
+      used -= group.head.length + 1;
+    }
+  }
+  if (lines.length === 0)
+    return;
+  if (omitted > 0) {
+    lines.push(`\u2026and ${omitted} more answered, not shown: the feedback was too long.`);
+  }
+  return lines.join(`
+`);
+}
+function feedback(head, comments, findings) {
+  const parts = [head];
+  let left = MAX_FEEDBACK_CHARS - head.length;
+  const reserved = findings.length > 0 ? Math.floor(left / 3) : 0;
+  if (comments.length > 0) {
+    left -= SEPARATOR.length;
+    const block = commentsBlock(comments, left - reserved);
+    parts.push(block);
+    left -= block.length;
+  }
+  if (findings.length > 0 && left > SEPARATOR.length) {
+    const block = findingsBlock(findings, left - SEPARATOR.length);
+    if (block)
+      parts.push(block);
+  }
+  return parts.join(SEPARATOR);
 }
 var noteOf = (summary) => cut(summary?.trim() ?? "", MAX_SUMMARY_CHARS);
-function requestChangesMessage(summary, comments = []) {
+function requestChangesMessage(summary, comments = [], findings = []) {
   const note = noteOf(summary);
-  if (!note && comments.length === 0) {
+  if (!note && comments.length === 0 && findings.length === 0) {
     return "Reviewer requested changes (no details provided) \u2014 re-examine the flagged chapters.";
   }
   return feedback(note ? `Reviewer requested changes:
 
-${note}` : "Reviewer requested changes.", comments);
+${note}` : "Reviewer requested changes.", comments, findings);
 }
-function approvalMessage(summary, comments = []) {
+function approvalMessage(summary, comments = [], findings = []) {
   const note = noteOf(summary);
-  if (!note && comments.length === 0)
+  if (!note && comments.length === 0 && findings.length === 0)
     return;
-  return feedback(note ? `Reviewer approved, with a note:
+  const head = note ? `Reviewer approved, with a note:
 
-${note}` : "Reviewer approved, with comments.", comments);
+${note}` : comments.length > 0 ? "Reviewer approved, with comments." : "Reviewer approved, and answered the findings.";
+  return feedback(head, comments, findings);
 }
 var MAX_RESOLUTION_NOTES = 10;
 function resolutionNotesMessage(warnings) {
@@ -23850,6 +23937,9 @@ function repoToplevel(cwd) {
     return null;
   }
 }
+// ../../packages/core/src/types.ts
+var MAX_FINDING_REASON = 2000;
+
 // ../../packages/core/src/validate.ts
 var KeyChange = exports_external.object({ headline: exports_external.string(), detail: exports_external.string() });
 var ReviewFocus = exports_external.object({ summary: exports_external.string(), file: exports_external.string() });
@@ -23942,10 +24032,16 @@ var ReviewCommentSchema = exports_external.object({
   startLine: LineNumber.optional(),
   body: exports_external.string().max(50000)
 });
+var FindingAnswerSchema = exports_external.object({
+  id: exports_external.string().min(1).max(100),
+  decision: exports_external.enum(["fix", "dismiss"]),
+  reason: exports_external.string().max(MAX_FINDING_REASON).optional()
+});
 var DoneResultSchema = exports_external.object({
   verdict: exports_external.enum(["approve", "request_changes"]).optional(),
   summary: exports_external.string().max(50000).optional(),
-  comments: exports_external.array(ReviewCommentSchema).max(2000).optional()
+  comments: exports_external.array(ReviewCommentSchema).max(2000).optional(),
+  findings: exports_external.array(FindingAnswerSchema).max(50).optional()
 });
 function parseDoneResult(body) {
   const parsed = DoneResultSchema.safeParse(body);
@@ -24547,7 +24643,11 @@ function startServer(ctx) {
         const parsed = parseDoneResult(raw);
         if (!parsed.ok)
           return json2({ error: parsed.error }, 400);
-        const body = parsed.value;
+        const answered = answeredFindings(ctx.review.findings, parsed.value.findings);
+        const body = {
+          ...parsed.value,
+          ...answered.length > 0 ? { answered } : {}
+        };
         setTimeout(() => resolveDone(body), 50);
         return json2({ ok: true });
       }
@@ -24761,11 +24861,11 @@ async function handleStandaloneSubmit(input, mode) {
   if (result.superseded) {
     return ok("This review was superseded by a newer submit_review call; no verdict was collected.");
   }
-  const { verdict, summary, comments } = result;
+  const { verdict, summary, comments, answered } = result;
   if (verdict === "request_changes") {
-    return ok(withNotes(requestChangesMessage(summary, comments), warnings));
+    return ok(withNotes(requestChangesMessage(summary, comments, answered), warnings));
   }
-  const approved = joinMessages("Review complete \u2014 the reviewer finished walking through it.", approvalMessage(summary, comments));
+  const approved = joinMessages("Review complete \u2014 the reviewer finished walking through it.", approvalMessage(summary, comments, answered));
   return ok(withNotes(approved, warnings));
 }
 

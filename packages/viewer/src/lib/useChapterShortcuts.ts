@@ -9,6 +9,9 @@ export function useChapterShortcuts({
   shortcutsActive,
   onShowShortcuts,
   onCopyMarkdown,
+  hasOpenFindings,
+  onNextFinding,
+  onPrevFinding,
   hasNext,
   hasPrev,
   onNextChapter,
@@ -27,6 +30,10 @@ export function useChapterShortcuts({
   shortcutsActive: boolean;
   onShowShortcuts: () => void;
   onCopyMarkdown: () => void;
+  /** Whether n / p have anywhere to go (findings this reviewer can answer). */
+  hasOpenFindings: boolean;
+  onNextFinding: () => void;
+  onPrevFinding: () => void;
   hasNext: boolean;
   hasPrev: boolean;
   onNextChapter: () => void;
@@ -51,6 +58,14 @@ export function useChapterShortcuts({
     COPY_MARKDOWN: {
       handler: onCopyMarkdown,
       enabled: shortcutsActive,
+    },
+    NEXT_FINDING: {
+      handler: onNextFinding,
+      enabled: shortcutsActive && hasOpenFindings,
+    },
+    PREV_FINDING: {
+      handler: onPrevFinding,
+      enabled: shortcutsActive && hasOpenFindings,
     },
     NEXT_CHAPTER: {
       handler: () => {

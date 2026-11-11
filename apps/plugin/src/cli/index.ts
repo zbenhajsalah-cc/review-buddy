@@ -114,10 +114,15 @@ async function runOpenReview(): Promise<never> {
   }
   const notes = resolutionNotesMessage(result.warnings);
   if (!roundtrip) allow("Review viewed by the human.", notes);
-  const { verdict, summary, comments } = result.done;
-  if (verdict === "request_changes") deny(requestChangesMessage(summary, comments), notes);
+  const { verdict, summary, comments, answered } = result.done;
+  if (verdict === "request_changes") {
+    deny(requestChangesMessage(summary, comments, answered), notes);
+  }
   // An approval's reason only reaches the debug log; additionalContext reaches the agent.
-  allow("Review approved by the human.", joinMessages(approvalMessage(summary, comments), notes));
+  allow(
+    "Review approved by the human.",
+    joinMessages(approvalMessage(summary, comments, answered), notes),
+  );
 }
 
 async function runDev(args: string[]): Promise<void> {
@@ -134,8 +139,8 @@ async function runDev(args: string[]): Promise<void> {
   const feedback = !roundtrip
     ? undefined
     : done.verdict === "request_changes"
-      ? requestChangesMessage(done.summary, done.comments)
-      : approvalMessage(done.summary, done.comments);
+      ? requestChangesMessage(done.summary, done.comments, done.answered)
+      : approvalMessage(done.summary, done.comments, done.answered);
   console.error(
     feedback ? `[review-buddy] Done. The agent would get:\n\n${feedback}` : "[review-buddy] Done.",
   );

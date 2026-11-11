@@ -77,6 +77,20 @@ export const SHORTCUTS = {
     group: "Files",
     surfaces: ["chapter"],
   },
+  NEXT_FINDING: {
+    keys: ["n"],
+    label: "n",
+    description: "Next finding with no answer",
+    group: "Review",
+    surfaces: ["chapter"],
+  },
+  PREV_FINDING: {
+    keys: ["p"],
+    label: "p",
+    description: "Previous finding with no answer",
+    group: "Review",
+    surfaces: ["chapter"],
+  },
   BEGIN_REVIEW: {
     keys: ["Enter"],
     label: "↵",

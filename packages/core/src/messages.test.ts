@@ -1,5 +1,6 @@
 import { expect, test } from "bun:test";
 import {
+  answeredFindings,
   approvalMessage,
   commentToMarkdown,
   describeLines,
@@ -7,7 +8,7 @@ import {
   requestChangesMessage,
   resolutionNotesMessage,
 } from "./messages.ts";
-import type { ReviewComment } from "./types.ts";
+import type { FindingAnswer, ResolvedFinding, ReviewComment } from "./types.ts";
 
 test("resolutionNotesMessage: empty list → undefined", () => {
   expect(resolutionNotesMessage([])).toBeUndefined();
@@ -144,4 +145,144 @@ test("approvalMessage: the comments, with or without a note", () => {
 test("joinMessages: skips missing parts", () => {
   expect(joinMessages(undefined, "a", undefined, "b")).toBe("a\n\nb");
   expect(joinMessages(undefined, "")).toBeUndefined();
+});
+
+const resolved = (over: Partial<ResolvedFinding> = {}): ResolvedFinding => ({
+  id: "f1",
+  path: "src/cache.ts",
+  line: 42,
+  side: "new",
+  severity: "important",
+  title: "Cache key ignores the tenant id",
+  body: "Two tenants with the same user id share an entry.",
+  ...over,
+});
+
+test("answeredFindings: joins by id, drops unknown ids, keeps the tool's own text", () => {
+  const findings = [resolved(), resolved({ id: "f2", path: "src/a.ts", line: 7, severity: "nit" })];
+  const answers: FindingAnswer[] = [
+    { id: "f2", decision: "dismiss", reason: "  intentional  " },
+    { id: "gone", decision: "fix" },
+    { id: "f1", decision: "fix" },
+  ];
+  expect(answeredFindings(findings, answers)).toEqual([
+    // Most severe first, whatever order the answers arrived in.
+    {
+      path: "src/cache.ts",
+      line: 42,
+      start_line: undefined,
+      side: "new",
+      severity: "important",
+      title: "Cache key ignores the tenant id",
+      decision: "fix",
+    },
+    {
+      path: "src/a.ts",
+      line: 7,
+      start_line: undefined,
+      side: "new",
+      severity: "nit",
+      title: "Cache key ignores the tenant id",
+      decision: "dismiss",
+      reason: "intentional",
+    },
+  ]);
+  // The finding's body never travels: the agent wrote it.
+  expect(JSON.stringify(answeredFindings(findings, answers))).not.toContain("Two tenants");
+});
+
+test("answeredFindings: nothing to join → empty", () => {
+  expect(answeredFindings(undefined, [{ id: "f1", decision: "fix" }])).toEqual([]);
+  expect(answeredFindings([resolved()], undefined)).toEqual([]);
+  expect(
+    answeredFindings(
+      [resolved()],
+      [
+        { id: "f1", decision: "fix" },
+        { id: "f1", decision: "dismiss" },
+      ],
+    ),
+  ).toHaveLength(
+    1, // one answer per finding, the first one
+  );
+});
+
+test("requestChangesMessage: the findings to fix, then the dismissed ones with their reason", () => {
+  const msg = requestChangesMessage(
+    "",
+    [],
+    answeredFindings(
+      [
+        resolved(),
+        resolved({ id: "f2", path: "src/a.ts", line: 7, severity: "nit", title: "Unused import" }),
+        resolved({
+          id: "f3",
+          path: "src/b.ts",
+          line: 9,
+          start_line: 8,
+          severity: "important",
+          title: "Null deref",
+        }),
+      ],
+      [
+        { id: "f1", decision: "fix" },
+        { id: "f2", decision: "dismiss", reason: "intentional, used by the codegen" },
+        { id: "f3", decision: "fix" },
+      ],
+    ),
+  );
+  expect(msg).toBe(
+    [
+      "Reviewer requested changes.",
+      "",
+      "Findings to fix:",
+      "- `src/b.ts` lines 8-9 (new): Null deref",
+      "- `src/cache.ts` line 42 (new): Cache key ignores the tenant id",
+      "Dismissed by the reviewer (do not raise these again):",
+      '- `src/a.ts` line 7 (new): Unused import — "intentional, used by the codegen"',
+    ].join("\n"),
+  );
+});
+
+test("approvalMessage: answered findings alone are worth a message", () => {
+  const msg = approvalMessage(
+    undefined,
+    [],
+    answeredFindings([resolved()], [{ id: "f1", decision: "fix" }]),
+  );
+  expect(msg).toBe(
+    [
+      "Reviewer approved, and answered the findings.",
+      "",
+      "Findings to fix:",
+      "- `src/cache.ts` line 42 (new): Cache key ignores the tenant id",
+    ].join("\n"),
+  );
+});
+
+test("requestChangesMessage: comments come first, and the findings share the cap", () => {
+  const comments = Array.from({ length: 40 }, (_, i) =>
+    comment({ line: i + 1, body: `${i}: ${"b".repeat(3000)}` }),
+  );
+  const findings = Array.from({ length: 50 }, (_, i) =>
+    resolved({ id: `f${i}`, line: i + 1, title: `Finding ${i} ${"t".repeat(150)}` }),
+  );
+  const answers: FindingAnswer[] = findings.map((f) => ({ id: f.id, decision: "fix" }));
+  const msg = requestChangesMessage("Fix it.", comments, answeredFindings(findings, answers));
+  expect(msg.length).toBeLessThanOrEqual(6000);
+  expect(msg).toContain('40 line comments ("new"');
+  // Many long comments must not swallow the answers: both blocks are there,
+  // and neither drops anything silently — what did not fit is counted.
+  expect(msg).toContain("Findings to fix:");
+  expect(msg).toMatch(/…and \d+ more not shown/);
+  expect(msg).toMatch(/…and \d+ more answered, not shown/);
+});
+
+test("findings block: a long dismissal reason is cut, not dropped", () => {
+  const msg = approvalMessage(
+    undefined,
+    [],
+    answeredFindings([resolved()], [{ id: "f1", decision: "dismiss", reason: "r".repeat(500) }]),
+  );
+  expect(msg).toContain(`"${"r".repeat(300)} … (cut)"`);
 });

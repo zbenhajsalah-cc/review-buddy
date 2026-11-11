@@ -219,6 +219,25 @@ test("incomplete CI is said in the copy", () => {
   expect(reviewToMarkdown(fakeReviewWithEvidence)).not.toContain("could not be read");
 });
 
+test("findings: the reviewer's answers are copied with them", () => {
+  const md = reviewToMarkdown(
+    fakeReviewWithFindings,
+    [],
+    [
+      { id: "f-0000aaaa", decision: "fix" },
+      { id: "f-0000dddd", decision: "dismiss", reason: "tracked elsewhere" },
+    ],
+  );
+  expect(md).toContain(
+    "An expired token is accepted when the clock skew is negative (from /code-review)",
+  );
+  expect(md).toContain("→ To fix");
+  expect(md).toContain("→ Dismissed: tracked elsewhere");
+  // A finding with no answer is copied without one.
+  expect(md).toContain("Name the 30-minute constant");
+  expect(md.match(/→/g)).toHaveLength(2);
+});
+
 test("findings: under their chapter, and the others in their own section", () => {
   const md = reviewToMarkdown(fakeReviewWithFindings);
   const ch2 = md.indexOf("### 02 Refactor auth middleware");
