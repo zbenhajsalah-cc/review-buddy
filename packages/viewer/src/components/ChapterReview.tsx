@@ -40,6 +40,7 @@ export function ChapterReview({
   review,
   position,
   openFile,
+  requestNote,
   onNavigate,
   onExit,
   markedDone,
@@ -50,6 +51,11 @@ export function ChapterReview({
   position: number;
   /** Focus this file and scroll to it when the chapter opens (if it has it). */
   openFile?: string;
+  /**
+   * Open the request-changes note with this text (an open question the
+   * reviewer raised from the overview). Shown only with round-trip on.
+   */
+  requestNote?: string;
   onNavigate: (position: number) => void;
   onExit: () => void;
   /**
@@ -70,6 +76,7 @@ export function ChapterReview({
       review={review}
       position={position}
       openFile={openFile}
+      requestNote={requestNote}
       onNavigate={onNavigate}
       onExit={onExit}
       chapter={chapter}
@@ -93,6 +100,7 @@ function ChapterReviewBody({
   review,
   position,
   openFile,
+  requestNote,
   onNavigate,
   onExit,
   chapter,
@@ -103,6 +111,7 @@ function ChapterReviewBody({
   review: ResolvedReview;
   position: number;
   openFile?: string;
+  requestNote?: string;
   onNavigate: (position: number) => void;
   onExit: () => void;
   chapter: ResolvedChapter;
@@ -207,6 +216,23 @@ function ChapterReviewBody({
       .then((c) => setRoundtrip(c.roundtrip))
       .catch(() => {});
   }, [api]);
+
+  // A question raised from the overview starts the request-changes note, with
+  // the caret after it once the note is shown (round-trip config is async).
+  const focusNote = useRef(false);
+  useEffect(() => {
+    if (!requestNote) return;
+    setUnfinished(null);
+    setSummary(requestNote);
+    setRequesting(true);
+    focusNote.current = true;
+  }, [requestNote]);
+  const noteRef = useCallback((el: HTMLTextAreaElement | null) => {
+    if (!el || !focusNote.current) return;
+    focusNote.current = false;
+    el.focus();
+    el.setSelectionRange(el.value.length, el.value.length);
+  }, []);
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: reset scroll/filter when navigating chapters
   useEffect(() => {
@@ -431,6 +457,7 @@ function ChapterReviewBody({
           {roundtrip && requesting && (
             <div className="flex w-72 flex-col gap-1">
               <textarea
+                ref={noteRef}
                 value={summary}
                 onChange={(e) => setSummary(e.target.value)}
                 placeholder="What should change?"

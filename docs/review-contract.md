@@ -23,7 +23,12 @@ Types for both live in `packages/core/src/types.ts`.
     "review_focus": {
       "summary": "Confirm the fallback default triggers the expected onboarding redirect, not a silent empty state.",
       "file": "src/dashboard/useSport.ts"
-    }
+    },
+    // optional, at most 3 — most reviews omit it
+    "open_questions": [
+      { "question": "The task was the null check, but the diff also renames 14 files. Should the rename be its own change?",
+        "context": "The PR description only mentions the blank dashboard." }
+    ]
   },
   "chapters": [
     {
@@ -57,6 +62,7 @@ Types for both live in `packages/core/src/types.ts`.
 - Omit `hunks` for a file ⇒ "all hunks of this file belong here."
 - A file may appear in multiple chapters with different hunk anchors.
 - Stats are advisory; never trusted for display.
+- `prologue.open_questions` (optional, 0–3 items, each `{ question, context? }`) holds scope or direction questions ("should we even do this?"). The viewer shows them first, in a "Before you read the code" card; with round-trip on, "Raise with the agent" starts the request-changes note with the question. They pass through `resolveReview` untouched. Like every field, they never hold diff or file text.
 
 ## 2. UI/server contract (`GET /api/review` output)
 

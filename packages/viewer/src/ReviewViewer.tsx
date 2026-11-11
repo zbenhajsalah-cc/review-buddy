@@ -48,10 +48,13 @@ function ReviewScreens({ urlHash, tabTitle }: { urlHash: boolean; tabTitle: bool
   const [markedDone, setMarkedDone] = useState(false);
   // Submitted (afterDone "close"): kept here, so Back does not reopen the review.
   const [submitted, setSubmitted] = useState(false);
-  // The file a chapter opens at (the overview's review focus); any other move clears it.
+  // The file a chapter opens at (the overview's review focus), and the note a
+  // raised question starts; any other move clears them.
   const [openFile, setOpenFile] = useState<string>();
-  const show = (next: View, file?: string) => {
+  const [requestNote, setRequestNote] = useState<string>();
+  const show = (next: View, file?: string, note?: string) => {
     setOpenFile(file);
+    setRequestNote(note);
     navigate(next);
   };
 
@@ -100,6 +103,7 @@ function ReviewScreens({ urlHash, tabTitle }: { urlHash: boolean; tabTitle: bool
         review={review}
         position={shown.position}
         openFile={openFile}
+        requestNote={requestNote}
         onNavigate={(position) => show({ mode: "chapter", position })}
         onExit={() => show({ mode: "overview" })}
         markedDone={markedDone}
@@ -113,6 +117,7 @@ function ReviewScreens({ urlHash, tabTitle }: { urlHash: boolean; tabTitle: bool
     <Overview
       review={review}
       onBeginReview={(position, file) => show({ mode: "chapter", position }, file)}
+      onRaiseQuestion={(position, note) => show({ mode: "chapter", position }, undefined, note)}
     />
   );
 }

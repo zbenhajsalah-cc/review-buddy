@@ -4,7 +4,7 @@ These five plans come from reading Anthropic's post
 [How the Claude Code team does code review](https://claude.dev/blog/solving-code-review-at-anthropic/)
 and asking what Review Buddy should take from it.
 
-**Status:** all five are proposed. Nothing is built yet.
+**Status:** 017 is built. The other four are proposed.
 
 ## The rule that decides what we build
 

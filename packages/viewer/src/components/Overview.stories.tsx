@@ -1,5 +1,6 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
-import { fakeResolvedReview } from "../stories/fixtures.ts";
+import { ReviewApiProvider } from "../review-api.tsx";
+import { fakeResolvedReview, fakeReviewApi, fakeReviewWithQuestions } from "../stories/fixtures.ts";
 import { Overview } from "./Overview.tsx";
 
 const meta = {
@@ -32,4 +33,20 @@ export const WithWarnings: Story = {
     },
     onBeginReview: () => {},
   },
+};
+
+export const WithOpenQuestions: Story = {
+  args: {
+    review: fakeReviewWithQuestions,
+    onBeginReview: () => {},
+    onRaiseQuestion: () => {},
+  },
+  // Round-trip on, so "Raise with the agent" shows.
+  decorators: [
+    (Story) => (
+      <ReviewApiProvider api={fakeReviewApi({ review: fakeReviewWithQuestions, roundtrip: true })}>
+        <Story />
+      </ReviewApiProvider>
+    ),
+  ],
 };

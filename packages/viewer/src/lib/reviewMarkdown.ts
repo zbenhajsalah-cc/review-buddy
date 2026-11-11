@@ -89,6 +89,16 @@ export function reviewToMarkdown(
     `${prologue.review_focus.summary} \`${prologue.review_focus.file}\``,
   );
 
+  const questions = prologue.open_questions ?? [];
+  if (questions.length > 0) {
+    parts.push(
+      "",
+      "**Before you read the code**",
+      "",
+      ...questions.map((q) => (q.context ? `- ${q.question} — ${q.context}` : `- ${q.question}`)),
+    );
+  }
+
   if (chapters.length > 0) {
     parts.push("", "## Chapters", "");
     parts.push(

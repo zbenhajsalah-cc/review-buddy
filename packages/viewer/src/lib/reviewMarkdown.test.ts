@@ -1,7 +1,7 @@
 /// <reference types="bun-types" />
 import { expect, test } from "bun:test";
 import type { ResolvedChapter, ResolvedReview } from "@review-buddy/core/types";
-import { fakeResolvedReview } from "../stories/fixtures.ts";
+import { fakeResolvedReview, fakeReviewWithQuestions } from "../stories/fixtures.ts";
 import type { LineComment } from "./comments.ts";
 import { chapterToMarkdown, reviewToMarkdown } from "./reviewMarkdown.ts";
 
@@ -120,6 +120,20 @@ test("empty key_changes and empty chapters omit those sections", () => {
   expect(md).not.toContain("## Chapters");
   expect(md).toContain("## Prologue");
   expect(md).toContain("**Review focus**");
+});
+
+test("open questions appear in the copy, and nothing without them", () => {
+  const md = reviewToMarkdown(fakeReviewWithQuestions);
+  expect(md).toContain("**Before you read the code**");
+  expect(md).toContain(
+    "- The task was a greeting change. Should the auth refactor be its own PR? — Chapter 2 rewires",
+  );
+  expect(md).toContain(
+    "- Is a fixed backoff still right, now that `docs/QUEUE.md` asks for jitter?\n",
+  );
+  expect(md.indexOf("**Before you read the code**")).toBeLessThan(md.indexOf("## Chapters"));
+
+  expect(reviewToMarkdown(fakeResolvedReview)).not.toContain("Before you read the code");
 });
 
 test("untitled review falls back like Overview", () => {

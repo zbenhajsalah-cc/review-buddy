@@ -28,11 +28,21 @@ export interface ReviewFocus {
   file: string;
 }
 
+/** A scope or direction question, shown before the reviewer reads the code. */
+export interface OpenQuestion {
+  /** One sentence, Markdown. */
+  question: string;
+  /** Why the agent asks, with a file or doc name as evidence. */
+  context?: string;
+}
+
 export interface Prologue {
   why: string;
   what: string;
   key_changes: KeyChange[];
   review_focus: ReviewFocus;
+  /** At most 3. Omitted (or empty) when the agent has none — most reviews. */
+  open_questions?: OpenQuestion[];
 }
 
 /* ------------------------------------------------------------------ */

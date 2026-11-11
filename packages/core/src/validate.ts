@@ -3,11 +3,16 @@ import type { DoneResult } from "./types.ts";
 
 const KeyChange = z.object({ headline: z.string(), detail: z.string() });
 const ReviewFocus = z.object({ summary: z.string(), file: z.string() });
+const OpenQuestion = z.object({
+  question: z.string().trim().min(1, "must not be empty"),
+  context: z.string().optional(),
+});
 const Prologue = z.object({
   why: z.string(),
   what: z.string(),
   key_changes: z.array(KeyChange),
   review_focus: ReviewFocus,
+  open_questions: z.array(OpenQuestion).max(3).optional(),
 });
 const Hunk = z.object({ old_start: z.number(), new_start: z.number() });
 const AgentFile = z.object({

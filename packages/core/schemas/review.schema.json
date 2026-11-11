@@ -66,6 +66,27 @@
             },
             "file": { "type": "string", "description": "The single file to scrutinize most." }
           }
+        },
+        "open_questions": {
+          "type": "array",
+          "maxItems": 3,
+          "description": "Optional. Scope or direction questions for the reviewer, shown before the code. Most reviews have none.",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["question"],
+            "properties": {
+              "question": {
+                "type": "string",
+                "minLength": 1,
+                "description": "One sentence: should this change be made this way at all?"
+              },
+              "context": {
+                "type": "string",
+                "description": "Why you ask, naming the file or doc that is the evidence."
+              }
+            }
+          }
         }
       }
     },

@@ -4,7 +4,7 @@ import { act, cleanup, fireEvent, screen } from "@testing-library/react";
 import { renderWithApi } from "../../test/render.tsx";
 import type { LineComment } from "../lib/comments.ts";
 import { reviewToMarkdown } from "../lib/reviewMarkdown.ts";
-import { fakeResolvedReview } from "../stories/fixtures.ts";
+import { fakeResolvedReview, fakeReviewApi, fakeReviewWithQuestions } from "../stories/fixtures.ts";
 import { Overview } from "./Overview.tsx";
 
 // fakeReviewApi()'s reviewKey is "fake-review".
@@ -234,4 +234,52 @@ test("a chapter card counts its comments, and the copy includes them", async () 
     fireEvent.click(screen.getByRole("button", { name: "Copy review as Markdown" }));
   });
   expect(writeText).toHaveBeenCalledWith(reviewToMarkdown(fakeResolvedReview, comments));
+});
+
+test("no open questions → no 'Before you read the code' card", () => {
+  renderWithApi(<Overview review={fakeResolvedReview} onBeginReview={() => {}} />);
+  expect(screen.queryByText("Before you read the code")).toBeNull();
+});
+
+test("open questions are shown first, with their context", () => {
+  renderWithApi(<Overview review={fakeReviewWithQuestions} onBeginReview={() => {}} />);
+  const card = screen.getByRole("region", { name: "Before you read the code" });
+  expect(card.textContent).toContain("Should the auth refactor be its own PR?");
+  expect(card.textContent).toContain("which the PR description does not mention");
+  expect(card.querySelectorAll("li")).toHaveLength(2);
+});
+
+test("round-trip off → questions shown without 'Raise with the agent'", async () => {
+  const getConfig = mock(async () => ({ roundtrip: false }));
+  renderWithApi(
+    <Overview
+      review={fakeReviewWithQuestions}
+      onBeginReview={() => {}}
+      onRaiseQuestion={() => {}}
+    />,
+    fakeReviewApi({ roundtrip: false, overrides: { getConfig } }),
+  );
+  await act(async () => {});
+  expect(getConfig).toHaveBeenCalled();
+  expect(screen.getByText("Before you read the code")).toBeTruthy();
+  expect(screen.queryByRole("button", { name: "Raise with the agent" })).toBeNull();
+});
+
+test("round-trip on → 'Raise with the agent' starts the note with the question", async () => {
+  const onRaiseQuestion = mock((_position: number, _note: string) => {});
+  renderWithApi(
+    <Overview
+      review={fakeReviewWithQuestions}
+      onBeginReview={() => {}}
+      onRaiseQuestion={onRaiseQuestion}
+    />,
+    fakeReviewApi({ roundtrip: true }),
+  );
+  const buttons = await screen.findAllByRole("button", { name: "Raise with the agent" });
+  expect(buttons).toHaveLength(2);
+  fireEvent.click(buttons[1]!);
+  expect(onRaiseQuestion).toHaveBeenCalledWith(
+    0,
+    "> Is a fixed backoff still right, now that `docs/QUEUE.md` asks for jitter?\n\n",
+  );
 });

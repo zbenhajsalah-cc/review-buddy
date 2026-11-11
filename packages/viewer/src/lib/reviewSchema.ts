@@ -18,11 +18,17 @@ const ReviewFocusSchema = z.object({
   file: z.string(),
 });
 
+const OpenQuestionSchema = z.object({
+  question: z.string(),
+  context: z.string().optional(),
+});
+
 const PrologueSchema = z.object({
   why: z.string(),
   what: z.string(),
   key_changes: z.array(KeyChangeSchema),
   review_focus: ReviewFocusSchema,
+  open_questions: z.array(OpenQuestionSchema).optional(),
 });
 
 const ReviewMetaSchema = z.object({

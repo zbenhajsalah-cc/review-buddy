@@ -602,3 +602,28 @@ test("round-trip without comments: Done sends the bare approval", async () => {
   });
   expect(done).toHaveBeenCalledWith({ verdict: "approve" });
 });
+
+test("round-trip: a raised question opens the request-changes note with it", async () => {
+  const done = mock(async () => {});
+  renderWithApi(
+    <ChapterReview
+      review={fakeResolvedReview}
+      position={0}
+      requestNote={"> Should this be its own PR?\n\n"}
+      onNavigate={() => {}}
+      onExit={() => {}}
+    />,
+    fakeReviewApi({ roundtrip: true, overrides: { done } }),
+  );
+  const note = (await screen.findByPlaceholderText("What should change?")) as HTMLTextAreaElement;
+  expect(note.value).toBe("> Should this be its own PR?\n\n");
+  expect(document.activeElement).toBe(note);
+  fireEvent.change(note, { target: { value: `${note.value}Yes, split it.` } });
+  await act(async () => {
+    fireEvent.click(screen.getByRole("button", { name: "Submit request" }));
+  });
+  expect(done).toHaveBeenCalledWith({
+    verdict: "request_changes",
+    summary: "> Should this be its own PR?\n\nYes, split it.",
+  });
+});
