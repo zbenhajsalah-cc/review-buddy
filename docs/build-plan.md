@@ -103,9 +103,14 @@ comments }` → `allow`, with `approvalMessage` in `additionalContext`. Standalo
 returns the same text; detached shows no verdict UI. A hook `deny` is honored in
 `bypassPermissions` mode (checked by hand with Claude Code 2.1.312).
 
-- Persist viewed state (files/chapters) → `POST /api/file-viewed`; reflect in
-  the chapter list. Today each submission gets a new server port, and so a new
-  localStorage origin: viewed marks do not survive a re-submit.
+- ~~Persist viewed state (files/chapters) → `POST /api/file-viewed`; reflect in
+  the chapter list.~~ **Done**, by another route: plan 020 part 1 carries the
+  marks on the verdict instead of on their own endpoint. Each submission still
+  gets a new port and so a new localStorage origin, so they travel with
+  `/api/done` (`viewed`), are stored per change by the server
+  (`~/.review-buddy/rounds`), and come back on the next review
+  (`ResolvedReview.round.viewedPaths`). `/api/file-viewed` is not needed: a
+  reload inside one round still uses localStorage.
 - Desktop: post line comments to GitHub as inline review comments (today it posts the
   verdict and summary only).
 
@@ -123,10 +128,13 @@ returns the same text; detached shows no verdict UI. A hook `deny` is honored in
 Five plans in `docs/plans/` (start at `docs/plans/README.md`). **Built:** direction
 questions shown first (017), an evidence panel (018), and findings from other tools
 shown on their line and answered by the reviewer (019 — part 1 read only, part 2 the
-answers, which travel to the agent with the verdict). **Proposed:** rounds that
-show what changed since "Request changes" and keep viewed marks (020, which
-closes the "persist viewed state" item of Phase 2), and attention scaled by risk
-with sensitive paths (021). The README there also lists what was left to the
+answers, which travel to the agent with the verdict). Rounds (020) are built in part: the server
+remembers each change, so a re-review knows which round it is and opens with
+the files the agent has not touched already marked viewed — which closes the
+"persist viewed state" item of Phase 2. What the round looks like to the
+reviewer (the badge, the changed marks and filter, the previous round's
+comments, no repeats of a dismissed finding) is part 2. **Proposed:**
+attention scaled by risk with sensitive paths (021). The README there also lists what was left to the
 project's own harness (bug hunting, running checks, `REVIEW.md` tooling) and why.
 
 ## Open questions (still open)

@@ -442,6 +442,11 @@ test("Esc closes the theme & font popover without leaving the chapter", async ()
 });
 
 const ALL_VIEWED = ["1:src/example.ts", `2:${MIDDLEWARE}`, `2:${SESSION}`, "3:src/jobs/backoff.ts"];
+/**
+ * The same files as paths — what travels with the verdict so the next round
+ * can carry the marks over (plan 020). Each of these is in one chapter only.
+ */
+const VIEWED_PATHS = ["src/example.ts", MIDDLEWARE, SESSION, "src/jobs/backoff.ts"];
 const COMMENTS: LineComment[] = [
   { id: "a", chapterIndex: 2, path: SESSION, side: "new", line: 9, body: "Expiry in seconds?" },
   { id: "b", chapterIndex: 2, path: MIDDLEWARE, side: "old", line: 3, body: "Why drop this?" },
@@ -556,7 +561,11 @@ test("round-trip: Done approves and sends the comments, without asking about the
   await act(async () => {
     fireEvent.click(screen.getByRole("button", { name: "Done" }));
   });
-  expect(done).toHaveBeenCalledWith({ verdict: "approve", comments: SENT_COMMENTS });
+  expect(done).toHaveBeenCalledWith({
+    verdict: "approve",
+    comments: SENT_COMMENTS,
+    viewed: VIEWED_PATHS,
+  });
   expect(localStorage.getItem(COMMENTS_KEY)).toBeNull();
 });
 
@@ -603,7 +612,37 @@ test("round-trip without comments: Done sends the bare approval", async () => {
   await act(async () => {
     fireEvent.click(screen.getByRole("button", { name: "Done" }));
   });
-  expect(done).toHaveBeenCalledWith({ verdict: "approve" });
+  // Nothing to say, but the viewed marks still travel: on the next round of
+  // this change they are what the reviewer does not have to read again.
+  expect(done).toHaveBeenCalledWith({ verdict: "approve", viewed: VIEWED_PATHS });
+});
+
+test("round-trip: Request changes reports the files viewed over the whole review", async () => {
+  // Marked across two chapters, with chapter 2's other file left unmarked:
+  // what travels is the paths, over the whole review and not this chapter.
+  localStorage.setItem(VIEWED_KEY, JSON.stringify(["1:src/example.ts", `2:${SESSION}`]));
+  const done = mock(async () => {});
+  renderWithApi(
+    <ChapterReview
+      review={fakeResolvedReview}
+      position={0}
+      onNavigate={() => {}}
+      onExit={() => {}}
+    />,
+    fakeReviewApi({ roundtrip: true, overrides: { done } }),
+  );
+  fireEvent.click(await screen.findByRole("button", { name: "Request changes" }));
+  fireEvent.change(screen.getByPlaceholderText("What should change?"), {
+    target: { value: "Fix it." },
+  });
+  await act(async () => {
+    fireEvent.click(screen.getByRole("button", { name: "Submit request" }));
+  });
+  expect(done).toHaveBeenCalledWith({
+    verdict: "request_changes",
+    summary: "Fix it.",
+    viewed: ["src/example.ts", SESSION],
+  });
 });
 
 test("round-trip: a raised question opens the request-changes note with it", async () => {
@@ -750,6 +789,7 @@ test("round-trip: Done sends the answers and asks first about an unanswered impo
       { id: MIDDLEWARE_FINDING, decision: "fix" },
       { id: "f-0000bbbb", decision: "dismiss", reason: "fine as it is" },
     ],
+    viewed: VIEWED_PATHS,
   });
   expect(localStorage.getItem(ANSWERS_KEY)).toBeNull();
 });

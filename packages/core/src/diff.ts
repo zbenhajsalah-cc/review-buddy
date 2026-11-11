@@ -40,6 +40,14 @@ export interface ParsedFile {
   additions: number;
   deletions: number;
   hunks: ParsedHunk[];
+  /**
+   * git's `index <old>..<new>` line, verbatim after "index " (e.g.
+   * "a1b2c3d..e4f5a6b 100644"). The only thing in a diff that identifies the
+   * two versions of a file whose content the diff does not spell out — a
+   * binary file. Absent when git emitted no index line (a pure mode change,
+   * or a source that strips them).
+   */
+  index?: string;
 }
 
 const HUNK_HEADER = /^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@(.*)$/;
@@ -158,6 +166,8 @@ export function parseDiff(raw: string): ParsedFile[] {
       file.path = unquotePath(line.slice("copy to ".length));
     } else if (line.startsWith("Binary files ") || line.startsWith("GIT binary patch")) {
       file.binary = true;
+    } else if (line.startsWith("index ")) {
+      file.index = line.slice("index ".length).trim();
     } else if (line.startsWith("--- ")) {
       const p = headerPath(line.slice(4));
       if (p !== "/dev/null" && !file.oldPath) file.oldPath = p;

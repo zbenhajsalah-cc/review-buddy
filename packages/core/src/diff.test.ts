@@ -115,10 +115,22 @@ describe("parseDiff", () => {
     expect(f.deletions).toBe(1);
   });
 
-  test("binary file: flagged, no hunks", () => {
+  test("binary file: flagged, no hunks, but git's index line is kept", () => {
     const f = files[4]!;
     expect(f.binary).toBe(true);
     expect(f.hunks).toHaveLength(0);
+    // The only thing in the diff that identifies the two versions of a file
+    // whose content it never spells out (see fileFingerprints in rounds.ts).
+    expect(f.index).toBe("7777777..8888888 100644");
+  });
+
+  test("the index line is kept for every file, and absent when git emits none", () => {
+    expect(files[3]!.index).toBe("5555555..6666666 100644");
+    const modeOnly = parseDiff(
+      ["diff --git a/run.sh b/run.sh", "old mode 100644", "new mode 100755", ""].join("\n"),
+    );
+    expect(modeOnly[0]!.path).toBe("run.sh");
+    expect(modeOnly[0]!.index).toBeUndefined();
   });
 
   test("strips git's trailing-tab terminator from spaced filenames", () => {

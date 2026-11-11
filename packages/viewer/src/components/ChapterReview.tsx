@@ -28,6 +28,7 @@ import {
 import { keepFileInView, keepInView } from "../lib/keepFileInView.ts";
 import { reviewProgress } from "../lib/progress.ts";
 import { chapterToMarkdown } from "../lib/reviewMarkdown.ts";
+import { fullyViewedPaths } from "../lib/rounds.ts";
 import { useChapterShortcuts } from "../lib/useChapterShortcuts.ts";
 import { useFileFocus } from "../lib/useFileFocus.ts";
 import { usePersistedState } from "../lib/usePersistedState.ts";
@@ -375,9 +376,13 @@ function ChapterReviewBody({
   // agent with the verdict.
   const sentFeedback = () => {
     const sendable = answersToSend(review.findings, answers);
+    // The viewed marks go with the verdict so the next round can carry them
+    // over: a new port means a new, empty localStorage (lib/rounds.ts).
+    const viewedPaths = fullyViewedPaths(chapters, readViewedEntries(api.reviewKey));
     return {
       ...(allComments.length > 0 ? { comments: toReviewComments(allComments) } : {}),
       ...(sendable.length > 0 ? { findings: sendable } : {}),
+      ...(viewedPaths.length > 0 ? { viewed: viewedPaths } : {}),
     };
   };
   const finish = () => {

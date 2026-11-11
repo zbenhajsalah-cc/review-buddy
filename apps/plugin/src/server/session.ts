@@ -14,13 +14,17 @@
  */
 import { existsSync } from "node:fs";
 import { join } from "node:path";
+import { parseDiff } from "@review-buddy/core/diff";
 import { buildMeta } from "@review-buddy/core/meta";
+import { repoToplevel } from "@review-buddy/core/node/git";
 import { localGitSource } from "@review-buddy/core/node/local-source";
 import { resolveReview } from "@review-buddy/core/resolve";
-import type { AgentReview } from "@review-buddy/core/types";
+import { fileFingerprints, nextRoundState, roundInfo } from "@review-buddy/core/rounds";
+import type { AgentReview, RoundInfo } from "@review-buddy/core/types";
 import { pluginRoot } from "../plugin-root.ts";
 import { openBrowser } from "./browser.ts";
-import { type RunningServer, startServer } from "./http.ts";
+import { type DoneResult, type RunningServer, startServer } from "./http.ts";
+import { cleanupRounds, roundStore } from "./round-store.ts";
 
 function uiDir(): string | undefined {
   const root = pluginRoot();
@@ -40,12 +44,64 @@ export function roundtripEnabled(env: NodeJS.ProcessEnv = process.env): boolean 
 
 export interface SessionOptions {
   /**
+   * Remember this round, so the next submission of the same change can say
+   * what moved and carry the reviewer's viewed marks over. Default: on with
+   * round-trip, since a round only exists when a verdict can travel.
+   */
+  rounds?: boolean;
+  /**
    * Show the verdict (approve / request changes) UI. Default:
    * `roundtripEnabled()`. Standalone mode decides itself: blocking forces it
    * on (its whole point is returning the verdict), detached forces it off
    * (nothing can carry a verdict back).
    */
   roundtrip?: boolean;
+}
+
+/**
+ * The round this review is, and how to record it when the reviewer finishes.
+ * Exported for tests; `openReviewSession` is the only caller in production.
+ *
+ * The diff is parsed a second time here (resolveReview parses it too): string
+ * work in microseconds, in exchange for resolution and rounds not having to
+ * share an intermediate shape.
+ */
+export function openRounds(
+  cwd: string,
+  agent: AgentReview,
+  diff: string,
+): { info?: RoundInfo; save: (result: DoneResult) => void } {
+  // Keyed by the repository, not by where the agent happened to run: the hook
+  // passes its own cwd, so two directories of one repo would otherwise be two
+  // chains and a re-review from a subdirectory would start over at round 1.
+  const store = roundStore(repoToplevel(cwd) ?? cwd, agent.source);
+  cleanupRounds();
+  const previous = store.read();
+  const current = fileFingerprints(parseDiff(diff));
+  const info = roundInfo(previous, current);
+  return {
+    info,
+    /**
+     * "Request changes" starts another round, so the state is written; an
+     * approval ends the chain, so it is cleared. A Done with no verdict (no
+     * round-trip) is an approval too — nothing goes back to the agent.
+     */
+    save(result) {
+      if (result.verdict !== "request_changes") return store.clear();
+      store.write(
+        nextRoundState(
+          info,
+          current,
+          {
+            viewed: result.viewed,
+            comments: result.comments,
+            dismissed: result.findings?.filter((a) => a.decision === "dismiss").map((a) => a.id),
+          },
+          previous,
+        ),
+      );
+    },
+  };
 }
 
 /**
@@ -74,12 +130,22 @@ export async function openReviewSession(
     console.error("[review-buddy] PR head not fetchable — full-file expansion disabled.");
   }
 
+  // A round only exists where a verdict can travel: with no round-trip there
+  // is no "request changes", so there is never a second round to compare with.
+  const roundtrip = opts.roundtrip ?? roundtripEnabled();
+  const rounds = (opts.rounds ?? roundtrip) ? openRounds(cwd, agent, diff) : undefined;
+  if (rounds?.info) {
+    review.round = rounds.info;
+    console.error(`[review-buddy] Round ${rounds.info.number} of this change.`);
+  }
+
   const server = startServer({
     review,
     cwd,
     source,
     uiDir: uiDir(),
-    roundtrip: opts.roundtrip ?? roundtripEnabled(),
+    roundtrip,
+    onDone: rounds?.save,
   });
   console.error(`[review-buddy] Review ready at ${server.url}`);
   if (process.env.REVIEW_BUDDY_NO_OPEN) {

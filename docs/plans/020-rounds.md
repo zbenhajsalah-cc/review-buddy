@@ -1,6 +1,9 @@
 # Plan 020: Rounds — re-review only what changed
 
-**Status:** proposed. **Size:** large.
+**Status:** built in two parts. **Part 1 (steps 1–5) is shipped:** the state that
+survives a new port — `core/rounds.ts`, the round store, `ResolvedReview.round`,
+`DoneResult.viewed`, and the viewed marks seeded on a re-review. **Part 2 (steps
+6–10) is open:** what the round looks like to the reviewer. **Size:** large.
 
 ## Why
 
@@ -118,11 +121,11 @@ Hashing in runtime-neutral code: a small FNV-1a string hash in core is enough
 
 ## Steps
 
-1. `core/rounds.ts` + tests (fingerprints, compare, comment status).
-2. `round-store.ts` + tests in a temp folder (write, read, bad JSON, cleanup, mode).
-3. `session.ts` wiring + `ResolvedReview.round` + viewer schema + fixtures.
-4. `DoneResult.viewed`, `parseDoneResult`, write/delete on done + `http.test.ts`.
-5. Viewer: seed viewed state; test with `fakeReviewApi`.
+1. ~~`core/rounds.ts` + tests (fingerprints, compare, comment status).~~ Shipped.
+2. ~~`round-store.ts` + tests in a temp folder (write, read, bad JSON, cleanup, mode).~~ Shipped.
+3. ~~`session.ts` wiring + `ResolvedReview.round` + viewer schema + fixtures.~~ Shipped.
+4. ~~`DoneResult.viewed`, `parseDoneResult`, write/delete on done + `http.test.ts`.~~ Shipped.
+5. ~~Viewer: seed viewed state; test with `fakeReviewApi`.~~ Shipped.
 6. Viewer: badge, changed marks, filter, Overview counts.
 7. Viewer: "Previous round" list.
 8. Round banner after round 3.
@@ -130,7 +133,34 @@ Hashing in runtime-neutral code: a small FNV-1a string hash in core is enough
 10. Docs (`ARCHITECTURE.md`, `build-plan.md`: close the "persist viewed state"
     item), builds, `pnpm verify:ci`, `pnpm smoke:plugin`.
 
-Steps 1–5 alone fix the lost viewed marks and can ship first.
+Steps 1–5 alone fix the lost viewed marks and can ship first — and did.
+
+### What part 1 settled
+
+- The server records the round through an **`onDone` callback** on the HTTP
+  context, not by reaching for the filesystem from the request handler: the
+  server module stays transport-only, and a state folder it cannot write to
+  logs one line instead of costing the reviewer their verdict.
+- There is **no `POST /api/file-viewed`**: `DoneResult.viewed` carries the
+  paths with the verdict, which is enough for rounds, as the plan expected.
+- `nextRoundState` unions the dismissed ids across rounds, so step 9's "no
+  repeats" has its data already — only `resolveReview` has to read it.
+- The fingerprints are per **file**, not per hunk, so `commentStatus` is per
+  file too. A comment on a file no longer in the diff counts as
+  `lines_changed`: what it pointed at is gone as well.
+- A fingerprint has to include git's **`index` line** (now kept on
+  `ParsedFile`): a binary file's bytes are not in the diff, so hunks alone
+  hash two different images alike and the reviewer keeps a stale viewed mark.
+  Where a diff carries neither content nor an index line — a pure mode change
+  — there is nothing to compare, so the file is fingerprinted `UNCOMPARABLE`:
+  a value that never equals anything, itself included, so the file stays in
+  the comparison and reads as changed every round. Leaving it out of the map
+  instead would drop it from `changedPaths` too, which part 2 reads.
+- `/api/done` accepts **one** verdict and refuses later ones with 409. Before
+  the round store that only dropped a second tab's result silently; now it
+  would rewrite or clear what the first verdict stored.
+- The round store is keyed by the repository's **top level**, not the cwd the
+  hook was handed, or a re-review from a subdirectory would start over.
 
 ## Tests
 

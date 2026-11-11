@@ -124,13 +124,18 @@ picks the light/dark syntax themes (any `@pierre/diffs`/Shiki theme) and the cod
 and ligatures (`packages/viewer/src/appearance.ts`; fonts self-hosted in `src/fonts/`); and
 **resolution notes now travel back to the agent** (hook `additionalContext` on Claude Code,
 tool-result text standalone) so a review whose anchors missed can be corrected next time;
-and **findings from other tools** (plan 019: an optional `findings` array on
+and **rounds** (plan 020, part 1: each submission is
+served on a new port and so gets an empty localStorage, so the server keeps a small
+state file per change — `~/.review-buddy/rounds`, fingerprints and viewed paths only,
+no diff text — and a re-review after "Request changes" opens with every file the agent
+has not touched already marked viewed; `core/rounds.ts` + `server/round-store.ts`,
+deleted on approval and absent wherever no verdict can travel); and **findings from other tools** (plan 019: an optional `findings` array on
 `submit_review` — path and line only, never code text) are shown under their line with a
 severity tag, listed in the sidebar and counted on the Overview, and **answered** by the
 reviewer (Fix, or Dismiss with a reason) with the answers going to the agent with the
 verdict, so a dismissed one is not raised again.
 
-**Deferred to later phases** (per PRD): viewed-state persistence round-trip, posting line comments to GitHub (the desktop app posts the verdict and summary only), GitHub collaboration (open PR, copy branch, reviewers, CI), Activity view, Chat, conversational AI assistant.
+**Deferred to later phases** (per PRD): posting line comments to GitHub (the desktop app posts the verdict and summary only), GitHub collaboration (open PR, copy branch, reviewers, CI), Activity view, Chat, conversational AI assistant.
 
 ## Reference implementation
 

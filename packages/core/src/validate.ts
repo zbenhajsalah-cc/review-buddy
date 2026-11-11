@@ -133,6 +133,9 @@ export const DoneResultSchema = z.object({
   summary: z.string().max(50_000).optional(),
   comments: z.array(ReviewCommentSchema).max(2000).optional(),
   findings: z.array(FindingAnswerSchema).max(50).optional(),
+  // Paths, so one entry per file of the diff at most. The cap matches
+  // `comments`: far above any real review, low enough to bound the body.
+  viewed: z.array(z.string().max(1024)).max(2000).optional(),
 });
 
 /**

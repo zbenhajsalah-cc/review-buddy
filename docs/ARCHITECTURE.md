@@ -54,16 +54,26 @@ The structuring prompt's original output format had the agent transcribe diff li
 | `/api/review` | GET | The merged review: `{ meta, pr, prologue, chapters, stats }` (A + B + computed). Chapters' hunks are **resolved** here (real content from B). |
 | `/api/file-content` | GET | Full file for expansion / word-level context (`?path=&side=base\|head`). Source C. |
 | `/api/config` | GET | `{ roundtrip }`: whether the viewer shows "Request changes" and sends the verdict and line comments. |
-| `/api/done` | POST | Reviewer finished: `{ verdict?, summary?, comments? }`, validated (`parseDoneResult`; 400 when malformed). Unblocks the hook: "request changes" → `deny` with the note + comments; otherwise `allow` (comments in `additionalContext`). |
+| `/api/done` | POST | Reviewer finished: `{ verdict?, summary?, comments?, findings?, viewed? }`, validated (`parseDoneResult`; 400 when malformed). Unblocks the hook: "request changes" → `deny` with the note + comments + the answered findings; otherwise `allow` (the same text in `additionalContext`). `viewed` is the paths the reviewer read, kept for the next round. |
 
 ### Later phases
 | Endpoint | Method | Purpose |
 |---|---|---|
-| `/api/file-viewed` | POST | Persist per-file/chapter viewed state (round-trip). |
 | `/api/github/*` | — | Open PR, copy branch, CI status, reviewers (via `gh`). |
 | `/api/ai/*` | — | In-context conversational assistant. |
 
-**Round-trip:** see [`DESIGN-roundtrip.md`](./DESIGN-roundtrip.md). The verdict, the note and the line comments ride on **`POST /api/done`** (no separate `/api/feedback`); **`GET /api/config`** tells the client whether round-trip is on (by default; `REVIEW_BUDDY_ROUNDTRIP=0` turns it off). `/api/file-viewed` is still to build.
+**Round-trip:** see [`DESIGN-roundtrip.md`](./DESIGN-roundtrip.md). The verdict, the note and the line comments ride on **`POST /api/done`** (no separate `/api/feedback`); **`GET /api/config`** tells the client whether round-trip is on (by default; `REVIEW_BUDDY_ROUNDTRIP=0` turns it off). There is no `/api/file-viewed`: viewed marks ride on `/api/done` too (see **Rounds** below), and a reload inside one round is served by localStorage.
+
+## Rounds
+
+After "Request changes" the agent re-submits, and the reviewer sees the same change again. Each submission is served on a **new ephemeral port**, which the browser treats as a new origin with its own empty localStorage — so nothing the viewer stores can survive a re-submit. The state travels instead, through a small file the server keeps per change:
+
+- `apps/plugin/src/server/round-store.ts` — one file per change under `~/.review-buddy/rounds` (`REVIEW_BUDDY_STATE_DIR` overrides the folder), named after a hash of the repo root and the `source` (type + ref), mode `0600`. Rounds untouched for 14 days are swept when a session opens. Nothing here may fail a review: errors go to stderr and the review opens as round 1.
+- `packages/core/src/rounds.ts` — the logic, runtime-neutral: an FNV-1a fingerprint per file of the diff — its hunks plus git's own `index` line, which is the only thing identifying the two versions of a binary file, whose bytes a diff never carries — the comparison with the previous round, and the status of that round's comments (`lines_changed` / `lines_unchanged` — never "fixed": only the reviewer can say a comment was handled). It stores **hashes, not diff text**, so the reference-not-reproduce rule holds across rounds.
+- `session.ts` compares and puts `round` on the `ResolvedReview`; the viewer seeds the viewed marks from `round.viewedPaths` before its screens mount (`packages/viewer/src/lib/rounds.ts`). A file in two chapters counts as viewed only when both were marked.
+- A file the diff describes neither by content nor by an `index` line (a pure mode change) is fingerprinted `UNCOMPARABLE`, which never equals anything — including itself — so it stays in the comparison as changed every round: showing a file again costs a glance, marking a changed one viewed costs the change itself.
+- One review, one verdict: `/api/done` refuses a second submission with 409, so a second tab cannot rewrite the round the first one stored.
+- The chain ends on approval (the state file is deleted) and so does every chain that has nowhere to go: with round-trip off, in standalone detached mode, and in the desktop app (which keeps reviews per PR head and has no agent loop), `round` is absent.
 
 ## Hook design
 

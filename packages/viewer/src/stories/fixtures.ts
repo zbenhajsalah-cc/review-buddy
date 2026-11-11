@@ -286,6 +286,37 @@ export const fakeReviewWithFindings: ResolvedReview = {
 };
 
 /**
+ * Round 2 of the same change: the agent touched the auth middleware again, so
+ * that file is new work; the others keep the marks the reviewer gave them.
+ */
+export const fakeReviewRoundTwo: ResolvedReview = {
+  ...fakeResolvedReview,
+  round: {
+    number: 2,
+    changedPaths: ["src/server/auth/middleware.ts"],
+    viewedPaths: ["src/example.ts", "src/server/auth/session.ts", "src/jobs/backoff.ts"],
+    previousComments: [
+      {
+        chapterIndex: 2,
+        path: "src/server/auth/middleware.ts",
+        side: "new",
+        line: 20,
+        body: "This accepts an expired token when the skew is negative.",
+        status: "lines_changed",
+      },
+      {
+        chapterIndex: 3,
+        path: "src/jobs/backoff.ts",
+        side: "new",
+        line: 3,
+        body: "Where does 500ms come from?",
+        status: "lines_unchanged",
+      },
+    ],
+  },
+};
+
+/**
  * In-memory ReviewApi for stories and tests. Serves `review`, never touches the
  * network, and returns "" (unavailable) for any file not in `files`.
  */

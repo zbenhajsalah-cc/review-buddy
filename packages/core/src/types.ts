@@ -271,6 +271,11 @@ export interface ResolvedReview {
   /** Findings from other tools, placed by `resolveFindings`. Absent when none. */
   findings?: ResolvedFinding[];
   /**
+   * What changed since the reviewer last asked for changes. Absent on the
+   * first round, and wherever rounds don't apply (see RoundInfo).
+   */
+  round?: RoundInfo;
+  /**
    * Resolution warnings — places the agent's narrative didn't map cleanly onto
    * the real diff (unmatched anchors, files not in the diff, unsorted changes).
    * Shown to the reviewer; empty when resolution was clean.
@@ -300,6 +305,33 @@ export interface ReviewComment {
   startLine?: number;
   /** Markdown. */
   body: string;
+}
+
+/**
+ * Whether the lines a previous round's comment was on have changed since. Not
+ * "fixed": the tool can see that the lines changed, only the reviewer can say
+ * the comment was handled.
+ */
+export type CommentStatus = "lines_changed" | "lines_unchanged";
+
+/** A comment from the previous round, with what happened to its lines since. */
+export interface PreviousComment extends ReviewComment {
+  status: CommentStatus;
+}
+
+/**
+ * This review's place in a chain of rounds (plan 020). Present from the second
+ * submission of the same change on, and only where a verdict can travel: with
+ * round-trip off, or in the desktop app, there is no agent loop and no rounds.
+ */
+export interface RoundInfo {
+  /** 2 for the first re-review, and up. Round 1 has no `RoundInfo` at all. */
+  number: number;
+  /** Paths whose diff differs from the previous round's, plus paths that are new. */
+  changedPaths: string[];
+  /** Paths the reviewer had marked viewed and the agent has not touched since. */
+  viewedPaths: string[];
+  previousComments: PreviousComment[];
 }
 
 export type ReviewVerdict = "approve" | "request_changes";
@@ -340,6 +372,12 @@ export interface DoneResult {
   comments?: ReviewComment[];
   /** Answers to the findings the review carried (`ResolvedReview.findings`). */
   findings?: FindingAnswer[];
+  /**
+   * Paths the reviewer marked viewed, so the next round can carry the marks
+   * over (plan 020). A path is here only when every chapter that showed the
+   * file had it marked.
+   */
+  viewed?: string[];
 }
 
 /**

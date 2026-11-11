@@ -4,6 +4,7 @@ import { ChapterReview, ReviewSubmitted } from "./components/ChapterReview.tsx";
 import { ErrorBoundary } from "./components/ErrorBoundary.tsx";
 import { Overview } from "./components/Overview.tsx";
 import { parseReview } from "./lib/reviewSchema.ts";
+import { seedViewedFromRound } from "./lib/rounds.ts";
 import { tabTitleFor, useTabTitle } from "./lib/tabTitle.ts";
 import { useView, type View } from "./lib/view.ts";
 import { type ReviewApi, ReviewApiProvider, useReviewApi } from "./review-api.tsx";
@@ -73,7 +74,15 @@ function ReviewScreens({ urlHash, tabTitle }: { urlHash: boolean; tabTitle: bool
     api
       .getReview()
       .then(parseReview)
-      .then(setReview, (e) => setError(String(e)));
+      .then(
+        (loaded) => {
+          // Before the screens mount and read their storage key: a re-review
+          // starts with the files the agent has not touched already marked.
+          seedViewedFromRound(loaded, api.reviewKey);
+          setReview(loaded);
+        },
+        (e) => setError(String(e)),
+      );
   }, [api]);
 
   if (error) {

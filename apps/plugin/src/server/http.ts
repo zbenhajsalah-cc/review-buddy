@@ -42,6 +42,13 @@ export interface ServerContext {
   uiDir?: string;
   /** Show the verdict UI (approve / request changes), via /api/config. */
   roundtrip?: boolean;
+  /**
+   * Called once with what the reviewer sent, before `done` resolves — how the
+   * round store records this round (session.ts). Keeping it a callback leaves
+   * this module transport-only: it never touches the filesystem itself. It
+   * must not throw; a failure here may not cost the review.
+   */
+  onDone?: (result: DoneResult) => void;
 }
 
 /** What the viewer sent (validated), or how the server stopped. No verdict ⇒ approve. */
@@ -109,6 +116,16 @@ export function startServer(ctx: ServerContext): RunningServer {
   const done = new Promise<DoneResult>((res) => {
     resolveDone = res;
   });
+  /**
+   * One review, one verdict. The server keeps serving for a moment after
+   * /api/done (the response has to flush, and the caller tears it down only
+   * once `done` resolves), so a second tab of the same review could post
+   * again in that window. `done` would keep the first verdict either way, but
+   * `onDone` has a side effect — it records the round — so a later verdict
+   * could rewrite or clear what the first one stored. Set before anything
+   * acts on the body, so the two cannot interleave.
+   */
+  let finished = false;
 
   // Only files that are actually part of this review may be fetched via
   // /api/file-content — the tightest defense against path traversal.
@@ -163,6 +180,9 @@ export function startServer(ctx: ServerContext): RunningServer {
       }
 
       if (pathname === "/api/done" && req.method === "POST") {
+        // Refused, not silently accepted: the second tab's reviewer should see
+        // that their verdict did not count, rather than believe it did.
+        if (finished) return json({ error: "this review was already submitted" }, 409);
         const len = Number(req.headers.get("content-length") ?? "0");
         if (len > MAX_DONE_BODY) return json({ error: "body too large" }, 413);
         // A malformed body is refused, not guessed at: the viewer shows the
@@ -179,11 +199,21 @@ export function startServer(ctx: ServerContext): RunningServer {
         }
         const parsed = parseDoneResult(raw);
         if (!parsed.ok) return json({ error: parsed.error }, 400);
+        // From here the verdict counts, so nothing else may: a malformed body
+        // is not a submission, and the reviewer can try again.
+        finished = true;
         const answered = answeredFindings(ctx.review.findings, parsed.value.findings);
         const body: DoneResult = {
           ...parsed.value,
           ...(answered.length > 0 ? { answered } : {}),
         };
+        try {
+          ctx.onDone?.(body);
+        } catch (e) {
+          // The reviewer is finished either way: losing the round memory is
+          // not a reason to refuse their verdict.
+          console.error(`[review-buddy] could not record this round (${String(e)}).`);
+        }
         // Resolve on the next tick so THIS response flushes to the client
         // before the hook tears the server down (otherwise the client sees an
         // empty reply / connection reset).

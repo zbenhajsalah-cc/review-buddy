@@ -123,6 +123,25 @@ const ResolvedFindingSchema = z.object({
   outsideDiff: z.boolean().optional(),
 });
 
+const ReviewCommentSchema = z.object({
+  chapterIndex: z.number(),
+  path: z.string(),
+  side: z.enum(["old", "new"]),
+  line: z.number(),
+  startSide: z.enum(["old", "new"]).optional(),
+  startLine: z.number().optional(),
+  body: z.string(),
+});
+
+const RoundInfoSchema = z.object({
+  number: z.number(),
+  changedPaths: z.array(z.string()),
+  viewedPaths: z.array(z.string()),
+  previousComments: z.array(
+    ReviewCommentSchema.extend({ status: z.enum(["lines_changed", "lines_unchanged"]) }),
+  ),
+});
+
 export const ReviewSchema = z.object({
   meta: ReviewMetaSchema,
   pr: PrMetadataSchema,
@@ -131,6 +150,7 @@ export const ReviewSchema = z.object({
   chapters: z.array(ResolvedChapterSchema),
   verification: VerificationSchema.optional(),
   findings: z.array(ResolvedFindingSchema).optional(),
+  round: RoundInfoSchema.optional(),
   warnings: z.array(z.string()),
 });
 

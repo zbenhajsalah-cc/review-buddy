@@ -6587,8 +6587,8 @@ var require_dist = __commonJS((exports, module) => {
 });
 
 // src/mcp/server.ts
-import { readFileSync as readFileSync2 } from "fs";
-import { join as join5 } from "path";
+import { readFileSync as readFileSync3 } from "fs";
+import { join as join6 } from "path";
 
 // ../../node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/core/index.js
 var exports_core2 = {};
@@ -24041,7 +24041,8 @@ var DoneResultSchema = exports_external.object({
   verdict: exports_external.enum(["approve", "request_changes"]).optional(),
   summary: exports_external.string().max(50000).optional(),
   comments: exports_external.array(ReviewCommentSchema).max(2000).optional(),
-  findings: exports_external.array(FindingAnswerSchema).max(50).optional()
+  findings: exports_external.array(FindingAnswerSchema).max(50).optional(),
+  viewed: exports_external.array(exports_external.string().max(1024)).max(2000).optional()
 });
 function parseDoneResult(body) {
   const parsed = DoneResultSchema.safeParse(body);
@@ -24052,47 +24053,7 @@ function parseDoneResult(body) {
 
 // src/server/session.ts
 import { existsSync as existsSync4 } from "fs";
-import { join as join4 } from "path";
-
-// ../../packages/core/src/meta.ts
-function buildMeta({ generatedBy }) {
-  return {
-    aiGenerated: true,
-    generatedBy,
-    generatedAt: new Date().toISOString(),
-    promptVersion: "1"
-  };
-}
-
-// ../../packages/core/src/node/local-source.ts
-function localGitSource(cwd, source = { type: "worktree" }, baseOverride) {
-  if (source.type === "pr" && source.ref) {
-    const ref = source.ref;
-    const pr = capturePr(cwd, "HEAD", ref);
-    const headRef = pr.headRefOid && ensureCommit(cwd, pr.headRefOid, ref) ? pr.headRefOid : null;
-    const base2 = typeof headRef === "string" ? prBaseRef(cwd, headRef, pr.base) : pr.base;
-    return {
-      base: base2,
-      headRef,
-      diff: async () => capturePrDiff(cwd, ref),
-      pr: async () => pr,
-      fileContent: async (path, side) => fileContent(cwd, path, side, base2, headRef)
-    };
-  }
-  let base;
-  if (source.type === "branch" && source.ref) {
-    assertSafeRef(source.ref);
-    base = source.ref;
-  } else {
-    base = resolveBase(cwd, baseOverride);
-  }
-  return {
-    base,
-    diff: () => captureDiff(cwd, base),
-    pr: async () => capturePr(cwd, base),
-    fileContent: async (path, side) => fileContent(cwd, path, side, base)
-  };
-}
+import { join as join5 } from "path";
 
 // ../../packages/core/src/diff.ts
 var HUNK_HEADER = /^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@(.*)$/;
@@ -24185,6 +24146,8 @@ function parseDiff(raw) {
       file2.path = unquotePath(line.slice("copy to ".length));
     } else if (line.startsWith("Binary files ") || line.startsWith("GIT binary patch")) {
       file2.binary = true;
+    } else if (line.startsWith("index ")) {
+      file2.index = line.slice("index ".length).trim();
     } else if (line.startsWith("--- ")) {
       const p = headerPath(line.slice(4));
       if (p !== "/dev/null" && !file2.oldPath)
@@ -24263,6 +24226,46 @@ function languageOf(path) {
   if (dot <= 0)
     return "text";
   return EXT_LANG[base.slice(dot + 1).toLowerCase()] ?? "text";
+}
+
+// ../../packages/core/src/meta.ts
+function buildMeta({ generatedBy }) {
+  return {
+    aiGenerated: true,
+    generatedBy,
+    generatedAt: new Date().toISOString(),
+    promptVersion: "1"
+  };
+}
+
+// ../../packages/core/src/node/local-source.ts
+function localGitSource(cwd, source = { type: "worktree" }, baseOverride) {
+  if (source.type === "pr" && source.ref) {
+    const ref = source.ref;
+    const pr = capturePr(cwd, "HEAD", ref);
+    const headRef = pr.headRefOid && ensureCommit(cwd, pr.headRefOid, ref) ? pr.headRefOid : null;
+    const base2 = typeof headRef === "string" ? prBaseRef(cwd, headRef, pr.base) : pr.base;
+    return {
+      base: base2,
+      headRef,
+      diff: async () => capturePrDiff(cwd, ref),
+      pr: async () => pr,
+      fileContent: async (path, side) => fileContent(cwd, path, side, base2, headRef)
+    };
+  }
+  let base;
+  if (source.type === "branch" && source.ref) {
+    assertSafeRef(source.ref);
+    base = source.ref;
+  } else {
+    base = resolveBase(cwd, baseOverride);
+  }
+  return {
+    base,
+    diff: () => captureDiff(cwd, base),
+    pr: async () => capturePr(cwd, base),
+    fileContent: async (path, side) => fileContent(cwd, path, side, base)
+  };
 }
 
 // ../../packages/core/src/noise.ts
@@ -24532,6 +24535,102 @@ function allowedPaths(review) {
   return paths;
 }
 
+// ../../packages/core/src/rounds.ts
+var UNCOMPARABLE = "uncomparable";
+function fnv1a(text) {
+  let hash2 = 2166136261;
+  for (let i = 0;i < text.length; i++) {
+    hash2 ^= text.charCodeAt(i);
+    hash2 = Math.imul(hash2, 16777619);
+  }
+  return (hash2 >>> 0).toString(16).padStart(8, "0");
+}
+function fileFingerprints(files) {
+  const out = {};
+  for (const file2 of files) {
+    if (file2.hunks.length === 0 && !file2.index) {
+      out[file2.path] = UNCOMPARABLE;
+      continue;
+    }
+    const parts = [file2.changeType, file2.oldPath ?? "", file2.binary ? "bin" : "", file2.index ?? ""];
+    for (const hunk of file2.hunks)
+      parts.push(hunk.header, ...hunk.lines);
+    out[file2.path] = fnv1a(parts.join(`
+`));
+  }
+  return out;
+}
+function compareRounds(previous, current) {
+  const out = {};
+  for (const [path, hash2] of Object.entries(current)) {
+    const before = previous?.[path];
+    if (before === undefined) {
+      out[path] = "new";
+      continue;
+    }
+    const comparable = hash2 !== UNCOMPARABLE && before !== UNCOMPARABLE;
+    out[path] = comparable && before === hash2 ? "unchanged" : "changed";
+  }
+  return out;
+}
+function commentStatus(comment, changes) {
+  return changes[comment.path] === "unchanged" ? "lines_unchanged" : "lines_changed";
+}
+function roundInfo(previous, current) {
+  if (!previous)
+    return;
+  const changes = compareRounds(previous.files, current);
+  const previousComments = previous.comments.map((c) => ({
+    ...c,
+    status: commentStatus(c, changes)
+  }));
+  return {
+    number: previous.round + 1,
+    changedPaths: Object.keys(changes).filter((p) => changes[p] !== "unchanged"),
+    viewedPaths: previous.viewed.filter((p) => changes[p] === "unchanged"),
+    previousComments
+  };
+}
+function nextRoundState(info, current, round, previous) {
+  const dismissed = new Set([...previous?.dismissedFindings ?? [], ...round.dismissed ?? []]);
+  return {
+    round: info?.number ?? 1,
+    files: { ...current },
+    viewed: [...new Set(round.viewed ?? [])],
+    comments: [...round.comments ?? []],
+    dismissedFindings: [...dismissed]
+  };
+}
+function parseRoundState(raw) {
+  if (typeof raw !== "object" || raw === null)
+    return;
+  const o = raw;
+  if (typeof o.round !== "number" || !Number.isFinite(o.round) || o.round < 1)
+    return;
+  const files = {};
+  if (typeof o.files !== "object" || o.files === null)
+    return;
+  for (const [path, hash2] of Object.entries(o.files)) {
+    if (typeof hash2 === "string")
+      files[path] = hash2;
+  }
+  const strings = (v) => Array.isArray(v) ? v.filter((x) => typeof x === "string") : [];
+  const comments = Array.isArray(o.comments) ? o.comments.filter(isReviewComment).map((c) => ({ ...c })) : [];
+  return {
+    round: Math.floor(o.round),
+    files,
+    viewed: strings(o.viewed),
+    comments,
+    dismissedFindings: strings(o.dismissedFindings)
+  };
+}
+function isReviewComment(v) {
+  if (typeof v !== "object" || v === null)
+    return false;
+  const c = v;
+  return typeof c.chapterIndex === "number" && typeof c.path === "string" && typeof c.body === "string" && typeof c.line === "number" && (c.side === "old" || c.side === "new");
+}
+
 // src/server/browser.ts
 import { spawn } from "child_process";
 function openBrowser(url2) {
@@ -24591,6 +24690,7 @@ function startServer(ctx) {
   const done = new Promise((res) => {
     resolveDone = res;
   });
+  let finished = false;
   const allowed = allowedPaths(ctx.review);
   const token = crypto.randomUUID();
   const server = Bun.serve({
@@ -24628,6 +24728,8 @@ function startServer(ctx) {
         return json2({ path, side, language: languageOf(path), content });
       }
       if (pathname === "/api/done" && req.method === "POST") {
+        if (finished)
+          return json2({ error: "this review was already submitted" }, 409);
         const len = Number(req.headers.get("content-length") ?? "0");
         if (len > MAX_DONE_BODY)
           return json2({ error: "body too large" }, 413);
@@ -24643,11 +24745,17 @@ function startServer(ctx) {
         const parsed = parseDoneResult(raw);
         if (!parsed.ok)
           return json2({ error: parsed.error }, 400);
+        finished = true;
         const answered = answeredFindings(ctx.review.findings, parsed.value.findings);
         const body = {
           ...parsed.value,
           ...answered.length > 0 ? { answered } : {}
         };
+        try {
+          ctx.onDone?.(body);
+        } catch (e) {
+          console.error(`[review-buddy] could not record this round (${String(e)}).`);
+        }
         setTimeout(() => resolveDone(body), 50);
         return json2({ ok: true });
       }
@@ -24751,17 +24859,121 @@ function placeholderHtml() {
 </html>`;
 }
 
+// src/server/round-store.ts
+import { createHash as createHash2 } from "crypto";
+import {
+  chmodSync,
+  mkdirSync,
+  readdirSync,
+  readFileSync as readFileSync2,
+  rmSync,
+  statSync,
+  writeFileSync
+} from "fs";
+import { homedir } from "os";
+import { join as join4 } from "path";
+var MAX_AGE_MS = 14 * 24 * 60 * 60 * 1000;
+var FILE_MODE = 384;
+var DIR_MODE = 448;
+function roundsDir(env = process.env) {
+  const base = env.REVIEW_BUDDY_STATE_DIR?.trim();
+  return base ? join4(base, "rounds") : join4(homedir(), ".review-buddy", "rounds");
+}
+function roundKey(repoRoot, source = { type: "worktree" }) {
+  return createHash2("sha256").update([repoRoot, source.type, source.ref ?? ""].join("\x00")).digest("hex").slice(0, 32);
+}
+function warn(action, e) {
+  console.error(`[review-buddy] could not ${action} the round state (${String(e)}) \u2014 continuing.`);
+}
+function roundStore(repoRoot, source, env = process.env) {
+  const dir = roundsDir(env);
+  const file2 = join4(dir, `${roundKey(repoRoot, source)}.json`);
+  return {
+    read() {
+      let text;
+      try {
+        text = readFileSync2(file2, "utf8");
+      } catch {
+        return;
+      }
+      try {
+        return parseRoundState(JSON.parse(text));
+      } catch {
+        return;
+      }
+    },
+    write(state) {
+      try {
+        mkdirSync(dir, { recursive: true, mode: DIR_MODE });
+        writeFileSync(file2, `${JSON.stringify(state, null, 2)}
+`, { mode: FILE_MODE });
+        chmodSync(file2, FILE_MODE);
+      } catch (e) {
+        warn("save", e);
+      }
+    },
+    clear() {
+      try {
+        rmSync(file2, { force: true });
+      } catch (e) {
+        warn("clear", e);
+      }
+    }
+  };
+}
+function cleanupRounds(env = process.env, now = Date.now()) {
+  const dir = roundsDir(env);
+  let removed = 0;
+  let names;
+  try {
+    names = readdirSync(dir);
+  } catch {
+    return 0;
+  }
+  for (const name of names) {
+    if (!name.endsWith(".json"))
+      continue;
+    const file2 = join4(dir, name);
+    try {
+      if (now - statSync(file2).mtimeMs <= MAX_AGE_MS)
+        continue;
+      rmSync(file2, { force: true });
+      removed++;
+    } catch {}
+  }
+  return removed;
+}
+
 // src/server/session.ts
 function uiDir() {
   const root = pluginRoot();
   if (!root)
     return;
-  const dir = join4(root, "ui", "dist");
-  return existsSync4(join4(dir, "index.html")) ? dir : undefined;
+  const dir = join5(root, "ui", "dist");
+  return existsSync4(join5(dir, "index.html")) ? dir : undefined;
 }
 function roundtripEnabled(env = process.env) {
   const value = env.REVIEW_BUDDY_ROUNDTRIP?.trim().toLowerCase();
   return !(value && ["0", "false", "off", "no"].includes(value));
+}
+function openRounds(cwd, agent, diff) {
+  const store = roundStore(repoToplevel(cwd) ?? cwd, agent.source);
+  cleanupRounds();
+  const previous = store.read();
+  const current = fileFingerprints(parseDiff(diff));
+  const info = roundInfo(previous, current);
+  return {
+    info,
+    save(result) {
+      if (result.verdict !== "request_changes")
+        return store.clear();
+      store.write(nextRoundState(info, current, {
+        viewed: result.viewed,
+        comments: result.comments,
+        dismissed: result.findings?.filter((a) => a.decision === "dismiss").map((a) => a.id)
+      }, previous));
+    }
+  };
 }
 async function openReviewSession(agent, cwd, opts = {}) {
   const source = localGitSource(cwd, agent.source, process.env.REVIEW_BUDDY_BASE);
@@ -24773,12 +24985,19 @@ async function openReviewSession(agent, cwd, opts = {}) {
   if (source.headRef === null) {
     console.error("[review-buddy] PR head not fetchable \u2014 full-file expansion disabled.");
   }
+  const roundtrip = opts.roundtrip ?? roundtripEnabled();
+  const rounds = opts.rounds ?? roundtrip ? openRounds(cwd, agent, diff) : undefined;
+  if (rounds?.info) {
+    review.round = rounds.info;
+    console.error(`[review-buddy] Round ${rounds.info.number} of this change.`);
+  }
   const server = startServer({
     review,
     cwd,
     source,
     uiDir: uiDir(),
-    roundtrip: opts.roundtrip ?? roundtripEnabled()
+    roundtrip,
+    onDone: rounds?.save
   });
   console.error(`[review-buddy] Review ready at ${server.url}`);
   if (process.env.REVIEW_BUDDY_NO_OPEN) {
@@ -24886,7 +25105,7 @@ var TOOL_DESCRIPTION = [
   ] : []
 ].join(" ");
 var root = pluginRoot();
-var pkg = root ? JSON.parse(readFileSync2(join5(root, "package.json"), "utf8")) : {};
+var pkg = root ? JSON.parse(readFileSync3(join6(root, "package.json"), "utf8")) : {};
 var server = new Server({ name: "review-buddy", version: pkg.version ?? "0.0.0" }, { capabilities: { tools: {} } });
 server.setRequestHandler(ListToolsRequestSchema, async () => ({
   tools: [{ name: "submit_review", description: TOOL_DESCRIPTION, inputSchema }]

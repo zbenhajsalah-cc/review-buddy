@@ -164,6 +164,17 @@ Dismissed by the reviewer (do not raise these again):
 Both verdicts carry them. Approving while an `important` finding has no answer
 asks once, in the same check as unviewed files; it never blocks.
 
+**Shipped — the viewed marks** (plan 020 part 1). `DoneResult.viewed` carries the
+paths the reviewer read, so the next round of the same change can mark them
+again. They have to travel: each submission is served on a new ephemeral port,
+and a new port is a new origin with its own empty localStorage. The server
+keeps them per change (`~/.review-buddy/rounds`, with a fingerprint per file
+and no diff text) and the next review carries `round.viewedPaths` — the files
+the agent has not touched since. An approval deletes the state, and a file in
+two chapters counts only when both were marked. No endpoint of its own:
+`/api/file-viewed` is not needed, since a reload inside one round still reads
+localStorage.
+
 **Open — token budget.** `permissionDecisionReason` is unbounded in principle but
 a very long reason wastes context and may be truncated by Claude Code. The Phase 2
 build should cap the serialized reason (e.g. summary + first N annotations, with a
@@ -294,16 +305,20 @@ plain Done.
 
 - **Line comments** (viewer): `packages/viewer/src/lib/comments.ts`.
 - **Round-trip** (plugin), on by default:
-  `DoneResult { verdict?, summary?, comments?, findings? }` on `POST /api/done`,
+  `DoneResult { verdict?, summary?, comments?, findings?, viewed? }` on `POST /api/done`,
   validated by the server; the hook denies on "request changes" and
   allows otherwise, with the text from `core/messages.ts`. Standalone blocking returns
   the same text; standalone detached shows no verdict UI.
 - **Answers to findings** (plan 019 part 2): `DoneResult.findings`, joined onto the
   served review by `answeredFindings` and sent as two lists (to fix / dismissed).
+- **The viewed marks across rounds** (plan 020 part 1): `DoneResult.viewed` out,
+  `ResolvedReview.round` back in, with the state per change in the server's round
+  store — so a re-review opens where the last one left off.
 - Answered: deny under `bypassPermissions` (§1: honored), the token budget (§2: 6,000
   characters), verdict validation (§5), and the cap the two blocks share (comments
   first, with a third of the room kept for the answers while they need it).
-- Still open: the viewed-state round-trip (`/api/file-viewed`; each submission gets a
-  new port, so viewed marks do not survive a re-submit), a hook-side re-submit counter
+- Still open: what a round looks like to the reviewer (plan 020 part 2: the badge, the
+  changed marks and their filter, the previous round's comments, no repeats of a
+  dismissed finding), a hook-side re-submit counter
   (§3), Approve + coverage (§4), per-chapter verdicts (§4), and posting line comments to
   GitHub from the desktop app (it posts the verdict and summary).

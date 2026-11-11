@@ -2,7 +2,12 @@
 import { afterEach, expect, mock, test } from "bun:test";
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import type { ReactNode } from "react";
-import { fakeResolvedReview, fakeReviewApi, fakeReviewWithQuestions } from "./stories/fixtures.ts";
+import {
+  fakeResolvedReview,
+  fakeReviewApi,
+  fakeReviewRoundTwo,
+  fakeReviewWithQuestions,
+} from "./stories/fixtures.ts";
 
 /** The overview's chapter list heading ("3 chapters", "3 chapters · 1 of 3 complete"). */
 const CHAPTER_LIST = /^\d+ chapters?/;
@@ -200,4 +205,23 @@ test("raising an open question opens the first chapter with the note started", a
   const note = (await screen.findByPlaceholderText("What should change?")) as HTMLTextAreaElement;
   expect(note.value).toStartWith("> The task was a greeting change.");
   expect(screen.getByText("Chapter 1 of 3")).toBeTruthy();
+});
+
+test("a re-review opens with the untouched files already marked viewed", async () => {
+  render(<ReviewViewer api={fakeReviewApi({ review: fakeReviewRoundTwo })} />);
+  await screen.findByRole("heading", { level: 2, name: CHAPTER_LIST });
+  // Seeded before the screens read the key, so the overview's progress counts
+  // them: chapters 1 and 3 are done, chapter 2 has the changed file left.
+  expect(JSON.parse(localStorage.getItem("rb.viewed.fake-review") ?? "[]")).toEqual([
+    "1:src/example.ts",
+    "2:src/server/auth/session.ts",
+    "3:src/jobs/backoff.ts",
+  ]);
+  expect(screen.getByRole("heading", { level: 2, name: /2 of 3 complete/ })).toBeTruthy();
+});
+
+test("a first review marks nothing, and leaves no key behind", async () => {
+  render(<ReviewViewer api={fakeReviewApi()} />);
+  await screen.findByRole("heading", { level: 2, name: CHAPTER_LIST });
+  expect(localStorage.getItem("rb.viewed.fake-review")).toBeNull();
 });

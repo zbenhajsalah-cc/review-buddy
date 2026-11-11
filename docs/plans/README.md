@@ -4,7 +4,7 @@ These five plans come from reading Anthropic's post
 [How the Claude Code team does code review](https://claude.dev/blog/solving-code-review-at-anthropic/)
 and asking what Review Buddy should take from it.
 
-**Status:** 017, 018 and 019 are built (019 in two parts: findings read only, then the reviewer's answers). 020 and 021 are proposed.
+**Status:** 017, 018 and 019 are built (019 in two parts: findings read only, then the reviewer's answers). 020 is built in part — part 1, the state that survives a new port, is shipped; part 2, what the round looks like to the reviewer, is open. 021 is proposed.
 
 ## The rule that decides what we build
 
