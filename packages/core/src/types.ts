@@ -217,6 +217,38 @@ export interface ResolvedFinding {
   outsideDiff?: boolean;
 }
 
+/** One end of a move: `lines` lines from `start`, in `path`. */
+export interface MoveEnd {
+  /** The file's path as the review names it (the new path of a renamed file). */
+  path: string;
+  /** First line: an old line number for `from`, a new one for `to`. */
+  start: number;
+  lines: number;
+  /** The chapter whose hunk shows these lines. */
+  chapterIndex: number;
+}
+
+/**
+ * A block of lines removed in one place and added in another, unchanged
+ * (`core/moves.ts`). Found by the tool in the real diff, never by the agent.
+ * Two line ranges — no code text.
+ */
+export interface ResolvedMove {
+  /** "m1", "m2", … in the order of the new places. */
+  id: string;
+  /**
+   * "moved": the block left `from`. "copied": the same removed block also
+   * went to an earlier `to`; this is one more place.
+   */
+  kind: "moved" | "copied";
+  /** Where the lines were (old line numbers). */
+  from: MoveEnd;
+  /** Where they are now (new line numbers). */
+  to: MoveEnd;
+  /** Only indentation or trailing spaces differ. Absent: the lines are identical. */
+  reindented?: boolean;
+}
+
 /** A resolved hunk: anchor + real content attached from git diff (B). */
 export interface ResolvedHunk {
   old_start: number;
@@ -270,6 +302,8 @@ export interface ResolvedReview {
   verification?: Verification;
   /** Findings from other tools, placed by `resolveFindings`. Absent when none. */
   findings?: ResolvedFinding[];
+  /** Moved and copied blocks, found in the real diff. Absent when none. */
+  moves?: ResolvedMove[];
   /**
    * What changed since the reviewer last asked for changes. Absent on the
    * first round, and wherever rounds don't apply (see RoundInfo).

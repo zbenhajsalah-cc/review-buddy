@@ -14,6 +14,7 @@
  */
 
 import { languageOf, type ParsedFile, type ParsedHunk, parseDiff } from "./diff.ts";
+import { type DetectedMove, detectMoves, type MoveRange } from "./moves.ts";
 import { isNoiseFile } from "./noise.ts";
 import type {
   AgentFinding,
@@ -23,6 +24,7 @@ import type {
   ResolvedFile,
   ResolvedFinding,
   ResolvedHunk,
+  ResolvedMove,
   ResolvedReview,
   ReviewMeta,
   ReviewStats,
@@ -278,6 +280,8 @@ export function resolveReview(
     byPath.get(normalizePath(path)),
   );
 
+  const moves = resolveMoves(detectMoves(parsedFiles), chapters);
+
   return {
     review: {
       meta,
@@ -287,6 +291,7 @@ export function resolveReview(
       chapters,
       ...(agent.verification ? { verification: agent.verification } : {}),
       ...(findings.length > 0 ? { findings } : {}),
+      ...(moves.length > 0 ? { moves } : {}),
       warnings,
     },
     warnings,
@@ -307,6 +312,38 @@ function shortHash(text: string): string {
 function hunkCovers(h: ResolvedHunk, side: "old" | "new", line: number): boolean {
   const [start, count] = side === "new" ? [h.new_start, h.new_lines] : [h.old_start, h.old_lines];
   return count > 0 && line >= start && line < start + count;
+}
+
+/**
+ * Give each end of a move its chapter: the one whose hunk shows its first
+ * line. Every hunk of the diff is in exactly one chapter (the agent's, or
+ * "Unsorted" / noise), so both ends have one; a move that has none is dropped
+ * rather than shown half.
+ */
+function resolveMoves(
+  detected: readonly DetectedMove[],
+  chapters: readonly ResolvedChapter[],
+): ResolvedMove[] {
+  const chapterOf = (end: MoveRange, side: "old" | "new"): number | undefined =>
+    chapters.find((ch) =>
+      ch.files.some(
+        (f) => f.path === end.path && f.hunks.some((h) => hunkCovers(h, side, end.start)),
+      ),
+    )?.index;
+  const moves: ResolvedMove[] = [];
+  for (const m of detected) {
+    const from = chapterOf(m.from, "old");
+    const to = chapterOf(m.to, "new");
+    if (from === undefined || to === undefined) continue;
+    moves.push({
+      id: `m${moves.length + 1}`,
+      kind: m.kind,
+      from: { ...m.from, chapterIndex: from },
+      to: { ...m.to, chapterIndex: to },
+      ...(m.reindented ? { reindented: true } : {}),
+    });
+  }
+  return moves;
 }
 
 /**

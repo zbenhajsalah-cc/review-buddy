@@ -9,6 +9,7 @@ import {
   fakeReviewApi,
   fakeReviewRoundTwo,
   fakeReviewWithFindings,
+  fakeReviewWithMoves,
   fakeReviewWithQuestions,
 } from "../stories/fixtures.ts";
 import { Overview } from "./Overview.tsx";
@@ -374,4 +375,12 @@ test("round 4: suggests talking about the approach instead of another round", ()
   expect(
     screen.getByText("2 findings you dismissed in an earlier round are not shown again."),
   ).toBeTruthy();
+});
+
+test("moved code: one line with the counts; nothing without moves", () => {
+  renderWithApi(<Overview review={fakeReviewWithMoves} onBeginReview={() => {}} />);
+  expect(screen.getByText("1 moved block (4 lines).")).toBeDefined();
+  cleanup();
+  renderWithApi(<Overview review={fakeResolvedReview} onBeginReview={() => {}} />);
+  expect(screen.queryByText(/moved block/)).toBeNull();
 });

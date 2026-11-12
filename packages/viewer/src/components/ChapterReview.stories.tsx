@@ -3,6 +3,7 @@ import {
   fakeResolvedReview,
   fakeReviewRoundTwo,
   fakeReviewWithFindings,
+  fakeReviewWithMoves,
 } from "../stories/fixtures.ts";
 import { ChapterReview } from "./ChapterReview.tsx";
 
@@ -58,6 +59,16 @@ export const RoundTwo: Story = {
   args: {
     review: fakeReviewRoundTwo,
     position: 1,
+    onNavigate: () => {},
+    onExit: () => {},
+  },
+};
+
+/** Chapter 1 has a block that moved to chapter 3: a note under it, and the sidebar list. */
+export const WithMovedCode: Story = {
+  args: {
+    review: fakeReviewWithMoves,
+    position: 0,
     onNavigate: () => {},
     onExit: () => {},
   },

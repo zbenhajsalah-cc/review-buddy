@@ -15,6 +15,7 @@ import {
   otherFindings,
   useFindingAnswers,
 } from "../lib/findings.ts";
+import { movesSummary } from "../lib/moves.ts";
 import { progressByChapter } from "../lib/progress.ts";
 import { raiseQuestionNote } from "../lib/raiseQuestion.ts";
 import { reviewToMarkdown } from "../lib/reviewMarkdown.ts";
@@ -79,6 +80,7 @@ export function Overview({
   const canRaise = roundtrip && !!onRaiseQuestion && chapters.length > 0;
 
   const findings = review.findings ?? [];
+  const moves = movesSummary(review.moves);
   // Raising a question and answering a finding both need round-trip: they go
   // to the agent.
   useEffect(() => {
@@ -271,6 +273,13 @@ export function Overview({
           onAnswer={roundtrip ? answer : undefined}
           onClearAnswer={roundtrip ? clearAnswer : undefined}
         />
+      )}
+
+      {moves !== "" && (
+        <p className="mt-6 text-sm text-muted-foreground">
+          <span className="font-medium text-foreground">{moves}.</span> Code that only changed place
+          is marked in the diff, with a link to its other place — no need to read it twice.
+        </p>
       )}
 
       {/* Chapter list */}
