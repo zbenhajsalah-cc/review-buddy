@@ -137,6 +137,24 @@ comments, no repeats of a dismissed finding) is part 2. **Proposed:**
 attention scaled by risk with sensitive paths (021). The README there also lists what was left to the
 project's own harness (bug hunting, running checks, `REVIEW.md` tooling) and why.
 
+## Backlog (ideas, no plan yet)
+
+- **Move/copy detection.** Show moved or copied code as a move, not as a full
+  delete in one place plus a full insert in another, so the reviewer does not
+  re-read code that only changed place. Today only whole-file renames are known
+  (`changeType: "renamed"` in `packages/core/src/diff.ts`); a block moved inside
+  a file or between files, and a copied file or block, look like unrelated
+  removals and additions. Seen in Devin Review's "copy and move detection"
+  (2026-11). Constraints:
+  - The **tool** detects moves from the real diff (source B), never the agent:
+    reference-not-reproduce holds, so no code text in `submit_review`.
+  - It fits the rule in `docs/plans/README.md`: it is about the human's
+    attention, not about correctness.
+  - Open: how to detect (git's `-C` finds copied files only; block moves need
+    our own matching of removed and added line runs, as `--color-moved` does);
+    how to show a move whose two halves are in different chapters; what to do
+    with a move that also has small edits; whether `@pierre/diffs` can render it.
+
 ## Open questions (still open)
 
 - **Runtime grammar serving (future optimization):** the committed artifact
