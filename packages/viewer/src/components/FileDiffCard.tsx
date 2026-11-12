@@ -70,6 +70,7 @@ export const FileDiffCard = memo(function FileDiffCard({
   viewed,
   collapsed,
   focused = false,
+  changedSinceRound,
   comments = NO_COMMENTS,
   findings = NO_FINDINGS,
   answers = NO_ANSWERS,
@@ -86,6 +87,11 @@ export const FileDiffCard = memo(function FileDiffCard({
   viewed: boolean;
   collapsed: boolean;
   focused?: boolean;
+  /**
+   * The previous round's number when this file's diff changed since then
+   * (plan 020): the card says so. Omit on a first round, or when unchanged.
+   */
+  changedSinceRound?: number;
   /** This file's comments in this chapter. */
   comments?: readonly LineComment[];
   /** This file's findings in this chapter. */
@@ -355,6 +361,15 @@ export const FileDiffCard = memo(function FileDiffCard({
           >
             {CHANGE_LABEL[file.change_type]}
           </Badge>
+          {changedSinceRound !== undefined && (
+            <Badge
+              variant="outline"
+              className="shrink-0 rounded border-primary/40 px-1.5 py-0.5 text-[0.65rem] text-primary"
+              title="The agent changed this file since you last reviewed it"
+            >
+              Changed since round {changedSinceRound}
+            </Badge>
+          )}
         </div>
         <div className="flex shrink-0 items-center gap-3">
           <DiffStat additions={file.additions} deletions={file.deletions} />

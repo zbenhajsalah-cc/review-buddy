@@ -3,9 +3,9 @@ import { execFileSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { AgentReview } from "@review-buddy/core/types";
+import type { AgentReview, ResolvedReview } from "@review-buddy/core/types";
 import { roundStore } from "./round-store.ts";
-import { openRounds, roundtripEnabled } from "./session.ts";
+import { applyRound, openRounds, roundtripEnabled } from "./session.ts";
 
 test("roundtripEnabled: on by default, off only when turned off", () => {
   expect(roundtripEnabled({})).toBe(true);
@@ -161,4 +161,65 @@ test("openRounds: a dismissed finding stays dismissed through the rounds", () =>
     expect(store.read()?.round).toBe(2);
     expect(store.read()?.dismissedFindings).toEqual(["f1", "f3"]);
   });
+});
+
+/** An unrelated change in the same repo: no path in common with DIFF. */
+const DIFF_OTHER = `diff --git a/docs/c.md b/docs/c.md
+index 555..666 100644
+--- a/docs/c.md
++++ b/docs/c.md
+@@ -1,1 +1,2 @@
+ ctx
++other
+`;
+
+test("openRounds: a worktree diff that shares no path with the last round starts at round 1", () => {
+  withStateDir(() => {
+    openRounds("/repo", agent, DIFF).save({ verdict: "request_changes", viewed: ["src/a.ts"] });
+    expect(openRounds("/repo", agent, DIFF_OTHER).info).toBeUndefined();
+    // …while one that shares a path is still the same change.
+    expect(openRounds("/repo", agent, DIFF_B_CHANGED).info?.number).toBe(2);
+  });
+});
+
+test("openRounds: a PR keeps its chain even when the paths all change", () => {
+  withStateDir(() => {
+    const pr = { source: { type: "pr", ref: "12" } } as AgentReview;
+    openRounds("/repo", pr, DIFF).save({ verdict: "request_changes" });
+    expect(openRounds("/repo", pr, DIFF_OTHER).info?.number).toBe(2);
+  });
+});
+
+test("openRounds: dismissed findings carry to the next round", () => {
+  withStateDir(() => {
+    openRounds("/repo", agent, DIFF).save({
+      verdict: "request_changes",
+      findings: [
+        { id: "f-1", decision: "dismiss", reason: "not a bug" },
+        { id: "f-2", decision: "fix" },
+      ],
+    });
+    expect(openRounds("/repo", agent, DIFF).dismissed).toEqual(["f-1"]);
+  });
+});
+
+test("applyRound: drops dismissed findings and says how many", () => {
+  const finding = (id: string) =>
+    ({ id, path: "src/a.ts", line: 2, side: "new", severity: "nit", title: id }) as const;
+  const review = {
+    findings: [finding("f-1"), finding("f-2")],
+  } as unknown as ResolvedReview;
+  const info = { number: 2, changedPaths: [], viewedPaths: [], previousComments: [] };
+  applyRound(review, { info, dismissed: ["f-1"] });
+  expect(review.findings?.map((f) => f.id)).toEqual(["f-2"]);
+  expect(review.round).toEqual({ ...info, hiddenFindings: 1 });
+
+  const allGone = { findings: [finding("f-1")] } as unknown as ResolvedReview;
+  applyRound(allGone, { info, dismissed: ["f-1"] });
+  expect(allGone.findings).toBeUndefined();
+
+  const first = { findings: [finding("f-1")] } as unknown as ResolvedReview;
+  applyRound(first, { dismissed: ["f-1"] });
+  expect(first.round).toBeUndefined();
+  expect(first.findings).toHaveLength(1);
 });

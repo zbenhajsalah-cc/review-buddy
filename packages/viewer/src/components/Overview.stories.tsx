@@ -3,6 +3,7 @@ import { ReviewApiProvider } from "../review-api.tsx";
 import {
   fakeResolvedReview,
   fakeReviewApi,
+  fakeReviewRoundTwo,
   fakeReviewWithEvidence,
   fakeReviewWithFindings,
   fakeReviewWithQuestions,
@@ -67,6 +68,25 @@ export const WithEvidence: Story = {
 export const WithFindings: Story = {
   args: {
     review: fakeReviewWithFindings,
+    onBeginReview: () => {},
+  },
+};
+
+/** A re-review: the round, what changed, and the last round's comments. */
+export const RoundTwo: Story = {
+  args: {
+    review: fakeReviewRoundTwo,
+    onBeginReview: () => {},
+  },
+};
+
+/** Many rounds: the nudge to talk about the approach instead. */
+export const RoundFour: Story = {
+  args: {
+    review: {
+      ...fakeReviewRoundTwo,
+      round: { ...fakeReviewRoundTwo.round!, number: 4, hiddenFindings: 1 },
+    },
     onBeginReview: () => {},
   },
 };

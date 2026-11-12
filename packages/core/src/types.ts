@@ -332,6 +332,11 @@ export interface RoundInfo {
   /** Paths the reviewer had marked viewed and the agent has not touched since. */
   viewedPaths: string[];
   previousComments: PreviousComment[];
+  /**
+   * How many findings were left out because the reviewer dismissed them in an
+   * earlier round. Absent when none were.
+   */
+  hiddenFindings?: number;
 }
 
 export type ReviewVerdict = "approve" | "request_changes";

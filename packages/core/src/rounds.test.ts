@@ -8,9 +8,11 @@ import {
   parseRoundState,
   type RoundState,
   roundInfo,
+  sharesAnyPath,
   UNCOMPARABLE,
+  withoutDismissed,
 } from "./rounds.ts";
-import type { ReviewComment } from "./types.ts";
+import type { ResolvedFinding, ReviewComment } from "./types.ts";
 
 const file = (over: Partial<ParsedFile> = {}): ParsedFile => ({
   path: "src/a.ts",
@@ -228,4 +230,35 @@ test("parseRoundState: junk inside a well-formed state is dropped, not kept", ()
     comments: [comment()],
     dismissedFindings: [],
   });
+});
+
+test("sharesAnyPath: one path in common is the same change; none is another", () => {
+  const previous: RoundState = {
+    round: 1,
+    files: { "src/a.ts": "1", "src/b.ts": "2" },
+    viewed: [],
+    comments: [],
+    dismissedFindings: [],
+  };
+  expect(sharesAnyPath(previous, { "src/b.ts": "9", "src/c.ts": "3" })).toBe(true);
+  expect(sharesAnyPath(previous, { "docs/x.md": "4" })).toBe(false);
+  expect(sharesAnyPath(previous, {})).toBe(false);
+});
+
+test("withoutDismissed: drops dismissed ids and counts them", () => {
+  const finding = (id: string): ResolvedFinding => ({
+    id,
+    path: "src/a.ts",
+    line: 1,
+    side: "new",
+    severity: "nit",
+    title: id,
+  });
+  const all = [finding("f-1"), finding("f-2"), finding("f-3")];
+  expect(withoutDismissed(all, ["f-2", "f-9"])).toEqual({
+    findings: [finding("f-1"), finding("f-3")],
+    hidden: 1,
+  });
+  expect(withoutDismissed(all, [])).toEqual({ findings: all, hidden: 0 });
+  expect(withoutDismissed(undefined, ["f-1"])).toEqual({ findings: [], hidden: 0 });
 });

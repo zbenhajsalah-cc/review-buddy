@@ -18,6 +18,7 @@ import {
 import { progressByChapter } from "../lib/progress.ts";
 import { raiseQuestionNote } from "../lib/raiseQuestion.ts";
 import { reviewToMarkdown } from "../lib/reviewMarkdown.ts";
+import { changedFileCount, changedSinceLastRound } from "../lib/rounds.ts";
 import { useShortcuts } from "../lib/shortcuts.ts";
 import { cn } from "../lib/utils.ts";
 import { useReviewApi } from "../review-api.tsx";
@@ -27,6 +28,7 @@ import { Evidence } from "./Evidence.tsx";
 import { FindingCard } from "./Finding.tsx";
 import { Markdown } from "./Markdown.tsx";
 import { RiskBadge } from "./RiskBadge.tsx";
+import { RoundBadge, RoundSummary } from "./Round.tsx";
 import { ShortcutsDialog } from "./ShortcutsDialog.tsx";
 import { Badge } from "./ui/badge.tsx";
 import { Button } from "./ui/button.tsx";
@@ -59,6 +61,7 @@ export function Overview({
   const [comments] = useState(() => readComments(reviewKey));
   const { answers, answer, clearAnswer } = useFindingAnswers();
   const copyRef = useRef<CopyMarkdownHandle>(null);
+  const changed = useMemo(() => changedSinceLastRound(review), [review]);
 
   const chapterProgress = useMemo(
     () => progressByChapter(chapters, viewedEntries),
@@ -144,6 +147,7 @@ export function Overview({
           <span>
             {stats.filesChanged} file{stats.filesChanged === 1 ? "" : "s"}
           </span>
+          {review.round && <RoundBadge round={review.round.number} />}
           {meta.aiGenerated && (
             <Badge
               variant="outline"
@@ -180,6 +184,8 @@ export function Overview({
           )}
         </div>
       )}
+
+      {review.round && <RoundSummary round={review.round} />}
 
       {questions.length > 0 && (
         <OpenQuestions
@@ -285,6 +291,7 @@ export function Overview({
           const chapterFindingList = findings.filter((f) => f.chapterIndex === ch.index);
           const findingCount = chapterFindingList.length;
           const openCount = roundtrip ? openFindings(chapterFindingList, answers).length : 0;
+          const changedCount = changed ? changedFileCount(ch, changed) : 0;
           return (
             <li key={ch.index}>
               <button
@@ -315,6 +322,17 @@ export function Overview({
                     {viewedCount > 0 && ch.fileCount > 0 && (
                       <span className="text-xs text-muted-foreground">
                         {viewedCount}/{ch.fileCount} viewed
+                      </span>
+                    )}
+                    {changed && ch.fileCount > 0 && (
+                      <span
+                        className={cn(
+                          "text-xs",
+                          changedCount > 0 ? "text-primary" : "text-muted-foreground",
+                        )}
+                        title={`${changedCount} of ${ch.fileCount} files changed since last round`}
+                      >
+                        {changedCount} of {ch.fileCount} changed
                       </span>
                     )}
                     {findingCount > 0 && (

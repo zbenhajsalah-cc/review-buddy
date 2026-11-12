@@ -7,6 +7,7 @@ import { reviewToMarkdown } from "../lib/reviewMarkdown.ts";
 import {
   fakeResolvedReview,
   fakeReviewApi,
+  fakeReviewRoundTwo,
   fakeReviewWithFindings,
   fakeReviewWithQuestions,
 } from "../stories/fixtures.ts";
@@ -339,4 +340,38 @@ test('findings: with round-trip, an "other" finding is answered on the overview'
 test("no findings → no Findings card", () => {
   renderWithApi(<Overview review={fakeResolvedReview} onBeginReview={() => {}} />);
   expect(screen.queryByRole("region", { name: "Findings" })).toBeNull();
+});
+
+/* ---------------------------- Rounds (plan 020) ---------------------------- */
+
+test("round 2: badge, summary, and per-chapter changed counts", () => {
+  renderWithApi(<Overview review={fakeReviewRoundTwo} onBeginReview={() => {}} />);
+  expect(screen.getAllByText("Round 2").length).toBeGreaterThan(0);
+  expect(screen.getByText(/1 file changed since round 1\./)).toBeTruthy();
+  expect(
+    screen.getByText(/1 on lines that changed since, 1 on lines that did not change\./),
+  ).toBeTruthy();
+  // Chapter 2 has the changed middleware and the untouched session file.
+  expect(screen.getByText("1 of 2 changed")).toBeTruthy();
+  expect(screen.getAllByText("0 of 1 changed")).toHaveLength(2);
+  // Not yet many rounds.
+  expect(screen.queryByRole("note")).toBeNull();
+});
+
+test("round 1: no round badge, summary or changed counts", () => {
+  renderWithApi(<Overview review={fakeResolvedReview} onBeginReview={() => {}} />);
+  expect(screen.queryByText(/^Round \d/)).toBeNull();
+  expect(screen.queryByText(/changed$/)).toBeNull();
+});
+
+test("round 4: suggests talking about the approach instead of another round", () => {
+  const review = {
+    ...fakeReviewRoundTwo,
+    round: { ...fakeReviewRoundTwo.round!, number: 4, hiddenFindings: 2 },
+  };
+  renderWithApi(<Overview review={review} onBeginReview={() => {}} />);
+  expect(screen.getByRole("note").textContent).toContain("This is round 4.");
+  expect(
+    screen.getByText("2 findings you dismissed in an earlier round are not shown again."),
+  ).toBeTruthy();
 });

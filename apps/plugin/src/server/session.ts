@@ -19,8 +19,14 @@ import { buildMeta } from "@review-buddy/core/meta";
 import { repoToplevel } from "@review-buddy/core/node/git";
 import { localGitSource } from "@review-buddy/core/node/local-source";
 import { resolveReview } from "@review-buddy/core/resolve";
-import { fileFingerprints, nextRoundState, roundInfo } from "@review-buddy/core/rounds";
-import type { AgentReview, RoundInfo } from "@review-buddy/core/types";
+import {
+  fileFingerprints,
+  nextRoundState,
+  roundInfo,
+  sharesAnyPath,
+  withoutDismissed,
+} from "@review-buddy/core/rounds";
+import type { AgentReview, ResolvedReview, RoundInfo } from "@review-buddy/core/types";
 import { pluginRoot } from "../plugin-root.ts";
 import { openBrowser } from "./browser.ts";
 import { type DoneResult, type RunningServer, startServer } from "./http.ts";
@@ -70,17 +76,23 @@ export function openRounds(
   cwd: string,
   agent: AgentReview,
   diff: string,
-): { info?: RoundInfo; save: (result: DoneResult) => void } {
+): { info?: RoundInfo; dismissed: string[]; save: (result: DoneResult) => void } {
   // Keyed by the repository, not by where the agent happened to run: the hook
   // passes its own cwd, so two directories of one repo would otherwise be two
   // chains and a re-review from a subdirectory would start over at round 1.
   const store = roundStore(repoToplevel(cwd) ?? cwd, agent.source);
   cleanupRounds();
-  const previous = store.read();
   const current = fileFingerprints(parseDiff(diff));
+  let previous = store.read();
+  // A worktree review has no ref, so all of them in one repo share this file.
+  // A diff that shares no path with the last round is another change: it
+  // starts over at round 1 (its "request changes" overwrites the old state).
+  const worktree = (agent.source?.type ?? "worktree") === "worktree";
+  if (previous && worktree && !sharesAnyPath(previous, current)) previous = undefined;
   const info = roundInfo(previous, current);
   return {
     info,
+    dismissed: previous?.dismissedFindings ?? [],
     /**
      * "Request changes" starts another round, so the state is written; an
      * approval ends the chain, so it is cleared. A Done with no verdict (no
@@ -102,6 +114,26 @@ export function openRounds(
       );
     },
   };
+}
+
+/**
+ * Put the round on the review. "No repeats": a finding the reviewer dismissed
+ * in an earlier round is not shown again, even if the agent raises it again;
+ * the round says how many were left out. Exported for tests.
+ */
+export function applyRound(
+  review: ResolvedReview,
+  rounds: { info?: RoundInfo; dismissed: readonly string[] },
+): void {
+  if (!rounds.info) return;
+  const { findings, hidden } = withoutDismissed(review.findings, rounds.dismissed);
+  if (findings.length > 0) review.findings = findings;
+  else delete review.findings;
+  review.round = hidden > 0 ? { ...rounds.info, hiddenFindings: hidden } : rounds.info;
+  console.error(`[review-buddy] Round ${rounds.info.number} of this change.`);
+  if (hidden > 0) {
+    console.error(`[review-buddy] ${hidden} finding(s) dismissed in an earlier round not shown.`);
+  }
 }
 
 /**
@@ -134,10 +166,7 @@ export async function openReviewSession(
   // is no "request changes", so there is never a second round to compare with.
   const roundtrip = opts.roundtrip ?? roundtripEnabled();
   const rounds = (opts.rounds ?? roundtrip) ? openRounds(cwd, agent, diff) : undefined;
-  if (rounds?.info) {
-    review.round = rounds.info;
-    console.error(`[review-buddy] Round ${rounds.info.number} of this change.`);
-  }
+  if (rounds) applyRound(review, rounds);
 
   const server = startServer({
     review,

@@ -175,7 +175,7 @@ function oldLineFirst(spans: readonly DiffSpan[], oldLine: number, newLine: numb
 
 /** "line 12 (new)", "lines 10-14 (new)", "lines 10 (old) to 14 (new)". */
 /** Review order: chapter, then file, then line. */
-export function sortComments(comments: readonly LineComment[]): LineComment[] {
+export function sortComments<T extends ReviewComment>(comments: readonly T[]): T[] {
   return [...comments].sort(
     (a, b) =>
       a.chapterIndex - b.chapterIndex ||

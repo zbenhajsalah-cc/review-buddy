@@ -18,7 +18,13 @@
  * (CLAUDE.md) holds across rounds too.
  */
 import type { ParsedFile } from "./diff.ts";
-import type { CommentStatus, PreviousComment, ReviewComment, RoundInfo } from "./types.ts";
+import type {
+  CommentStatus,
+  PreviousComment,
+  ResolvedFinding,
+  ReviewComment,
+  RoundInfo,
+} from "./types.ts";
 
 /**
  * What the plugin keeps between two rounds of one change. `round` is the
@@ -159,6 +165,38 @@ export function roundInfo(
     viewedPaths: previous.viewed.filter((p) => changes[p] === "unchanged"),
     previousComments,
   };
+}
+
+/**
+ * Whether a stored round is about the same change as this diff. A worktree
+ * review has no ref, so every worktree review of one repository shares one
+ * round file: a new, unrelated change would otherwise read as "round 2". The
+ * rule is simple — the two rounds must share at least one path. A fix-up
+ * round always touches some of the files the reviewer asked about; a new
+ * piece of work that shares none of them starts over at round 1.
+ */
+export function sharesAnyPath(
+  previous: RoundState,
+  current: Readonly<Record<string, string>>,
+): boolean {
+  return Object.keys(current).some((path) => Object.hasOwn(previous.files, path));
+}
+
+/**
+ * The findings left once the ones the reviewer dismissed in an earlier round
+ * are taken out ("no repeats", plan 020). Finding ids are a hash of path and
+ * title (`resolveFindings`), so the same finding raised again has the same id.
+ * `hidden` is how many were taken out, so the viewer can say so.
+ */
+export function withoutDismissed(
+  findings: readonly ResolvedFinding[] | undefined,
+  dismissed: readonly string[],
+): { findings: ResolvedFinding[]; hidden: number } {
+  const all = findings ?? [];
+  if (dismissed.length === 0) return { findings: [...all], hidden: 0 };
+  const ids = new Set(dismissed);
+  const kept = all.filter((f) => !ids.has(f.id));
+  return { findings: kept, hidden: all.length - kept.length };
 }
 
 /**

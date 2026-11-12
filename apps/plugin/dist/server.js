@@ -24591,6 +24591,17 @@ function roundInfo(previous, current) {
     previousComments
   };
 }
+function sharesAnyPath(previous, current) {
+  return Object.keys(current).some((path) => Object.hasOwn(previous.files, path));
+}
+function withoutDismissed(findings, dismissed) {
+  const all = findings ?? [];
+  if (dismissed.length === 0)
+    return { findings: [...all], hidden: 0 };
+  const ids = new Set(dismissed);
+  const kept = all.filter((f) => !ids.has(f.id));
+  return { findings: kept, hidden: all.length - kept.length };
+}
 function nextRoundState(info, current, round, previous) {
   const dismissed = new Set([...previous?.dismissedFindings ?? [], ...round.dismissed ?? []]);
   return {
@@ -24959,11 +24970,15 @@ function roundtripEnabled(env = process.env) {
 function openRounds(cwd, agent, diff) {
   const store = roundStore(repoToplevel(cwd) ?? cwd, agent.source);
   cleanupRounds();
-  const previous = store.read();
   const current = fileFingerprints(parseDiff(diff));
+  let previous = store.read();
+  const worktree = (agent.source?.type ?? "worktree") === "worktree";
+  if (previous && worktree && !sharesAnyPath(previous, current))
+    previous = undefined;
   const info = roundInfo(previous, current);
   return {
     info,
+    dismissed: previous?.dismissedFindings ?? [],
     save(result) {
       if (result.verdict !== "request_changes")
         return store.clear();
@@ -24974,6 +24989,20 @@ function openRounds(cwd, agent, diff) {
       }, previous));
     }
   };
+}
+function applyRound(review, rounds) {
+  if (!rounds.info)
+    return;
+  const { findings, hidden } = withoutDismissed(review.findings, rounds.dismissed);
+  if (findings.length > 0)
+    review.findings = findings;
+  else
+    delete review.findings;
+  review.round = hidden > 0 ? { ...rounds.info, hiddenFindings: hidden } : rounds.info;
+  console.error(`[review-buddy] Round ${rounds.info.number} of this change.`);
+  if (hidden > 0) {
+    console.error(`[review-buddy] ${hidden} finding(s) dismissed in an earlier round not shown.`);
+  }
 }
 async function openReviewSession(agent, cwd, opts = {}) {
   const source = localGitSource(cwd, agent.source, process.env.REVIEW_BUDDY_BASE);
@@ -24987,10 +25016,8 @@ async function openReviewSession(agent, cwd, opts = {}) {
   }
   const roundtrip = opts.roundtrip ?? roundtripEnabled();
   const rounds = opts.rounds ?? roundtrip ? openRounds(cwd, agent, diff) : undefined;
-  if (rounds?.info) {
-    review.round = rounds.info;
-    console.error(`[review-buddy] Round ${rounds.info.number} of this change.`);
-  }
+  if (rounds)
+    applyRound(review, rounds);
   const server = startServer({
     review,
     cwd,

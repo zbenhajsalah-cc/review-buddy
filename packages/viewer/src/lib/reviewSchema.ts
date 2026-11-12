@@ -140,6 +140,7 @@ const RoundInfoSchema = z.object({
   previousComments: z.array(
     ReviewCommentSchema.extend({ status: z.enum(["lines_changed", "lines_unchanged"]) }),
   ),
+  hiddenFindings: z.number().optional(),
 });
 
 export const ReviewSchema = z.object({

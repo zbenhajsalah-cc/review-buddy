@@ -113,7 +113,7 @@ function ReviewScreens({ urlHash, tabTitle }: { urlHash: boolean; tabTitle: bool
         position={shown.position}
         openFile={openFile}
         requestNote={requestNote}
-        onNavigate={(position) => show({ mode: "chapter", position })}
+        onNavigate={(position, file) => show({ mode: "chapter", position }, file)}
         onExit={() => show({ mode: "overview" })}
         markedDone={markedDone}
         onMarkedDone={() => setMarkedDone(true)}

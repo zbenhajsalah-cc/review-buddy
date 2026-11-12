@@ -1,5 +1,9 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
-import { fakeResolvedReview, fakeReviewWithFindings } from "../stories/fixtures.ts";
+import {
+  fakeResolvedReview,
+  fakeReviewRoundTwo,
+  fakeReviewWithFindings,
+} from "../stories/fixtures.ts";
 import { ChapterReview } from "./ChapterReview.tsx";
 
 const meta = {
@@ -43,6 +47,16 @@ export const LastChapter: Story = {
 export const WithFindings: Story = {
   args: {
     review: fakeReviewWithFindings,
+    position: 1,
+    onNavigate: () => {},
+    onExit: () => {},
+  },
+};
+
+/** Round 2: only the changed file shows, and the last round's comments are listed. */
+export const RoundTwo: Story = {
+  args: {
+    review: fakeReviewRoundTwo,
     position: 1,
     onNavigate: () => {},
     onExit: () => {},

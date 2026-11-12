@@ -128,12 +128,13 @@ returns the same text; detached shows no verdict UI. A hook `deny` is honored in
 Five plans in `docs/plans/` (start at `docs/plans/README.md`). **Built:** direction
 questions shown first (017), an evidence panel (018), and findings from other tools
 shown on their line and answered by the reviewer (019 — part 1 read only, part 2 the
-answers, which travel to the agent with the verdict). Rounds (020) are built in part: the server
+answers, which travel to the agent with the verdict), and rounds (020): the server
 remembers each change, so a re-review knows which round it is and opens with
 the files the agent has not touched already marked viewed — which closes the
-"persist viewed state" item of Phase 2. What the round looks like to the
-reviewer (the badge, the changed marks and filter, the previous round's
-comments, no repeats of a dismissed finding) is part 2. **Proposed:**
+"persist viewed state" item of Phase 2 — and shows the reviewer the round: a
+badge, the files changed since the last round (marked, and filtered to by
+default), the last round's comments with whether their lines changed, a nudge
+after many rounds, and no repeats of a dismissed finding. **Proposed:**
 attention scaled by risk with sensitive paths (021). The README there also lists what was left to the
 project's own harness (bug hunting, running checks, `REVIEW.md` tooling) and why.
 

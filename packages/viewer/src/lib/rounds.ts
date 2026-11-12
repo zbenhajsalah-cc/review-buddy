@@ -70,3 +70,35 @@ export function seedViewedFromRound(review: ResolvedReview, reviewKey: string): 
     return [];
   }
 }
+
+/**
+ * The paths that changed since the last round, or `null` on a first round —
+ * where "changed since last round" means nothing and nothing is marked.
+ */
+export function changedSinceLastRound(review: ResolvedReview): ReadonlySet<string> | null {
+  return review.round ? new Set(review.round.changedPaths) : null;
+}
+
+/** How many of a chapter's files changed since the last round. */
+export function changedFileCount(
+  chapter: Pick<ResolvedChapter, "files">,
+  changed: ReadonlySet<string>,
+): number {
+  return chapter.files.filter((f) => changed.has(f.path)).length;
+}
+
+/**
+ * The position of the first chapter that shows `path`, or -1. A comment from
+ * the last round names the chapter it was written in, but the agent may have
+ * grouped its chapters differently since: the path is what still holds.
+ */
+export function firstChapterWith(chapters: readonly ResolvedChapter[], path: string): number {
+  return chapters.findIndex((ch) => ch.files.some((f) => f.path === path));
+}
+
+/**
+ * Many rounds mean the approach is the problem, not the lines: from this
+ * round on, the viewer suggests a conversation instead of another round. The
+ * skill caps the agent at 3 re-submits, so round 4 is the last one it sends.
+ */
+export const MANY_ROUNDS = 4;

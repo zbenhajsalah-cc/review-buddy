@@ -314,11 +314,15 @@ plain Done.
 - **The viewed marks across rounds** (plan 020 part 1): `DoneResult.viewed` out,
   `ResolvedReview.round` back in, with the state per change in the server's round
   store — so a re-review opens where the last one left off.
+- **What a round looks like** (plan 020 part 2): a "Round N" badge, a "changed since
+  round N" mark on files and an "Only changed since last round" filter (on by
+  default), changed counts per chapter, the last round's comments listed read only
+  with "lines changed since" / "lines not changed", a nudge from round 4 on to talk
+  about the approach instead, and no repeats: a finding dismissed in an earlier round
+  is not shown again.
 - Answered: deny under `bypassPermissions` (§1: honored), the token budget (§2: 6,000
   characters), verdict validation (§5), and the cap the two blocks share (comments
   first, with a third of the room kept for the answers while they need it).
-- Still open: what a round looks like to the reviewer (plan 020 part 2: the badge, the
-  changed marks and their filter, the previous round's comments, no repeats of a
-  dismissed finding), a hook-side re-submit counter
+- Still open: a hook-side re-submit counter
   (§3), Approve + coverage (§4), per-chapter verdicts (§4), and posting line comments to
   GitHub from the desktop app (it posts the verdict and summary).
