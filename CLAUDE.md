@@ -71,6 +71,7 @@ review-buddy/
 │   ├── src/diff.ts            # git diff parser
 │   ├── src/resolve.ts         # chapter resolution (anchors → real hunks) + file allowlist
 │   ├── src/noise.ts           # generated/noise file heuristic
+│   ├── src/moves.ts           # move detection: blocks removed in one place and added in another (tool-side, from the real diff)
 │   ├── src/validate.ts        # zod backstop for the agent payload
 │   ├── src/messages.ts        # agent-facing feedback text (resolution notes, request-changes)
 │   ├── src/meta.ts            # review meta
@@ -124,16 +125,25 @@ picks the light/dark syntax themes (any `@pierre/diffs`/Shiki theme) and the cod
 and ligatures (`packages/viewer/src/appearance.ts`; fonts self-hosted in `src/fonts/`); and
 **resolution notes now travel back to the agent** (hook `additionalContext` on Claude Code,
 tool-result text standalone) so a review whose anchors missed can be corrected next time;
-and **rounds** (plan 020, part 1: each submission is
+and **rounds** (plan 020: each submission is
 served on a new port and so gets an empty localStorage, so the server keeps a small
 state file per change — `~/.review-buddy/rounds`, fingerprints and viewed paths only,
 no diff text — and a re-review after "Request changes" opens with every file the agent
 has not touched already marked viewed; `core/rounds.ts` + `server/round-store.ts`,
-deleted on approval and absent wherever no verdict can travel); and **findings from other tools** (plan 019: an optional `findings` array on
+deleted on approval and absent wherever no verdict can travel; the viewer shows a
+"Round N" badge, marks and filters to the files changed since the last round, lists
+the last round's comments with "lines changed since" / "lines not changed", nudges
+from round 4 on to talk about the approach, and drops findings dismissed earlier); and **findings from other tools** (plan 019: an optional `findings` array on
 `submit_review` — path and line only, never code text) are shown under their line with a
 severity tag, listed in the sidebar and counted on the Overview, and **answered** by the
 reviewer (Fix, or Dismiss with a reason) with the answers going to the agent with the
-verdict, so a dismissed one is not raised again.
+verdict, so a dismissed one is not raised again; and **moved code** (plan 022): the tool —
+not the agent — finds blocks that were removed in one place and added in another,
+unchanged (`core/moves.ts` → `ResolvedReview.moves`, line ranges only), and the viewer
+puts a note under each end with a jump to the other one, so the reviewer does not read
+the same code twice ("identical" only for an exact match; a match that needed its
+leading/trailing whitespace ignored is `whitespaceChanged` and says "not identical …
+check it" — never "only the indentation changed", which the tool cannot know).
 
 **Deferred to later phases** (per PRD): posting line comments to GitHub (the desktop app posts the verdict and summary only), GitHub collaboration (open PR, copy branch, reviewers, CI), Activity view, Chat, conversational AI assistant.
 

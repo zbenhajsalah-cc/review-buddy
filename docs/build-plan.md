@@ -128,32 +128,27 @@ returns the same text; detached shows no verdict UI. A hook `deny` is honored in
 Five plans in `docs/plans/` (start at `docs/plans/README.md`). **Built:** direction
 questions shown first (017), an evidence panel (018), and findings from other tools
 shown on their line and answered by the reviewer (019 — part 1 read only, part 2 the
-answers, which travel to the agent with the verdict). Rounds (020) are built in part: the server
+answers, which travel to the agent with the verdict), and rounds (020): the server
 remembers each change, so a re-review knows which round it is and opens with
 the files the agent has not touched already marked viewed — which closes the
-"persist viewed state" item of Phase 2. What the round looks like to the
-reviewer (the badge, the changed marks and filter, the previous round's
-comments, no repeats of a dismissed finding) is part 2. **Proposed:**
+"persist viewed state" item of Phase 2 — and shows the reviewer the round: a
+badge, the files changed since the last round (marked, and filtered to by
+default), the last round's comments with whether their lines changed, a nudge
+after many rounds, and no repeats of a dismissed finding. **Proposed:**
 attention scaled by risk with sensitive paths (021). The README there also lists what was left to the
 project's own harness (bug hunting, running checks, `REVIEW.md` tooling) and why.
 
-## Backlog (ideas, no plan yet)
-
-- **Move/copy detection.** Show moved or copied code as a move, not as a full
-  delete in one place plus a full insert in another, so the reviewer does not
-  re-read code that only changed place. Today only whole-file renames are known
-  (`changeType: "renamed"` in `packages/core/src/diff.ts`); a block moved inside
-  a file or between files, and a copied file or block, look like unrelated
-  removals and additions. Seen in Devin Review's "copy and move detection"
-  (2026-11). Constraints:
-  - The **tool** detects moves from the real diff (source B), never the agent:
-    reference-not-reproduce holds, so no code text in `submit_review`.
-  - It fits the rule in `docs/plans/README.md`: it is about the human's
-    attention, not about correctness.
-  - Open: how to detect (git's `-C` finds copied files only; block moves need
-    our own matching of removed and added line runs, as `--color-moved` does);
-    how to show a move whose two halves are in different chapters; what to do
-    with a move that also has small edits; whether `@pierre/diffs` can render it.
+**Moved code ✅ shipped (plan 022, first version):** the tool finds blocks of lines
+that were removed in one place and added in another, unchanged
+(`packages/core/src/moves.ts`, from the real diff — never the agent), and
+`resolveReview` gives each end its chapter (`ResolvedReview.moves`). The viewer puts a
+note under each end ("31 lines moved here from … — identical"; when the lines match
+only with their leading and trailing whitespace ignored, "not identical … check it",
+because that can change a multiline string or Python/YAML structure) with a jump to the other end, a **moved code** badge on the file, a list in
+the chapter sidebar and one line on the Overview. A move with small edits is marked as
+its unchanged parts. Not yet: dimming or folding the moved lines, copies of code that
+was not removed (their source is not in the diff), whole-file copies, moved lines in
+the stats — see `docs/plans/022-move-detection.md`.
 
 ## Open questions (still open)
 

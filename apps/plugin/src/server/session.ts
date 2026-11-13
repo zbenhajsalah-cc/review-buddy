@@ -19,8 +19,22 @@ import { buildMeta } from "@review-buddy/core/meta";
 import { repoToplevel } from "@review-buddy/core/node/git";
 import { localGitSource } from "@review-buddy/core/node/local-source";
 import { resolveReview } from "@review-buddy/core/resolve";
-import { fileFingerprints, nextRoundState, roundInfo } from "@review-buddy/core/rounds";
-import type { AgentReview, RoundInfo } from "@review-buddy/core/types";
+import {
+  type FindingIdentity,
+  fileFingerprints,
+  findingIdentities,
+  nextRoundState,
+  type RememberedFinding,
+  roundInfo,
+  sharesAnyPath,
+  withoutDismissed,
+} from "@review-buddy/core/rounds";
+import type {
+  AgentReview,
+  ResolvedFinding,
+  ResolvedReview,
+  RoundInfo,
+} from "@review-buddy/core/types";
 import { pluginRoot } from "../plugin-root.ts";
 import { openBrowser } from "./browser.ts";
 import { type DoneResult, type RunningServer, startServer } from "./http.ts";
@@ -70,17 +84,32 @@ export function openRounds(
   cwd: string,
   agent: AgentReview,
   diff: string,
-): { info?: RoundInfo; save: (result: DoneResult) => void } {
+  findings?: readonly ResolvedFinding[],
+): {
+  info?: RoundInfo;
+  identities: FindingIdentity[];
+  memory: RememberedFinding[];
+  save: (result: DoneResult) => void;
+} {
   // Keyed by the repository, not by where the agent happened to run: the hook
   // passes its own cwd, so two directories of one repo would otherwise be two
   // chains and a re-review from a subdirectory would start over at round 1.
   const store = roundStore(repoToplevel(cwd) ?? cwd, agent.source);
   cleanupRounds();
-  const previous = store.read();
-  const current = fileFingerprints(parseDiff(diff));
+  const parsed = parseDiff(diff);
+  const current = fileFingerprints(parsed);
+  const identities = findingIdentities(findings, parsed);
+  let previous = store.read();
+  // A worktree review has no ref, so all of them in one repo share this file.
+  // A diff that shares no path with the last round is another change: it
+  // starts over at round 1 (its "request changes" overwrites the old state).
+  const worktree = (agent.source?.type ?? "worktree") === "worktree";
+  if (previous && worktree && !sharesAnyPath(previous, current)) previous = undefined;
   const info = roundInfo(previous, current);
   return {
     info,
+    identities,
+    memory: previous?.findingMemory ?? [],
     /**
      * "Request changes" starts another round, so the state is written; an
      * approval ends the chain, so it is cleared. A Done with no verdict (no
@@ -96,12 +125,37 @@ export function openRounds(
             viewed: result.viewed,
             comments: result.comments,
             dismissed: result.findings?.filter((a) => a.decision === "dismiss").map((a) => a.id),
+            identities,
           },
           previous,
         ),
       );
     },
   };
+}
+
+/**
+ * Put the round on the review. "No repeats": a finding the reviewer dismissed
+ * in an earlier round is not shown again, even if the agent raises it again;
+ * the round says how many were left out. Exported for tests.
+ */
+export function applyRound(
+  review: ResolvedReview,
+  rounds: {
+    info?: RoundInfo;
+    identities: readonly FindingIdentity[];
+    memory: readonly RememberedFinding[];
+  },
+): void {
+  if (!rounds.info) return;
+  const { findings, hidden } = withoutDismissed(review.findings, rounds.identities, rounds.memory);
+  if (findings.length > 0) review.findings = findings;
+  else delete review.findings;
+  review.round = hidden > 0 ? { ...rounds.info, hiddenFindings: hidden } : rounds.info;
+  console.error(`[review-buddy] Round ${rounds.info.number} of this change.`);
+  if (hidden > 0) {
+    console.error(`[review-buddy] ${hidden} finding(s) dismissed in an earlier round not shown.`);
+  }
 }
 
 /**
@@ -133,11 +187,9 @@ export async function openReviewSession(
   // A round only exists where a verdict can travel: with no round-trip there
   // is no "request changes", so there is never a second round to compare with.
   const roundtrip = opts.roundtrip ?? roundtripEnabled();
-  const rounds = (opts.rounds ?? roundtrip) ? openRounds(cwd, agent, diff) : undefined;
-  if (rounds?.info) {
-    review.round = rounds.info;
-    console.error(`[review-buddy] Round ${rounds.info.number} of this change.`);
-  }
+  const rounds =
+    (opts.rounds ?? roundtrip) ? openRounds(cwd, agent, diff, review.findings) : undefined;
+  if (rounds) applyRound(review, rounds);
 
   const server = startServer({
     review,

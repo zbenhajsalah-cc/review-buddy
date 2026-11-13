@@ -196,7 +196,7 @@ export interface PrMetadata {
 
 /** A finding placed in the review. */
 export interface ResolvedFinding {
-  /** Stable: a short hash of path + title (a suffix when two collide). */
+  /** Per submission: hash of path + title, with occurrence suffixes for duplicates. */
   id: string;
   /** The path as the diff names it (the new path of a renamed file). */
   path: string;
@@ -215,6 +215,43 @@ export interface ResolvedFinding {
   chapterIndex?: number;
   /** The line is in the file but outside every hunk shown in that chapter. */
   outsideDiff?: boolean;
+}
+
+/** One end of a move: `lines` lines from `start`, in `path`. */
+export interface MoveEnd {
+  /** The file's path as the review names it (the new path of a renamed file). */
+  path: string;
+  /** First line: an old line number for `from`, a new one for `to`. */
+  start: number;
+  lines: number;
+  /** The chapter whose hunk shows these lines. */
+  chapterIndex: number;
+}
+
+/**
+ * A block of lines removed in one place and added in another, unchanged
+ * (`core/moves.ts`). Found by the tool in the real diff, never by the agent.
+ * Two line ranges — no code text.
+ */
+export interface ResolvedMove {
+  /** "m1", "m2", … in the order of the new places. */
+  id: string;
+  /**
+   * "moved": the block left `from`. "copied": the same removed block also
+   * went to an earlier `to`; this is one more place.
+   */
+  kind: "moved" | "copied";
+  /** Where the lines were (old line numbers). */
+  from: MoveEnd;
+  /** Where they are now (new line numbers). */
+  to: MoveEnd;
+  /**
+   * Absent: the two ends are identical, character for character. True: they
+   * match only with leading and trailing whitespace ignored — which can be
+   * plain re-indentation, or a real change (a multiline string's value,
+   * Python or YAML structure). The tool cannot tell; the viewer says so.
+   */
+  whitespaceChanged?: boolean;
 }
 
 /** A resolved hunk: anchor + real content attached from git diff (B). */
@@ -270,6 +307,8 @@ export interface ResolvedReview {
   verification?: Verification;
   /** Findings from other tools, placed by `resolveFindings`. Absent when none. */
   findings?: ResolvedFinding[];
+  /** Moved and copied blocks, found in the real diff. Absent when none. */
+  moves?: ResolvedMove[];
   /**
    * What changed since the reviewer last asked for changes. Absent on the
    * first round, and wherever rounds don't apply (see RoundInfo).
@@ -332,6 +371,11 @@ export interface RoundInfo {
   /** Paths the reviewer had marked viewed and the agent has not touched since. */
   viewedPaths: string[];
   previousComments: PreviousComment[];
+  /**
+   * How many findings were left out because the reviewer dismissed them in an
+   * earlier round. Absent when none were.
+   */
+  hiddenFindings?: number;
 }
 
 export type ReviewVerdict = "approve" | "request_changes";

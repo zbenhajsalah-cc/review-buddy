@@ -123,6 +123,21 @@ const ResolvedFindingSchema = z.object({
   outsideDiff: z.boolean().optional(),
 });
 
+const MoveEndSchema = z.object({
+  path: z.string(),
+  start: z.number(),
+  lines: z.number(),
+  chapterIndex: z.number(),
+});
+
+const ResolvedMoveSchema = z.object({
+  id: z.string(),
+  kind: z.enum(["moved", "copied"]),
+  from: MoveEndSchema,
+  to: MoveEndSchema,
+  whitespaceChanged: z.boolean().optional(),
+});
+
 const ReviewCommentSchema = z.object({
   chapterIndex: z.number(),
   path: z.string(),
@@ -140,6 +155,7 @@ const RoundInfoSchema = z.object({
   previousComments: z.array(
     ReviewCommentSchema.extend({ status: z.enum(["lines_changed", "lines_unchanged"]) }),
   ),
+  hiddenFindings: z.number().optional(),
 });
 
 export const ReviewSchema = z.object({
@@ -150,6 +166,7 @@ export const ReviewSchema = z.object({
   chapters: z.array(ResolvedChapterSchema),
   verification: VerificationSchema.optional(),
   findings: z.array(ResolvedFindingSchema).optional(),
+  moves: z.array(ResolvedMoveSchema).optional(),
   round: RoundInfoSchema.optional(),
   warnings: z.array(z.string()),
 });

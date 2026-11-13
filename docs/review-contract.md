@@ -110,12 +110,19 @@ Types for both live in `packages/core/src/types.ts`.
   "prologue": { /* same as agent contract */ },
   "verification": { /* same as agent contract; absent when the agent sent none */ },
   "findings": [                          // absent when the agent sent none
-    { "id": "f-3fa1c2d9",                // hash of path + title; "-2" etc. when two collide
+    { "id": "f-3fa1c2d9",                // per submission: hash of path + title, occurrence suffixes for duplicates
       "path": "src/dashboard/useSport.ts", // the diff's path (new path of a renamed file)
       "line": 14, "start_line": 13, "side": "new",
       "severity": "important", "title": "…", "body": "…", "source": "/code-review",
       "chapterIndex": 1                  // absent: the file is not in the diff
       // "outsideDiff": true             // the line is outside the hunks that chapter shows
+    }
+  ],
+  "moves": [                             // absent when the tool found none
+    { "id": "m1", "kind": "moved",       // "copied": the same removed block also went to an earlier place
+      "from": { "path": "src/cart.ts", "start": 10, "lines": 31, "chapterIndex": 2 },  // old line numbers
+      "to":   { "path": "src/money.ts", "start": 4, "lines": 31, "chapterIndex": 1 }   // new line numbers
+      // "whitespaceChanged": true       // NOT identical: the ends match only with leading/trailing whitespace ignored
     }
   ],
   "stats": { "additions": 124, "deletions": 31, "filesChanged": 7 },  // tool-computed
@@ -164,7 +171,9 @@ Types for both live in `packages/core/src/types.ts`.
 
 **Findings.** After the chapters (and the "Unsorted" and noise chapters) are built, each finding is placed: its file is matched by path EXACTLY (the head path, or a renamed file's old path) — never by basename like a chapter file, because a finding carries another tool's own path and a same-named untouched file must not be rewritten onto a changed one; it goes to the chapter whose resolved hunk shows its `line` on its `side`; else to the first chapter with the file, with `outsideDiff: true` (the viewer lists it under the file header); else, when the file is not in the diff, it has no `chapterIndex` and the Overview lists it under "Other findings". In the chapters, a finding shows under its line like a line comment, with a severity tag; nits are folded; the sidebar lists the chapter's findings; the Overview shows the counts.
 
-**Rounds.** With round-trip on, the verdict also carries the paths the reviewer marked viewed (`DoneResult.viewed`), and a re-review of the same change carries `ResolvedReview.round` — the round number, the paths whose diff differs from the previous round's, the paths the agent has not touched (marked viewed again for the reviewer), and the previous round's comments with whether their lines changed. The server holds this between rounds in a small file per change, with a fingerprint per file and never any diff text: the reference-not-reproduce rule holds across rounds too. Nothing of it is the agent's to send — `round` is computed by the tool, and an approval ends the chain. See docs/ARCHITECTURE.md "Rounds".
+**Moved code.** The tool — never the agent — looks in the real diff for blocks of lines that were removed in one place and added in another, unchanged (`core/moves.ts`: lines compared trimmed, at least 3 lines with text and 40 characters, binary and noise files left out, a block re-indented in place is not a move). Each is two line ranges, no code text; `resolveReview` gives each end the chapter whose hunk shows it. The first place a removed block went is `moved`; one more place is `copied`. A match that is not exact carries `whitespaceChanged`: trimming finds the block, but leading spaces are part of a multiline string's value and of Python or YAML structure, so the viewer says "not identical … check it" and never "only the indentation changed". The viewer puts a note under the last line of each end, with a jump to the other end (also across chapters, to the block itself). Nothing about moves is in `submit_review`. See docs/plans/022-move-detection.md.
+
+**Rounds.** With round-trip on, the verdict also carries the paths the reviewer marked viewed (`DoneResult.viewed`), and a re-review of the same change carries `ResolvedReview.round` — the round number, the paths whose diff differs from the previous round's, the paths the agent has not touched (marked viewed again for the reviewer), the previous round's comments with whether their lines changed, and `hiddenFindings` — how many findings were left out because the reviewer dismissed them in an earlier round (their ids are kept in the round store; a finding's id is a hash of its path and title, so the same finding raised again is recognised). The server holds this between rounds in a small file per change, with a fingerprint per file and never any diff text: the reference-not-reproduce rule holds across rounds too. Nothing of it is the agent's to send — `round` is computed by the tool, and an approval ends the chain. See docs/ARCHITECTURE.md "Rounds".
 
 **Answering a finding.** With round-trip on, each finding is answered: **Fix**, or **Dismiss** with a reason (required for an `important` one — the agent is told not to raise it again, so it is told why). The answers live in the reviewer's browser, like viewed state and line comments, and go with the verdict as `DoneResult.findings` — `{ id, decision: "fix" | "dismiss", reason? }`, the finding's id and nothing of its text. `/api/done` joins them onto the review it served (`answeredFindings`, `core/messages.ts`), so the location, severity and title the agent is told are the tool's own; an id this review does not have is dropped. Approving while an `important` finding has no answer asks once, and never blocks: that is the project's policy, not ours. See docs/DESIGN-roundtrip.md §2.
 

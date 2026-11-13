@@ -341,3 +341,37 @@ test("a nit is folded; a pre-existing one says it is not from this change", () =
   expect(screen.getByText("A long reason.")).toBeDefined();
   expect(screen.getByText("Not from this change.")).toBeDefined();
 });
+
+test("a moved block: a note under its last line, a badge, and a jump to the other end", () => {
+  const move = {
+    id: "m1",
+    kind: "moved" as const,
+    from: { path: "old.ts", start: 10, lines: 4, chapterIndex: 2 },
+    to: { path: "app.ts", start: 1, lines: 4, chapterIndex: 1 },
+  };
+  const mark = { move, side: "to" as const };
+  const onOpenMove = mock(() => {});
+  renderCard({ moves: [mark], onOpenMove });
+
+  const note = screen.getByLabelText("Moved code");
+  expect(note.getAttribute("data-move-id")).toBe("m1-to");
+  expect(note.textContent).toContain("4 lines moved here from old.ts (lines 10–13) — identical");
+  expect(screen.getByText("moved code")).toBeDefined();
+
+  fireEvent.click(screen.getByText("Show where it was"));
+  expect(onOpenMove).toHaveBeenCalledWith(mark);
+});
+
+test("a moved block inside one file names the lines, and says when the lines are not identical", () => {
+  const move = {
+    id: "m1",
+    kind: "moved" as const,
+    from: { path: "app.ts", start: 1, lines: 3, chapterIndex: 1 },
+    to: { path: "app.ts", start: 40, lines: 3, chapterIndex: 1 },
+    whitespaceChanged: true,
+  };
+  renderCard({ moves: [{ move, side: "from" }] });
+  expect(screen.getByLabelText("Moved code").textContent).toContain(
+    "3 lines moved to lines 40–42 of this file — not identical: the whitespace at the start or end of lines differs, check it",
+  );
+});

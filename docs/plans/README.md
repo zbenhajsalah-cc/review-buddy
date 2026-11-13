@@ -1,10 +1,10 @@
-# Plans: review enhancements (017–021)
+# Plans: review enhancements (017–022)
 
 These five plans come from reading Anthropic's post
 [How the Claude Code team does code review](https://claude.dev/blog/solving-code-review-at-anthropic/)
 and asking what Review Buddy should take from it.
 
-**Status:** 017, 018 and 019 are built (019 in two parts: findings read only, then the reviewer's answers). 020 is built in part — part 1, the state that survives a new port, is shipped; part 2, what the round looks like to the reviewer, is open. 021 is proposed.
+**Status:** 017, 018, 019 and 020 are built (019 in two parts: findings read only, then the reviewer's answers; 020 in two parts: the state that survives a new port, then what the round looks like to the reviewer). 021 is proposed. 022 (moved code) came later, from the backlog, and is built in a first version.
 
 ## The rule that decides what we build
 
@@ -27,6 +27,7 @@ it would stop working the same way in Cursor, Copilot and Codex.
 | [019](./019-findings-triage.md) | Show findings from other tools on the diff line; the reviewer answers each one | Large | — |
 | [020](./020-rounds.md) | Rounds: after "Request changes", show what changed and keep viewed marks | Large | — (019 uses its store for "no repeats") |
 | [021](./021-risk-scaled-attention.md) | Attention scaled by risk: sensitive paths, skim low-risk chapters | Medium | — |
+| [022](./022-move-detection.md) | Moved code: the tool finds blocks that only changed place and marks them | Medium | — |
 
 Suggested order: 017 → 018 → 019 → 020 → 021. The first two are small and teach
 the full path of a schema change. Each plan can ship alone.

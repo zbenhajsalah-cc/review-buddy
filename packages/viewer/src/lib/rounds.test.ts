@@ -2,7 +2,13 @@
 import { afterEach, expect, test } from "bun:test";
 import type { ResolvedChapter, ResolvedReview } from "@review-buddy/core/types";
 import { fakeResolvedReview, fakeReviewRoundTwo } from "../stories/fixtures.ts";
-import { fullyViewedPaths, seedViewedFromRound } from "./rounds.ts";
+import {
+  changedFileCount,
+  changedSinceLastRound,
+  firstChapterWith,
+  fullyViewedPaths,
+  seedViewedFromRound,
+} from "./rounds.ts";
 
 const VIEWED_KEY = "rb.viewed.r2";
 
@@ -83,4 +89,23 @@ test("seedViewedFromRound: an emptied list is the reviewer's too, and stands", (
   localStorage.setItem(VIEWED_KEY, "[]");
   expect(seedViewedFromRound(fakeReviewRoundTwo, "r2")).toEqual([]);
   expect(localStorage.getItem(VIEWED_KEY)).toBe("[]");
+});
+
+test("changedSinceLastRound: null on a first round, the changed paths after", () => {
+  expect(changedSinceLastRound(fakeResolvedReview)).toBeNull();
+  expect([...(changedSinceLastRound(fakeReviewRoundTwo) ?? [])]).toEqual([
+    "src/server/auth/middleware.ts",
+  ]);
+});
+
+test("changedFileCount: counts only the chapter's own files", () => {
+  const changed = new Set(["a.ts", "z.ts"]);
+  expect(changedFileCount(chapter(1, ["a.ts", "b.ts"]), changed)).toBe(1);
+  expect(changedFileCount(chapter(2, ["b.ts"]), changed)).toBe(0);
+});
+
+test("firstChapterWith: the first chapter that shows the path, or -1", () => {
+  const chapters = [chapter(1, ["a.ts"]), chapter(2, ["b.ts"]), chapter(3, ["b.ts"])];
+  expect(firstChapterWith(chapters, "b.ts")).toBe(1);
+  expect(firstChapterWith(chapters, "gone.ts")).toBe(-1);
 });

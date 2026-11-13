@@ -1,4 +1,9 @@
-import type { ResolvedChapter, ResolvedFinding, ResolvedReview } from "@review-buddy/core/types";
+import type {
+  PreviousComment,
+  ResolvedChapter,
+  ResolvedFinding,
+  ResolvedReview,
+} from "@review-buddy/core/types";
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import { codeFontStyle } from "../appearance.ts";
 import {
@@ -26,9 +31,22 @@ import {
   useFindingAnswers,
 } from "../lib/findings.ts";
 import { keepFileInView, keepInView } from "../lib/keepFileInView.ts";
+import {
+  chapterMoveMarks,
+  distinctMoves,
+  endLines,
+  type MoveMark,
+  markId,
+  otherSide,
+} from "../lib/moves.ts";
 import { reviewProgress } from "../lib/progress.ts";
 import { chapterToMarkdown } from "../lib/reviewMarkdown.ts";
-import { fullyViewedPaths } from "../lib/rounds.ts";
+import {
+  changedFileCount,
+  changedSinceLastRound,
+  firstChapterWith,
+  fullyViewedPaths,
+} from "../lib/rounds.ts";
 import { useChapterShortcuts } from "../lib/useChapterShortcuts.ts";
 import { useFileFocus } from "../lib/useFileFocus.ts";
 import { usePersistedState } from "../lib/usePersistedState.ts";
@@ -42,6 +60,7 @@ import { FileDiffCard } from "./FileDiffCard.tsx";
 import { SeverityTag } from "./Finding.tsx";
 import { Markdown } from "./Markdown.tsx";
 import { RiskBadge } from "./RiskBadge.tsx";
+import { RoundBadge } from "./Round.tsx";
 import { ShortcutsDialog } from "./ShortcutsDialog.tsx";
 import { Button } from "./ui/button.tsx";
 import { Label } from "./ui/label.tsx";
@@ -51,6 +70,7 @@ export function ChapterReview({
   review,
   position,
   openFile,
+  openMove: openMoveId,
   requestNote,
   onNavigate,
   onExit,
@@ -63,11 +83,20 @@ export function ChapterReview({
   /** Focus this file and scroll to it when the chapter opens (if it has it). */
   openFile?: string;
   /**
+   * Scroll to this end of a moved block when the chapter opens (a `markId`,
+   * "m1-to"): the other end's "Show where it is now" in another chapter.
+   */
+  openMove?: string;
+  /**
    * Open the request-changes note with this text (an open question the
    * reviewer raised from the overview). Shown only with round-trip on.
    */
   requestNote?: string;
-  onNavigate: (position: number) => void;
+  /**
+   * `file`: open the chapter at that file (a comment from the last round).
+   * `move`: open it at that end of a moved block instead.
+   */
+  onNavigate: (position: number, file?: string, move?: string) => void;
   onExit: () => void;
   /**
    * afterDone "keep": the review was marked done. Kept by the parent, so it
@@ -87,6 +116,7 @@ export function ChapterReview({
       review={review}
       position={position}
       openFile={openFile}
+      openMove={openMoveId}
       requestNote={requestNote}
       onNavigate={onNavigate}
       onExit={onExit}
@@ -111,6 +141,7 @@ function ChapterReviewBody({
   review,
   position,
   openFile,
+  openMove: openMoveId,
   requestNote,
   onNavigate,
   onExit,
@@ -122,8 +153,9 @@ function ChapterReviewBody({
   review: ResolvedReview;
   position: number;
   openFile?: string;
+  openMove?: string;
   requestNote?: string;
-  onNavigate: (position: number) => void;
+  onNavigate: (position: number, file?: string, move?: string) => void;
   onExit: () => void;
   chapter: ResolvedChapter;
   markedDone?: boolean;
@@ -172,6 +204,14 @@ function ChapterReviewBody({
   // and localStorage is per port while cookies are per host.
   const [hideViewed, setHideViewed] = usePersistedState("rb.hideViewed", false, "cookie");
   const hideViewedId = useId();
+  // Rounds (plan 020): on a re-review, the files the agent changed since the
+  // last round. The filter to only those is on by default — the rest were
+  // read last round — and is not a preference, so it is not kept.
+  const round = review.round;
+  const lastRound = round ? round.number - 1 : undefined;
+  const changed = useMemo(() => changedSinceLastRound(review), [review]);
+  const [onlyChanged, setOnlyChanged] = useState(true);
+  const onlyChangedId = useId();
   const {
     comments: allComments,
     add: addComment,
@@ -196,6 +236,20 @@ function ChapterReviewBody({
     for (const f of findings) byPath.set(f.path, [...(byPath.get(f.path) ?? []), f]);
     return byPath;
   }, [findings]);
+  const moveMarks = useMemo(
+    () => chapterMoveMarks(review.moves, chapterIndex),
+    [review.moves, chapterIndex],
+  );
+  // A move with both ends in this chapter is one block, listed at each end.
+  const movedBlocks = distinctMoves(moveMarks);
+  const movesByPath = useMemo(() => {
+    const byPath = new Map<string, MoveMark[]>();
+    for (const mark of moveMarks) {
+      const path = mark.move[mark.side].path;
+      byPath.set(path, [...(byPath.get(path) ?? []), mark]);
+    }
+    return byPath;
+  }, [moveMarks]);
   const commentsByPath = useMemo(() => {
     const byPath = new Map<string, LineComment[]>();
     for (const c of chapterComments) byPath.set(c.path, [...(byPath.get(c.path) ?? []), c]);
@@ -215,6 +269,8 @@ function ChapterReviewBody({
     path: string;
     selector: string;
     findingId?: string;
+    /** Where it lands in the pane: a file at the top, a line in the middle. */
+    block?: ScrollLogicalPosition;
   } | null>(null);
   const diffScrollRef = useRef<HTMLDivElement>(null);
   const copyRef = useRef<CopyMarkdownHandle>(null);
@@ -222,11 +278,19 @@ function ChapterReviewBody({
   const matching = filter
     ? chapter.files.filter((f) => f.path.toLowerCase().includes(filter.toLowerCase()))
     : chapter.files;
-  // The file the focus link opened stays shown, viewed or not; so does the
-  // file of the comment or finding opened from the list.
-  const files = hideViewed
-    ? matching.filter((f) => !viewed.has(f.path) || f.path === openFile || f.path === opened?.path)
-    : matching;
+  // The file the focus link opened stays shown, viewed or unchanged or not; so
+  // does the file of the comment or finding opened from the list.
+  const filteringChanged = onlyChanged && changed !== null;
+  const files =
+    hideViewed || filteringChanged
+      ? matching.filter(
+          (f) =>
+            f.path === openFile ||
+            f.path === opened?.path ||
+            ((!hideViewed || !viewed.has(f.path)) && (!filteringChanged || changed.has(f.path))),
+        )
+      : matching;
+  const changedHere = changed ? changedFileCount(chapter, changed) : 0;
   const filePaths = files.map((f) => f.path);
   const { focusedPath, focusedPathRef, focus, move } = useFileFocus(
     filePaths,
@@ -301,6 +365,48 @@ function ChapterReviewBody({
     openItem(comment.path, `[data-comment-id="${CSS.escape(comment.id)}"]`);
   const openFinding = (finding: ResolvedFinding) =>
     openItem(finding.path, `[data-finding-id="${CSS.escape(finding.id)}"]`, finding.id);
+  // A comment from the last round: its file here when this chapter has it,
+  // else the first chapter that does. Its chapter number is last round's, and
+  // the agent may have grouped the chapters differently since.
+  const openPreviousComment = (comment: PreviousComment) => {
+    if (chapter.files.some((f) => f.path === comment.path)) {
+      setOpened({
+        path: comment.path,
+        selector: `[data-file-path="${CSS.escape(comment.path)}"]`,
+        block: "start",
+      });
+      if (!matching.some((f) => f.path === comment.path)) setFilter("");
+      return;
+    }
+    const at = firstChapterWith(chapters, comment.path);
+    if (at >= 0) onNavigate(at, comment.path);
+  };
+  const openMove = (mark: MoveMark) =>
+    openItem(mark.move[mark.side].path, `[data-move-id="${CSS.escape(markId(mark))}"]`);
+  // The other end of a move: in this chapter, scroll to its note; in another
+  // one, open that chapter at the note (not at the file's header: the block
+  // can be hundreds of lines down).
+  const openOtherEnd = (mark: MoveMark) => {
+    const other: MoveMark = { move: mark.move, side: otherSide(mark.side) };
+    const end = other.move[other.side];
+    if (end.chapterIndex === chapterIndex) {
+      openMove(other);
+      return;
+    }
+    const target = chapters.findIndex((ch) => ch.index === end.chapterIndex);
+    if (target !== -1) onNavigate(target, undefined, markId(other));
+  };
+  // FileDiffCard is memoized: it gets one callback for the whole chapter.
+  const openOtherEndRef = useRef(openOtherEnd);
+  openOtherEndRef.current = openOtherEnd;
+  const handleOpenMove = useCallback((mark: MoveMark) => openOtherEndRef.current(mark), []);
+  // The chapter was opened at one end of a move. After the chapter-change
+  // effect above (it clears `opened`), so this one wins.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: only when the chapter or the move to open changes
+  useEffect(() => {
+    const mark = openMoveId && moveMarks.find((m) => markId(m) === openMoveId);
+    if (mark) openMove(mark);
+  }, [chapterIndex, openMoveId]);
   // After the filter reset above (its effect clears the focus), so the
   // comment's file keeps it.
   // biome-ignore lint/correctness/useExhaustiveDependencies: only when an item is opened from the list
@@ -309,7 +415,7 @@ function ChapterReviewBody({
     if (!opened || !scroller) return;
     focus(opened.path);
     setCollapsed(opened.path, false);
-    return keepInView(scroller, opened.selector, "center");
+    return keepInView(scroller, opened.selector, opened.block ?? "center");
   }, [opened]);
 
   // Collapse all files of the chapter (also ones the filter hides), or expand
@@ -428,6 +534,7 @@ function ChapterReviewBody({
           <span className="font-mono text-xs text-muted-foreground">
             Chapter {position + 1} of {chapters.length}
           </span>
+          {round && <RoundBadge round={round.number} />}
           <Button
             variant="outline"
             size="sm"
@@ -613,6 +720,23 @@ function ChapterReviewBody({
               Hide viewed files
             </Label>
           </div>
+          {changed && (
+            <div className="mb-2 flex items-center gap-1.5 px-0.5">
+              <Switch
+                id={onlyChangedId}
+                size="sm"
+                checked={onlyChanged}
+                onCheckedChange={setOnlyChanged}
+              />
+              <Label
+                htmlFor={onlyChangedId}
+                className="cursor-pointer text-xs font-normal text-muted-foreground"
+              >
+                Only changed since last round
+                {changedHere > 0 && ` (${changedHere})`}
+              </Label>
+            </div>
+          )}
           <ul className="space-y-0.5">
             {files.map((f) => {
               const slash = f.path.lastIndexOf("/");
@@ -645,7 +769,17 @@ function ChapterReviewBody({
                         </span>
                       )}
                     </span>
-                    <DiffStat additions={f.additions} deletions={f.deletions} />
+                    <span className="flex shrink-0 items-center gap-1.5">
+                      {changed?.has(f.path) && (
+                        <span
+                          className="text-[0.62rem] text-primary"
+                          title={`Changed since round ${lastRound}`}
+                        >
+                          changed
+                        </span>
+                      )}
+                      <DiffStat additions={f.additions} deletions={f.deletions} />
+                    </span>
                   </button>
                 </li>
               );
@@ -691,6 +825,40 @@ function ChapterReviewBody({
             </>
           )}
 
+          {moveMarks.length > 0 && (
+            <>
+              <h2 className="mt-6 mb-2 font-mono text-[0.66rem] font-medium uppercase tracking-[0.09em] text-muted-foreground">
+                {movedBlocks} moved block{movedBlocks === 1 ? "" : "s"}
+              </h2>
+              <ul className="space-y-0.5">
+                {moveMarks.map((mark) => {
+                  const here = mark.move[mark.side];
+                  const there = mark.move[otherSide(mark.side)];
+                  const verb = mark.move.kind === "copied" ? "copied" : "moved";
+                  return (
+                    <li key={markId(mark)}>
+                      <button
+                        type="button"
+                        onClick={() => openMove(mark)}
+                        title={`${here.path}, ${endLines(here)}`}
+                        className="w-full rounded-md px-2 py-1.5 text-left text-xs transition-colors hover:bg-background"
+                      >
+                        <span className="block truncate font-mono">
+                          {here.path.slice(here.path.lastIndexOf("/") + 1)}:{here.start}
+                        </span>
+                        <span className="block truncate text-muted-foreground">
+                          {here.lines} line{here.lines === 1 ? "" : "s"} {verb}{" "}
+                          {mark.side === "to" ? "from" : "to"}{" "}
+                          {there.path.slice(there.path.lastIndexOf("/") + 1)}:{there.start}
+                        </span>
+                      </button>
+                    </li>
+                  );
+                })}
+              </ul>
+            </>
+          )}
+
           {chapterComments.length > 0 && (
             <>
               <h2 className="mt-6 mb-2 font-mono text-[0.66rem] font-medium uppercase tracking-[0.09em] text-muted-foreground">
@@ -715,6 +883,15 @@ function ChapterReviewBody({
               </ul>
             </>
           )}
+
+          {round && round.previousComments.length > 0 && lastRound !== undefined && (
+            <PreviousRoundComments
+              comments={round.previousComments}
+              lastRound={lastRound}
+              chapters={chapters}
+              onOpen={openPreviousComment}
+            />
+          )}
         </aside>
 
         {/* Right diff pane */}
@@ -738,6 +915,7 @@ function ChapterReviewBody({
                     viewed={viewed.has(f.path)}
                     collapsed={collapsed.has(f.path)}
                     focused={focusedPath === f.path}
+                    changedSinceRound={changed?.has(f.path) ? lastRound : undefined}
                     // Stable refs (useCallback in chapterFileSet / handleViewedChange)
                     // — pass them directly rather than re-wrapping in per-render
                     // arrow closures, which is what keeps FileDiffCard's memo alive.
@@ -747,6 +925,8 @@ function ChapterReviewBody({
                     comments={commentsByPath.get(f.path)}
                     findings={findingsByPath.get(f.path)}
                     answers={answers}
+                    moves={movesByPath.get(f.path)}
+                    onOpenMove={handleOpenMove}
                     onAddComment={handleAddComment}
                     onEditComment={editComment}
                     onDeleteComment={removeComment}
@@ -761,6 +941,17 @@ function ChapterReviewBody({
                 (matching.length === 0 ? (
                   <p className="p-8 text-center text-sm text-muted-foreground">
                     No files match “{filter}”.
+                  </p>
+                ) : filteringChanged && !matching.some((f) => changed.has(f.path)) ? (
+                  <p className="p-8 text-center text-sm text-muted-foreground">
+                    No file here changed since round {lastRound}.{" "}
+                    <Button
+                      variant="link"
+                      onClick={() => setOnlyChanged(false)}
+                      className="h-auto p-0"
+                    >
+                      Show all files
+                    </Button>
                   </p>
                 ) : (
                   <p className="p-8 text-center text-sm text-muted-foreground">
@@ -781,5 +972,70 @@ function ChapterReviewBody({
 
       <ShortcutsDialog open={shortcutsOpen} onOpenChange={setShortcutsOpen} surface="chapter" />
     </div>
+  );
+}
+
+/**
+ * The reviewer's own comments from the last round, read only, with what
+ * happened to their lines since. "Lines changed", never "fixed": the tool can
+ * see the lines changed; only the reviewer can say the comment was handled.
+ */
+function PreviousRoundComments({
+  comments,
+  lastRound,
+  chapters,
+  onOpen,
+}: {
+  comments: readonly PreviousComment[];
+  lastRound: number;
+  chapters: readonly ResolvedChapter[];
+  onOpen: (comment: PreviousComment) => void;
+}) {
+  return (
+    <>
+      <h2 className="mt-6 mb-2 font-mono text-[0.66rem] font-medium uppercase tracking-[0.09em] text-muted-foreground">
+        Round {lastRound} · {comments.length} comment{comments.length === 1 ? "" : "s"}
+      </h2>
+      <ul className="space-y-0.5">
+        {sortComments(comments).map((c) => {
+          // A comment whose file is gone from the diff has nowhere to go.
+          const gone = firstChapterWith(chapters, c.path) < 0;
+          return (
+            <li key={`${c.path}:${c.side}:${c.line}:${c.body}`}>
+              <button
+                type="button"
+                onClick={() => onOpen(c)}
+                disabled={gone}
+                title={
+                  gone
+                    ? `${c.path} is no longer in the diff`
+                    : `${c.path}, ${describeLines(c)} — open the file`
+                }
+                className="w-full rounded-md px-2 py-1.5 text-left text-xs transition-colors hover:bg-background disabled:cursor-default disabled:hover:bg-transparent"
+              >
+                <span className="flex items-center gap-1.5">
+                  <span className="truncate font-mono">
+                    {c.path.slice(c.path.lastIndexOf("/") + 1)}:{c.line}
+                  </span>
+                  <span
+                    className={cn(
+                      "ml-auto shrink-0 text-[0.65rem]",
+                      c.status === "lines_changed" ? "text-primary" : "text-muted-foreground",
+                    )}
+                  >
+                    {gone
+                      ? "file gone"
+                      : c.status === "lines_changed"
+                        ? "lines changed since"
+                        : "lines not changed"}
+                  </span>
+                </span>
+                <span className="mt-0.5 block truncate text-muted-foreground">{c.body}</span>
+              </button>
+            </li>
+          );
+        })}
+      </ul>
+    </>
   );
 }

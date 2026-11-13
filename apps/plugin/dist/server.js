@@ -24312,6 +24312,137 @@ function isNoiseFile(path) {
   return NOISE_EXTENSIONS.some((ext) => basename.endsWith(ext));
 }
 
+// ../../packages/core/src/moves.ts
+var MIN_LINES = 3;
+var MIN_CHARS = 40;
+var MAX_CANDIDATES = 200;
+var MAX_CHANGED_LINES = 1e5;
+function collectRuns(files) {
+  const removed = [];
+  const added = [];
+  let group = 0;
+  for (const file2 of files) {
+    if (file2.binary || isNoiseFile(file2.path))
+      continue;
+    for (const hunk of file2.hunks) {
+      let oldNo = hunk.oldStart;
+      let newNo = hunk.newStart;
+      let del = null;
+      let add = null;
+      for (const line of hunk.lines) {
+        const sign = line[0];
+        if (sign === "\\")
+          continue;
+        if (sign === "-" || sign === "+") {
+          if (!del && !add)
+            group++;
+          const raw = line.slice(1);
+          const entry = { raw, key: raw.trim() };
+          if (sign === "-") {
+            if (!del) {
+              del = { path: file2.path, group, lines: [] };
+              removed.push(del);
+            }
+            del.lines.push({ no: oldNo++, ...entry });
+          } else {
+            if (!add) {
+              add = { path: file2.path, group, lines: [] };
+              added.push(add);
+            }
+            add.lines.push({ no: newNo++, ...entry });
+          }
+        } else {
+          del = null;
+          add = null;
+          oldNo++;
+          newNo++;
+        }
+      }
+    }
+  }
+  return { removed, added };
+}
+function significant(lines, from, length) {
+  let withText = 0;
+  let chars = 0;
+  for (let i = from;i < from + length; i++) {
+    const key = lines[i].key;
+    if (key === "")
+      continue;
+    withText++;
+    chars += key.length;
+  }
+  return withText >= MIN_LINES && chars >= MIN_CHARS;
+}
+function detectMoves(files) {
+  const { removed, added } = collectRuns(files);
+  const changed = removed.reduce((n, r) => n + r.lines.length, 0) + added.reduce((n, r) => n + r.lines.length, 0);
+  if (removed.length === 0 || added.length === 0 || changed > MAX_CHANGED_LINES)
+    return [];
+  const places = new Map;
+  removed.forEach((run2, r) => {
+    run2.lines.forEach((line, p) => {
+      if (line.key === "")
+        return;
+      const list = places.get(line.key);
+      if (list)
+        list.push([r, p]);
+      else
+        places.set(line.key, [[r, p]]);
+    });
+  });
+  const taken = new Set;
+  const isTaken = (r, p, length) => {
+    for (let i = 0;i < length; i++)
+      if (taken.has(`${r}:${p + i}`))
+        return true;
+    return false;
+  };
+  const moves = [];
+  for (const run2 of added) {
+    let i = 0;
+    while (i < run2.lines.length) {
+      const candidates = run2.lines[i].key === "" ? undefined : places.get(run2.lines[i].key);
+      let best = null;
+      for (const [r, p] of candidates?.slice(0, MAX_CANDIDATES) ?? []) {
+        const source2 = removed[r];
+        if (source2.group === run2.group)
+          continue;
+        let length = 0;
+        while (i + length < run2.lines.length && p + length < source2.lines.length && run2.lines[i + length].key === source2.lines[p + length].key) {
+          length++;
+        }
+        while (length > 0 && run2.lines[i + length - 1].key === "")
+          length--;
+        if (best && length < best.length)
+          continue;
+        const free = !isTaken(r, p, length);
+        if (!best || length > best.length || free && !best.free)
+          best = { r, p, length, free };
+      }
+      if (!best || !significant(run2.lines, i, best.length)) {
+        i++;
+        continue;
+      }
+      const source = removed[best.r];
+      let whitespaceChanged = false;
+      for (let k = 0;k < best.length; k++) {
+        if (run2.lines[i + k].raw !== source.lines[best.p + k].raw)
+          whitespaceChanged = true;
+        taken.add(`${best.r}:${best.p + k}`);
+      }
+      moves.push({
+        kind: best.free ? "moved" : "copied",
+        from: { path: source.path, start: source.lines[best.p].no, lines: best.length },
+        to: { path: run2.path, start: run2.lines[i].no, lines: best.length },
+        whitespaceChanged
+      });
+      i += best.length;
+    }
+  }
+  return moves;
+}
+
 // ../../packages/core/src/resolve.ts
 var UNSORTED_TITLE = "Unsorted changes";
 var NOISE_TITLE = "Generated & noise files";
@@ -24472,6 +24603,7 @@ function resolveReview(agent, rawDiff, meta3, pr) {
     filesChanged: parsedFiles.length
   };
   const findings = resolveFindings(agent.findings ?? [], chapters, (path) => byPath.get(normalizePath(path)));
+  const moves = resolveMoves(detectMoves(parsedFiles), chapters);
   return {
     review: {
       meta: meta3,
@@ -24481,6 +24613,7 @@ function resolveReview(agent, rawDiff, meta3, pr) {
       chapters,
       ...agent.verification ? { verification: agent.verification } : {},
       ...findings.length > 0 ? { findings } : {},
+      ...moves.length > 0 ? { moves } : {},
       warnings
     },
     warnings
@@ -24497,6 +24630,24 @@ function shortHash(text) {
 function hunkCovers(h, side, line) {
   const [start, count] = side === "new" ? [h.new_start, h.new_lines] : [h.old_start, h.old_lines];
   return count > 0 && line >= start && line < start + count;
+}
+function resolveMoves(detected, chapters) {
+  const chapterOf = (end, side) => chapters.find((ch) => ch.files.some((f) => f.path === end.path && f.hunks.some((h) => hunkCovers(h, side, end.start))))?.index;
+  const moves = [];
+  for (const m of detected) {
+    const from = chapterOf(m.from, "old");
+    const to = chapterOf(m.to, "new");
+    if (from === undefined || to === undefined)
+      continue;
+    moves.push({
+      id: `m${moves.length + 1}`,
+      kind: m.kind,
+      from: { ...m.from, chapterIndex: from },
+      to: { ...m.to, chapterIndex: to },
+      ...m.whitespaceChanged ? { whitespaceChanged: true } : {}
+    });
+  }
+  return moves;
 }
 function resolveFindings(agentFindings, chapters, exactFile) {
   const seen = new Map;
@@ -24591,14 +24742,78 @@ function roundInfo(previous, current) {
     previousComments
   };
 }
+function sharesAnyPath(previous, current) {
+  return Object.keys(current).some((path) => Object.hasOwn(previous.files, path));
+}
+function findingIdentities(findings, files) {
+  const content = new Map;
+  for (const file2 of files) {
+    const sides = { old: new Map, new: new Map };
+    for (const hunk of file2.hunks) {
+      let oldLine = hunk.oldStart;
+      let newLine = hunk.newStart;
+      for (const line of hunk.lines) {
+        if (line[0] === " " || line[0] === "-")
+          sides.old.set(oldLine++, line.slice(1));
+        if (line[0] === " " || line[0] === "+")
+          sides.new.set(newLine++, line.slice(1));
+      }
+    }
+    content.set(file2.path, sides);
+  }
+  const identities = [];
+  for (const finding of findings ?? []) {
+    const lines = content.get(finding.path)?.[finding.side];
+    const code = [];
+    const start = finding.start_line ?? finding.line;
+    for (let line = start;line <= finding.line; line++) {
+      const text = lines?.get(line);
+      if (text === undefined)
+        break;
+      code.push(text);
+    }
+    if (code.length !== finding.line - start + 1)
+      continue;
+    identities.push({
+      id: finding.id,
+      key: JSON.stringify([finding.path, finding.title, finding.side, fnv1a(code.join(`
+`))])
+    });
+  }
+  return identities;
+}
+function rememberFindings(identities, dismissed, previous = []) {
+  const memory = new Map(previous.map((f) => [f.key, { ...f }]));
+  const seen = new Set;
+  const ids = new Set(dismissed);
+  for (const { id, key } of identities) {
+    const before = memory.get(key);
+    memory.set(key, {
+      key,
+      dismissed: (before?.dismissed ?? false) || ids.has(id),
+      ambiguous: (before?.ambiguous ?? false) || seen.has(key)
+    });
+    seen.add(key);
+  }
+  return [...memory.values()];
+}
+function withoutDismissed(findings, identities, previous) {
+  const all = findings ?? [];
+  const memory = new Map(rememberFindings(identities, [], previous).map((f) => [f.key, f]));
+  const hiddenIds = new Set(identities.filter(({ key }) => memory.get(key)?.dismissed && !memory.get(key)?.ambiguous).map(({ id }) => id));
+  const kept = all.filter((f) => !hiddenIds.has(f.id));
+  return { findings: kept, hidden: all.length - kept.length };
+}
 function nextRoundState(info, current, round, previous) {
   const dismissed = new Set([...previous?.dismissedFindings ?? [], ...round.dismissed ?? []]);
+  const findingMemory = rememberFindings(round.identities ?? [], round.dismissed ?? [], previous?.findingMemory);
   return {
     round: info?.number ?? 1,
     files: { ...current },
     viewed: [...new Set(round.viewed ?? [])],
     comments: [...round.comments ?? []],
-    dismissedFindings: [...dismissed]
+    dismissedFindings: [...dismissed],
+    ...findingMemory.length > 0 ? { findingMemory } : {}
   };
 }
 function parseRoundState(raw) {
@@ -24616,13 +24831,25 @@ function parseRoundState(raw) {
   }
   const strings = (v) => Array.isArray(v) ? v.filter((x) => typeof x === "string") : [];
   const comments = Array.isArray(o.comments) ? o.comments.filter(isReviewComment).map((c) => ({ ...c })) : [];
+  const findingMemory = Array.isArray(o.findingMemory) ? o.findingMemory.filter(isRememberedFinding).map((f) => ({
+    key: f.key,
+    dismissed: f.dismissed,
+    ambiguous: f.ambiguous
+  })) : [];
   return {
     round: Math.floor(o.round),
     files,
     viewed: strings(o.viewed),
     comments,
-    dismissedFindings: strings(o.dismissedFindings)
+    dismissedFindings: strings(o.dismissedFindings),
+    ...findingMemory.length > 0 ? { findingMemory } : {}
   };
+}
+function isRememberedFinding(v) {
+  if (typeof v !== "object" || v === null)
+    return false;
+  const f = v;
+  return typeof f.key === "string" && typeof f.dismissed === "boolean" && typeof f.ambiguous === "boolean";
 }
 function isReviewComment(v) {
   if (typeof v !== "object" || v === null)
@@ -24956,24 +25183,46 @@ function roundtripEnabled(env = process.env) {
   const value = env.REVIEW_BUDDY_ROUNDTRIP?.trim().toLowerCase();
   return !(value && ["0", "false", "off", "no"].includes(value));
 }
-function openRounds(cwd, agent, diff) {
+function openRounds(cwd, agent, diff, findings) {
   const store = roundStore(repoToplevel(cwd) ?? cwd, agent.source);
   cleanupRounds();
-  const previous = store.read();
-  const current = fileFingerprints(parseDiff(diff));
+  const parsed = parseDiff(diff);
+  const current = fileFingerprints(parsed);
+  const identities = findingIdentities(findings, parsed);
+  let previous = store.read();
+  const worktree = (agent.source?.type ?? "worktree") === "worktree";
+  if (previous && worktree && !sharesAnyPath(previous, current))
+    previous = undefined;
   const info = roundInfo(previous, current);
   return {
     info,
+    identities,
+    memory: previous?.findingMemory ?? [],
     save(result) {
       if (result.verdict !== "request_changes")
         return store.clear();
       store.write(nextRoundState(info, current, {
         viewed: result.viewed,
         comments: result.comments,
-        dismissed: result.findings?.filter((a) => a.decision === "dismiss").map((a) => a.id)
+        dismissed: result.findings?.filter((a) => a.decision === "dismiss").map((a) => a.id),
+        identities
       }, previous));
     }
   };
+}
+function applyRound(review, rounds) {
+  if (!rounds.info)
+    return;
+  const { findings, hidden } = withoutDismissed(review.findings, rounds.identities, rounds.memory);
+  if (findings.length > 0)
+    review.findings = findings;
+  else
+    delete review.findings;
+  review.round = hidden > 0 ? { ...rounds.info, hiddenFindings: hidden } : rounds.info;
+  console.error(`[review-buddy] Round ${rounds.info.number} of this change.`);
+  if (hidden > 0) {
+    console.error(`[review-buddy] ${hidden} finding(s) dismissed in an earlier round not shown.`);
+  }
 }
 async function openReviewSession(agent, cwd, opts = {}) {
   const source = localGitSource(cwd, agent.source, process.env.REVIEW_BUDDY_BASE);
@@ -24986,11 +25235,9 @@ async function openReviewSession(agent, cwd, opts = {}) {
     console.error("[review-buddy] PR head not fetchable \u2014 full-file expansion disabled.");
   }
   const roundtrip = opts.roundtrip ?? roundtripEnabled();
-  const rounds = opts.rounds ?? roundtrip ? openRounds(cwd, agent, diff) : undefined;
-  if (rounds?.info) {
-    review.round = rounds.info;
-    console.error(`[review-buddy] Round ${rounds.info.number} of this change.`);
-  }
+  const rounds = opts.rounds ?? roundtrip ? openRounds(cwd, agent, diff, review.findings) : undefined;
+  if (rounds)
+    applyRound(review, rounds);
   const server = startServer({
     review,
     cwd,

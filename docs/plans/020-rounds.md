@@ -1,9 +1,10 @@
 # Plan 020: Rounds — re-review only what changed
 
-**Status:** built in two parts. **Part 1 (steps 1–5) is shipped:** the state that
+**Status:** shipped, in two parts. **Part 1 (steps 1–5):** the state that
 survives a new port — `core/rounds.ts`, the round store, `ResolvedReview.round`,
 `DoneResult.viewed`, and the viewed marks seeded on a re-review. **Part 2 (steps
-6–10) is open:** what the round looks like to the reviewer. **Size:** large.
+6–10):** what the round looks like to the reviewer, and no repeats of a
+dismissed finding. **Size:** large.
 
 ## Why
 
@@ -57,7 +58,10 @@ Content:
   "files": { "src/a.ts": "<hash of the file's diff>" },
   "viewed": ["src/a.ts"],
   "comments": [ { "path": "…", "side": "new", "line": 12, "body": "…" } ],
-  "dismissedFindings": ["<finding id>"]
+  "dismissedFindings": ["<legacy per-submission finding id>"],
+  "findingMemory": [
+    { "key": "<path, title, side, code fingerprint>", "dismissed": true, "ambiguous": false }
+  ]
 }
 ```
 
@@ -109,8 +113,17 @@ Hashing in runtime-neutral code: a small FNV-1a string hash in core is enough
 
 ### Findings (plan 019)
 
-`dismissedFindings` keeps the ids of dismissed findings. In the next round,
-`resolveReview` drops findings with those ids ("no repeats").
+Finding ids distinguish occurrences only within one submission: same-path,
+same-title findings get suffixes based on their order. They cannot identify a
+dismissal across rounds. `findingMemory` instead records path, title, side and
+a hash of the exact source-B lines under each finding, including undismissed
+occurrences. The server suppresses only a unique match to a remembered dismissal.
+Reordering, removing another finding or inserting lines before it leaves that
+match intact. Indistinguishable duplicates remain visible, even if one later
+disappears; edited ranges and ranges not fully present in the diff also remain
+visible. The memory survives rounds where a finding is absent. Legacy state
+with only `dismissedFindings` cannot safely suppress anything until a reviewer
+dismisses the finding again; it still carries viewed marks and comments.
 
 ### Other modes
 
@@ -126,12 +139,12 @@ Hashing in runtime-neutral code: a small FNV-1a string hash in core is enough
 3. ~~`session.ts` wiring + `ResolvedReview.round` + viewer schema + fixtures.~~ Shipped.
 4. ~~`DoneResult.viewed`, `parseDoneResult`, write/delete on done + `http.test.ts`.~~ Shipped.
 5. ~~Viewer: seed viewed state; test with `fakeReviewApi`.~~ Shipped.
-6. Viewer: badge, changed marks, filter, Overview counts.
-7. Viewer: "Previous round" list.
-8. Round banner after round 3.
-9. Findings: drop dismissed ids (only if 019 has shipped).
-10. Docs (`ARCHITECTURE.md`, `build-plan.md`: close the "persist viewed state"
-    item), builds, `pnpm verify:ci`, `pnpm smoke:plugin`.
+6. ~~Viewer: badge, changed marks, filter, Overview counts.~~ Shipped.
+7. ~~Viewer: "Previous round" list.~~ Shipped.
+8. ~~Round banner after round 3.~~ Shipped.
+9. ~~Findings: drop dismissed ids (only if 019 has shipped).~~ Shipped.
+10. ~~Docs (`ARCHITECTURE.md`, `build-plan.md`: close the "persist viewed state"
+    item), builds, `pnpm verify:ci`, `pnpm smoke:plugin`.~~ Shipped.
 
 Steps 1–5 alone fix the lost viewed marks and can ship first — and did.
 
@@ -162,6 +175,31 @@ Steps 1–5 alone fix the lost viewed marks and can ship first — and did.
 - The round store is keyed by the repository's **top level**, not the cwd the
   hook was handed, or a re-review from a subdirectory would start over.
 
+### What part 2 settled
+
+- The "Previous round" list is in every chapter's sidebar and shows **all** of
+  the last round's comments, not only the ones on this chapter's files: the
+  chapter numbers are last round's, and the agent may have regrouped. A click
+  opens the file in this chapter when it has it, else in the first chapter
+  that does (`firstChapterWith`). A comment on a file that is gone from the
+  diff says "file gone" and cannot be opened.
+- The Overview carries a **round summary** instead of a second list: how many
+  files changed, what became of the comments ("1 on lines that changed since,
+  1 on lines that did not change"), how many dismissed findings are left out,
+  and the banner from round 4 on (`MANY_ROUNDS`: the skill caps re-submits at
+  3, so round 4 is the last one the agent sends).
+- **Only changed since last round** is on by default and is plain component
+  state, not a cookie: it means something only inside one chain of rounds.
+  Like "Hide viewed files", it never hides the file a link or the sidebar just
+  opened. A chapter with no changed file says so and offers "Show all files".
+- **No repeats** happens in the plugin (`applyRound` in `session.ts`), not in
+  `resolveReview`: the dismissed ids live in the round store, which core does
+  not read. `round.hiddenFindings` tells the reviewer how many were left out.
+- The open question about **worktree** keys is answered as proposed: a
+  worktree diff that shares no path with the stored round starts at round 1
+  (`sharesAnyPath`); an approval already deleted the state. PR and branch
+  reviews keep their chain whatever their paths.
+
 ## Tests
 
 - Round 2 with one changed file: that file is not viewed, the others are.
@@ -180,9 +218,10 @@ Steps 1–5 alone fix the lost viewed marks and can ship first — and did.
 
 ## Open questions
 
-- Worktree reviews have no ref, so every worktree review of one repo shares one
-  key. A new, unrelated change in the same repo would look like "round 2".
-  Proposed: for `worktree`, start a new round 1 when no path of the last round
-  is in the new diff, and always after an approval.
+- ~~Worktree reviews have no ref, so every worktree review of one repo shares one
+  key.~~ Answered in part 2: a worktree diff with no path in common with the last
+  round starts at round 1, and an approval always ends the chain.
 - Should the reviewer be able to say "start again from round 1"? Proposed: a
-  small "Reset rounds" action in the round badge menu.
+  small "Reset rounds" action in the round badge menu. Not built: it needs a new
+  endpoint, and turning off the "Only changed" filter already shows everything.
+  Left for when someone asks for it.

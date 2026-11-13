@@ -1,5 +1,10 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
-import { fakeResolvedReview, fakeReviewWithFindings } from "../stories/fixtures.ts";
+import {
+  fakeResolvedReview,
+  fakeReviewRoundTwo,
+  fakeReviewWithFindings,
+  fakeReviewWithMoves,
+} from "../stories/fixtures.ts";
 import { ChapterReview } from "./ChapterReview.tsx";
 
 const meta = {
@@ -44,6 +49,26 @@ export const WithFindings: Story = {
   args: {
     review: fakeReviewWithFindings,
     position: 1,
+    onNavigate: () => {},
+    onExit: () => {},
+  },
+};
+
+/** Round 2: only the changed file shows, and the last round's comments are listed. */
+export const RoundTwo: Story = {
+  args: {
+    review: fakeReviewRoundTwo,
+    position: 1,
+    onNavigate: () => {},
+    onExit: () => {},
+  },
+};
+
+/** Chapter 1 has a block that moved to chapter 3: a note under it, and the sidebar list. */
+export const WithMovedCode: Story = {
+  args: {
+    review: fakeReviewWithMoves,
+    position: 0,
     onNavigate: () => {},
     onExit: () => {},
   },

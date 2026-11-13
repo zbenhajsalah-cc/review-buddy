@@ -49,13 +49,16 @@ function ReviewScreens({ urlHash, tabTitle }: { urlHash: boolean; tabTitle: bool
   const [markedDone, setMarkedDone] = useState(false);
   // Submitted (afterDone "close"): kept here, so Back does not reopen the review.
   const [submitted, setSubmitted] = useState(false);
-  // The file a chapter opens at (the overview's review focus), and the note a
-  // raised question starts; any other move clears them.
+  // The file a chapter opens at (the overview's review focus), the note a
+  // raised question starts, and the end of a moved block a chapter opens at;
+  // any other navigation clears them.
   const [openFile, setOpenFile] = useState<string>();
   const [requestNote, setRequestNote] = useState<string>();
-  const show = (next: View, file?: string, note?: string) => {
+  const [openMove, setOpenMove] = useState<string>();
+  const show = (next: View, file?: string, note?: string, move?: string) => {
     setOpenFile(file);
     setRequestNote(note);
+    setOpenMove(move);
     navigate(next);
   };
 
@@ -112,8 +115,11 @@ function ReviewScreens({ urlHash, tabTitle }: { urlHash: boolean; tabTitle: bool
         review={review}
         position={shown.position}
         openFile={openFile}
+        openMove={openMove}
         requestNote={requestNote}
-        onNavigate={(position) => show({ mode: "chapter", position })}
+        onNavigate={(position, file, move) =>
+          show({ mode: "chapter", position }, file, undefined, move)
+        }
         onExit={() => show({ mode: "overview" })}
         markedDone={markedDone}
         onMarkedDone={() => setMarkedDone(true)}

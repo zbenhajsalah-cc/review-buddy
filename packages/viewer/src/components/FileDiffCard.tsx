@@ -20,6 +20,7 @@ import {
 } from "../lib/comments.ts";
 import { buildExpandedDiff, canExpand, requiredSides } from "../lib/expand.ts";
 import { answersById } from "../lib/findings.ts";
+import { type MoveMark, markId, markPosition } from "../lib/moves.ts";
 import { fileToPatch } from "../lib/patch.ts";
 import { cn } from "../lib/utils.ts";
 import { useReviewApi } from "../review-api.tsx";
@@ -27,6 +28,7 @@ import { toDiffOptions } from "../settings.ts";
 import { DiffStat } from "./DiffStat.tsx";
 import { FindingCard } from "./Finding.tsx";
 import { CommentCard, CommentForm, CommentThread } from "./LineComments.tsx";
+import { MoveNote } from "./MoveNote.tsx";
 import { Badge } from "./ui/badge.tsx";
 import { Button } from "./ui/button.tsx";
 import { Card, CardContent } from "./ui/card.tsx";
@@ -38,6 +40,7 @@ type Draft = { range: LineRange; text: string };
 const NO_COMMENTS: readonly LineComment[] = [];
 const NO_FINDINGS: readonly ResolvedFinding[] = [];
 const NO_ANSWERS: readonly FindingAnswer[] = [];
+const NO_MOVES: readonly MoveMark[] = [];
 
 /** The annotation for a positionKey ("new:12"); its metadata is the key. */
 function annotationAt(key: string): DiffLineAnnotation<string> {
@@ -70,9 +73,11 @@ export const FileDiffCard = memo(function FileDiffCard({
   viewed,
   collapsed,
   focused = false,
+  changedSinceRound,
   comments = NO_COMMENTS,
   findings = NO_FINDINGS,
   answers = NO_ANSWERS,
+  moves = NO_MOVES,
   onViewedChange,
   onSetCollapsed,
   onAddComment,
@@ -80,18 +85,26 @@ export const FileDiffCard = memo(function FileDiffCard({
   onDeleteComment,
   onAnswerFinding,
   onClearFindingAnswer,
+  onOpenMove,
 }: {
   file: ResolvedFile;
   settings: DisplaySettings;
   viewed: boolean;
   collapsed: boolean;
   focused?: boolean;
+  /**
+   * The previous round's number when this file's diff changed since then
+   * (plan 020): the card says so. Omit on a first round, or when unchanged.
+   */
+  changedSinceRound?: number;
   /** This file's comments in this chapter. */
   comments?: readonly LineComment[];
   /** This file's findings in this chapter. */
   findings?: readonly ResolvedFinding[];
   /** The whole review's answers — the card picks out its findings'. */
   answers?: readonly FindingAnswer[];
+  /** The ends of moved blocks this file shows in this chapter. */
+  moves?: readonly MoveMark[];
   onViewedChange: (path: string, checked: boolean) => void;
   onSetCollapsed: (path: string, value: boolean) => void;
   onAddComment: (path: string, range: LineRange, body: string) => void;
@@ -100,6 +113,8 @@ export const FileDiffCard = memo(function FileDiffCard({
   /** Omit ⇒ the findings are read only (round-trip off). */
   onAnswerFinding?: (id: string, decision: FindingDecision, reason?: string) => void;
   onClearFindingAnswer?: (id: string) => void;
+  /** Jump to the other end of a move. Must be stable, like the others. */
+  onOpenMove?: (mark: MoveMark) => void;
 }) {
   const api = useReviewApi();
   const [copied, setCopied] = useState(false);
@@ -194,11 +209,29 @@ export const FileDiffCard = memo(function FileDiffCard({
     return { findingsAt: at, outside: rest };
   }, [findings]);
   const answerOf = useMemo(() => answersById(answers), [answers]);
+  // A moved block's note goes under its last line.
+  const movesAt = useMemo(() => {
+    const at = new Map<string, MoveMark[]>();
+    for (const mark of moves) {
+      const key = positionKey(markPosition(mark));
+      at.set(key, [...(at.get(key) ?? []), mark]);
+    }
+    return at;
+  }, [moves]);
+  const movedLines = (side: MoveMark["side"]) =>
+    moves.filter((m) => m.side === side).reduce((n, m) => n + m.move[side].lines, 0);
+  const movedIn = movedLines("to");
+  const movedOut = movedLines("from");
   // A new annotation array makes @pierre/diffs render the whole file again, so
   // it changes only when the lines with something under them change — not
   // when a comment is edited or a form typed in.
   const positions = [
-    ...new Set([...findingsAt.keys(), ...commentsAt.keys(), ...Object.keys(drafts)]),
+    ...new Set([
+      ...movesAt.keys(),
+      ...findingsAt.keys(),
+      ...commentsAt.keys(),
+      ...Object.keys(drafts),
+    ]),
   ]
     .sort()
     .join(" ");
@@ -212,6 +245,9 @@ export const FileDiffCard = memo(function FileDiffCard({
     return (
       // Keyed by line, so a slot that moves to another line gets a new thread.
       <CommentThread key={key}>
+        {movesAt.get(key)?.map((mark) => (
+          <MoveNote key={markId(mark)} mark={mark} onOpen={onOpenMove} />
+        ))}
         {findingsAt.get(key)?.map((f) => (
           <FindingCard
             key={f.id}
@@ -355,6 +391,32 @@ export const FileDiffCard = memo(function FileDiffCard({
           >
             {CHANGE_LABEL[file.change_type]}
           </Badge>
+          {changedSinceRound !== undefined && (
+            <Badge
+              variant="outline"
+              className="shrink-0 rounded border-primary/40 px-1.5 py-0.5 text-[0.65rem] text-primary"
+              title="The agent changed this file since you last reviewed it"
+            >
+              Changed since round {changedSinceRound}
+            </Badge>
+          )}
+          {moves.length > 0 && (
+            <Badge
+              variant="outline"
+              className="shrink-0 rounded px-1.5 py-0.5 font-mono text-[0.6rem] uppercase tracking-[0.06em]"
+              title={
+                "Moved lines, marked in the diff: " +
+                [
+                  movedIn > 0 && `${movedIn} of the added lines came from elsewhere`,
+                  movedOut > 0 && `${movedOut} of the removed lines went elsewhere`,
+                ]
+                  .filter(Boolean)
+                  .join(", ")
+              }
+            >
+              moved code
+            </Badge>
+          )}
         </div>
         <div className="flex shrink-0 items-center gap-3">
           <DiffStat additions={file.additions} deletions={file.deletions} />

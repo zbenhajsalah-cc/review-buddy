@@ -4,7 +4,12 @@ import type { ResolvedReview } from "@review-buddy/core/types";
 import { act, cleanup, fireEvent, screen } from "@testing-library/react";
 import { renderWithApi } from "../../test/render.tsx";
 import { commentsToMarkdown, type LineComment } from "../lib/comments.ts";
-import { fakeResolvedReview, fakeReviewApi, fakeReviewWithFindings } from "../stories/fixtures.ts";
+import {
+  fakeResolvedReview,
+  fakeReviewApi,
+  fakeReviewRoundTwo,
+  fakeReviewWithFindings,
+} from "../stories/fixtures.ts";
 
 mock.module("@pierre/diffs/react", () => ({
   PatchDiff: () => <div data-testid="patch-diff" />,
@@ -897,4 +902,90 @@ test("round-trip: n wraps even when two findings' ids share a prefix", async () 
   fireEvent.keyDown(document, { key: "n" });
   expect(inCard(MIDDLEWARE, "[data-focused]")).not.toBeNull();
   expect(inCard(SESSION, "[data-focused]")).toBeNull();
+});
+
+/* ---------------------------- Rounds (plan 020) ---------------------------- */
+
+const BACKOFF = "src/jobs/backoff.ts";
+
+function renderRoundTwo(position: number, onNavigate = mock((_p: number, _f?: string) => {})) {
+  renderWithApi(
+    <ChapterReview
+      review={fakeReviewRoundTwo}
+      position={position}
+      onNavigate={onNavigate}
+      onExit={() => {}}
+    />,
+  );
+  return onNavigate;
+}
+
+test("round 2: the badge shows, and only the changed file is listed until the filter is off", () => {
+  renderRoundTwo(1);
+  expect(screen.getByText("Round 2")).toBeTruthy();
+  expect(card(MIDDLEWARE)).not.toBeNull();
+  expect(card(SESSION)).toBeNull();
+  expect(inCard(MIDDLEWARE, "[data-slot=badge]")?.parentElement?.textContent).toContain(
+    "Changed since round 1",
+  );
+
+  fireEvent.click(screen.getByRole("switch", { name: /Only changed since last round/ }));
+  expect(card(SESSION)).not.toBeNull();
+  // Only the changed file carries the mark.
+  expect(card(SESSION)?.textContent).not.toContain("Changed since round 1");
+});
+
+test("round 2: a chapter where nothing changed says so, and can show its files", () => {
+  renderRoundTwo(0);
+  expect(screen.getByText(/No file here changed since round 1/)).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: "Show all files" }));
+  expect(card("src/example.ts")).not.toBeNull();
+});
+
+test("round 1: no badge and no changed-files filter", () => {
+  renderChapter2();
+  expect(screen.queryByText(/^Round \d/)).toBeNull();
+  expect(screen.queryByRole("switch", { name: /Only changed/ })).toBeNull();
+  expect(card(SESSION)).not.toBeNull();
+});
+
+test("round 2: the last round's comments are listed, read only, with what became of their lines", () => {
+  const onNavigate = renderRoundTwo(1);
+  expect(screen.getByText("Round 1 · 2 comments")).toBeTruthy();
+  expect(screen.getByText("lines changed since")).toBeTruthy();
+  expect(screen.getByText("lines not changed")).toBeTruthy();
+
+  // A comment on a file of this chapter stays here.
+  fireEvent.click(screen.getByText("This accepts an expired token when the skew is negative."));
+  expect(onNavigate).not.toHaveBeenCalled();
+
+  // One on a file of another chapter goes there, at that file.
+  fireEvent.click(screen.getByText("Where does 500ms come from?"));
+  expect(onNavigate).toHaveBeenCalledWith(2, BACKOFF);
+});
+
+test("round 2: a comment on a file no longer in the diff cannot be opened", () => {
+  const review: ResolvedReview = {
+    ...fakeReviewRoundTwo,
+    round: {
+      ...fakeReviewRoundTwo.round!,
+      previousComments: [
+        {
+          chapterIndex: 1,
+          path: "src/gone.ts",
+          side: "new",
+          line: 4,
+          body: "Remove this.",
+          status: "lines_changed",
+        },
+      ],
+    },
+  };
+  renderWithApi(
+    <ChapterReview review={review} position={1} onNavigate={() => {}} onExit={() => {}} />,
+  );
+  expect(screen.getByText("file gone")).toBeTruthy();
+  expect((screen.getByText("Remove this.").closest("button") as HTMLButtonElement).disabled).toBe(
+    true,
+  );
 });
