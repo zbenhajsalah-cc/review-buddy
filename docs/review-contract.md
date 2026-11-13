@@ -110,7 +110,7 @@ Types for both live in `packages/core/src/types.ts`.
   "prologue": { /* same as agent contract */ },
   "verification": { /* same as agent contract; absent when the agent sent none */ },
   "findings": [                          // absent when the agent sent none
-    { "id": "f-3fa1c2d9",                // hash of path + title; "-2" etc. when two collide
+    { "id": "f-3fa1c2d9",                // per submission: hash of path + title, occurrence suffixes for duplicates
       "path": "src/dashboard/useSport.ts", // the diff's path (new path of a renamed file)
       "line": 14, "start_line": 13, "side": "new",
       "severity": "important", "title": "…", "body": "…", "source": "/code-review",

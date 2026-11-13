@@ -41,8 +41,23 @@ export interface RoundState {
   viewed: string[];
   /** The reviewer's own line comments from that round. */
   comments: ReviewComment[];
-  /** Ids of findings the reviewer dismissed, so they are not raised again. */
+  /** Legacy per-submission ids; never used alone to suppress a finding. */
   dismissedFindings: string[];
+  /** Code fingerprints and dismissal decisions, independent of occurrence ids. */
+  findingMemory?: RememberedFinding[];
+}
+
+export interface FindingIdentity {
+  /** The id in this submission, used only to read this submission's answer. */
+  id: string;
+  key: string;
+}
+
+export interface RememberedFinding {
+  key: string;
+  dismissed: boolean;
+  /** Once indistinguishable occurrences were seen, do not guess between them. */
+  ambiguous: boolean;
 }
 
 /** How a file compares with the previous round. */
@@ -183,19 +198,82 @@ export function sharesAnyPath(
 }
 
 /**
- * The findings left once the ones the reviewer dismissed in an earlier round
- * are taken out ("no repeats", plan 020). Finding ids are a hash of path and
- * title (`resolveFindings`), so the same finding raised again has the same id.
- * `hidden` is how many were taken out, so the viewer can say so.
+ * Identify occurrences by path, title, side and the exact code under their
+ * range, never by their order or current line number. Only hashes of source B
+ * enter the state file. Insertions before a finding leave its key intact; an
+ * edited range, or one not fully available in the diff, is shown again.
  */
+export function findingIdentities(
+  findings: readonly ResolvedFinding[] | undefined,
+  files: readonly ParsedFile[],
+): FindingIdentity[] {
+  const content = new Map<string, { old: Map<number, string>; new: Map<number, string> }>();
+  for (const file of files) {
+    const sides = { old: new Map<number, string>(), new: new Map<number, string>() };
+    for (const hunk of file.hunks) {
+      let oldLine = hunk.oldStart;
+      let newLine = hunk.newStart;
+      for (const line of hunk.lines) {
+        if (line[0] === " " || line[0] === "-") sides.old.set(oldLine++, line.slice(1));
+        if (line[0] === " " || line[0] === "+") sides.new.set(newLine++, line.slice(1));
+      }
+    }
+    content.set(file.path, sides);
+  }
+  const identities: FindingIdentity[] = [];
+  for (const finding of findings ?? []) {
+    const lines = content.get(finding.path)?.[finding.side];
+    const code: string[] = [];
+    const start = finding.start_line ?? finding.line;
+    for (let line = start; line <= finding.line; line++) {
+      const text = lines?.get(line);
+      if (text === undefined) break;
+      code.push(text);
+    }
+    if (code.length !== finding.line - start + 1) continue;
+    identities.push({
+      id: finding.id,
+      key: JSON.stringify([finding.path, finding.title, finding.side, fnv1a(code.join("\n"))]),
+    });
+  }
+  return identities;
+}
+
+/** Remember all occurrences, including undismissed ones and ambiguous matches. */
+export function rememberFindings(
+  identities: readonly FindingIdentity[],
+  dismissed: readonly string[],
+  previous: readonly RememberedFinding[] = [],
+): RememberedFinding[] {
+  const memory = new Map(previous.map((f) => [f.key, { ...f }]));
+  const seen = new Set<string>();
+  const ids = new Set(dismissed);
+  for (const { id, key } of identities) {
+    const before = memory.get(key);
+    memory.set(key, {
+      key,
+      dismissed: (before?.dismissed ?? false) || ids.has(id),
+      ambiguous: (before?.ambiguous ?? false) || seen.has(key),
+    });
+    seen.add(key);
+  }
+  return [...memory.values()];
+}
+
+/** Suppress only an unambiguous code match to a remembered dismissal. */
 export function withoutDismissed(
   findings: readonly ResolvedFinding[] | undefined,
-  dismissed: readonly string[],
+  identities: readonly FindingIdentity[],
+  previous: readonly RememberedFinding[],
 ): { findings: ResolvedFinding[]; hidden: number } {
   const all = findings ?? [];
-  if (dismissed.length === 0) return { findings: [...all], hidden: 0 };
-  const ids = new Set(dismissed);
-  const kept = all.filter((f) => !ids.has(f.id));
+  const memory = new Map(rememberFindings(identities, [], previous).map((f) => [f.key, f]));
+  const hiddenIds = new Set(
+    identities
+      .filter(({ key }) => memory.get(key)?.dismissed && !memory.get(key)?.ambiguous)
+      .map(({ id }) => id),
+  );
+  const kept = all.filter((f) => !hiddenIds.has(f.id));
   return { findings: kept, hidden: all.length - kept.length };
 }
 
@@ -211,16 +289,23 @@ export function nextRoundState(
     viewed?: readonly string[];
     comments?: readonly ReviewComment[];
     dismissed?: readonly string[];
+    identities?: readonly FindingIdentity[];
   },
   previous?: RoundState,
 ): RoundState {
   const dismissed = new Set([...(previous?.dismissedFindings ?? []), ...(round.dismissed ?? [])]);
+  const findingMemory = rememberFindings(
+    round.identities ?? [],
+    round.dismissed ?? [],
+    previous?.findingMemory,
+  );
   return {
     round: info?.number ?? 1,
     files: { ...current },
     viewed: [...new Set(round.viewed ?? [])],
     comments: [...(round.comments ?? [])],
     dismissedFindings: [...dismissed],
+    ...(findingMemory.length > 0 ? { findingMemory } : {}),
   };
 }
 
@@ -243,13 +328,31 @@ export function parseRoundState(raw: unknown): RoundState | undefined {
   const comments = Array.isArray(o.comments)
     ? o.comments.filter(isReviewComment).map((c) => ({ ...c }))
     : [];
+  const findingMemory = Array.isArray(o.findingMemory)
+    ? o.findingMemory.filter(isRememberedFinding).map((f) => ({
+        key: f.key,
+        dismissed: f.dismissed,
+        ambiguous: f.ambiguous,
+      }))
+    : [];
   return {
     round: Math.floor(o.round),
     files,
     viewed: strings(o.viewed),
     comments,
     dismissedFindings: strings(o.dismissedFindings),
+    ...(findingMemory.length > 0 ? { findingMemory } : {}),
   };
+}
+
+function isRememberedFinding(v: unknown): v is RememberedFinding {
+  if (typeof v !== "object" || v === null) return false;
+  const f = v as Record<string, unknown>;
+  return (
+    typeof f.key === "string" &&
+    typeof f.dismissed === "boolean" &&
+    typeof f.ambiguous === "boolean"
+  );
 }
 
 function isReviewComment(v: unknown): v is ReviewComment {

@@ -196,7 +196,7 @@ export interface PrMetadata {
 
 /** A finding placed in the review. */
 export interface ResolvedFinding {
-  /** Stable: a short hash of path + title (a suffix when two collide). */
+  /** Per submission: hash of path + title, with occurrence suffixes for duplicates. */
   id: string;
   /** The path as the diff names it (the new path of a renamed file). */
   path: string;
