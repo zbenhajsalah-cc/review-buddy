@@ -10,9 +10,15 @@
  * How: every run of removed lines and every run of added lines is taken from
  * the hunks. An added run is walked line by line; at each line, the longest
  * block that also exists in a removed run is looked up (lines compared with
- * their indentation and trailing spaces ignored, as moved code is often
+ * their leading and trailing whitespace ignored, as moved code is often
  * re-indented). A block counts only when it is big enough to mean something
  * (MIN_LINES / MIN_CHARS): three closing braces are not a move.
+ *
+ * Ignoring that whitespace finds the block; it does not make the two ends the
+ * same. Leading spaces are part of a multiline string's value, and they are
+ * the structure of Python or YAML. So a match whose lines are not exactly
+ * equal is flagged `whitespaceChanged`, and the viewer says the lines differ
+ * — it never says "only the indentation changed", which the tool cannot know.
  *
  * A move with small edits is found as its unchanged parts: the edited lines
  * break the block, and stay ordinary removed/added lines.
@@ -49,8 +55,12 @@ export interface DetectedMove {
   kind: "moved" | "copied";
   from: MoveRange;
   to: MoveRange;
-  /** True when only indentation or trailing spaces differ. */
-  reindented: boolean;
+  /**
+   * The lines match only once leading and trailing whitespace is ignored: the
+   * ends are NOT identical. Whether that is harmless re-indentation or a real
+   * change (a multiline string, Python, YAML) is for the reviewer to judge.
+   */
+  whitespaceChanged: boolean;
 }
 
 interface Line {
@@ -185,16 +195,16 @@ export function detectMoves(files: readonly ParsedFile[]): DetectedMove[] {
         continue;
       }
       const source = removed[best.r]!;
-      let reindented = false;
+      let whitespaceChanged = false;
       for (let k = 0; k < best.length; k++) {
-        if (run.lines[i + k]!.raw !== source.lines[best.p + k]!.raw) reindented = true;
+        if (run.lines[i + k]!.raw !== source.lines[best.p + k]!.raw) whitespaceChanged = true;
         taken.add(`${best.r}:${best.p + k}`);
       }
       moves.push({
         kind: best.free ? "moved" : "copied",
         from: { path: source.path, start: source.lines[best.p]!.no, lines: best.length },
         to: { path: run.path, start: run.lines[i]!.no, lines: best.length },
-        reindented,
+        whitespaceChanged,
       });
       i += best.length;
     }

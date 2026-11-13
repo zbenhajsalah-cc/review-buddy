@@ -141,7 +141,9 @@ verdict, so a dismissed one is not raised again; and **moved code** (plan 022): 
 not the agent — finds blocks that were removed in one place and added in another,
 unchanged (`core/moves.ts` → `ResolvedReview.moves`, line ranges only), and the viewer
 puts a note under each end with a jump to the other one, so the reviewer does not read
-the same code twice.
+the same code twice ("identical" only for an exact match; a match that needed its
+leading/trailing whitespace ignored is `whitespaceChanged` and says "not identical …
+check it" — never "only the indentation changed", which the tool cannot know).
 
 **Deferred to later phases** (per PRD): posting line comments to GitHub (the desktop app posts the verdict and summary only), GitHub collaboration (open PR, copy branch, reviewers, CI), Activity view, Chat, conversational AI assistant.
 

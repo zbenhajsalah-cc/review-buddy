@@ -15222,17 +15222,17 @@ function detectMoves(files) {
         continue;
       }
       const source = removed[best.r];
-      let reindented = false;
+      let whitespaceChanged = false;
       for (let k = 0;k < best.length; k++) {
         if (run2.lines[i + k].raw !== source.lines[best.p + k].raw)
-          reindented = true;
+          whitespaceChanged = true;
         taken.add(`${best.r}:${best.p + k}`);
       }
       moves.push({
         kind: best.free ? "moved" : "copied",
         from: { path: source.path, start: source.lines[best.p].no, lines: best.length },
         to: { path: run2.path, start: run2.lines[i].no, lines: best.length },
-        reindented
+        whitespaceChanged
       });
       i += best.length;
     }
@@ -15441,7 +15441,7 @@ function resolveMoves(detected, chapters) {
       kind: m.kind,
       from: { ...m.from, chapterIndex: from },
       to: { ...m.to, chapterIndex: to },
-      ...m.reindented ? { reindented: true } : {}
+      ...m.whitespaceChanged ? { whitespaceChanged: true } : {}
     });
   }
   return moves;

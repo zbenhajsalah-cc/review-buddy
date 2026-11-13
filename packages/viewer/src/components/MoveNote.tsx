@@ -9,8 +9,8 @@ import {
 import { Button } from "./ui/button.tsx";
 
 /**
- * Under the last line of a moved block: says the lines above only changed
- * place, where the other end is, and jumps there. The tool found the move in
+ * Under the last line of a moved block: says the lines above were moved,
+ * whether they are identical, where the other end is, and jumps there. The tool found the move in
  * the real diff; the note has line numbers only, never code.
  */
 export function MoveNote({ mark, onOpen }: { mark: MoveMark; onOpen?: (mark: MoveMark) => void }) {
@@ -33,7 +33,10 @@ export function MoveNote({ mark, onOpen }: { mark: MoveMark; onOpen?: (mark: Mov
             <span className="font-mono text-foreground">{there.path}</span> ({endLines(there)})
           </>
         )}{" "}
-        — {markSameness(mark.move)}
+        —{" "}
+        <span className={mark.move.whitespaceChanged ? "font-medium text-risk-medium" : undefined}>
+          {markSameness(mark.move)}
+        </span>
       </span>
       {onOpen && (
         <Button

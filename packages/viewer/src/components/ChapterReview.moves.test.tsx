@@ -39,9 +39,35 @@ test("the sidebar lists the chapter's moved blocks; the other end in another cha
     "4 lines moved to money.ts:2",
   );
 
-  // The block went to chapter 3 (position 2): its note jumps there, at the file.
+  // The block went to chapter 3 (position 2): its note jumps there, at the
+  // block's other end — not at the file, whose header can be far above it.
   fireEvent.click(screen.getByText("Show where it is now"));
-  expect(onNavigate).toHaveBeenCalledWith(2, "src/money.ts");
+  expect(onNavigate).toHaveBeenCalledWith(2, undefined, "m1-to");
+});
+
+test("a chapter opened at one end of a move opens that end's file and scrolls to its note", () => {
+  const scrolled: string[] = [];
+  const original = Element.prototype.scrollIntoView;
+  Element.prototype.scrollIntoView = function (this: Element) {
+    scrolled.push(this.getAttribute("data-move-id") ?? this.getAttribute("data-file-path") ?? "?");
+  };
+  try {
+    renderWithApi(
+      <ChapterReview
+        review={fakeReviewWithMoves}
+        position={2}
+        openMove="m1-to"
+        onNavigate={() => {}}
+        onExit={() => {}}
+      />,
+    );
+    // The note itself, not the file card it is in.
+    expect(scrolled).toContain("m1-to");
+    expect(scrolled).not.toContain("src/money.ts");
+    expect(document.querySelector('[data-file-path="src/money.ts"] [data-focused]')).not.toBeNull();
+  } finally {
+    Element.prototype.scrollIntoView = original;
+  }
 });
 
 test("both ends in one chapter: the note opens the other end here, without leaving", () => {
@@ -58,7 +84,9 @@ test("both ends in one chapter: the note opens the other end here, without leavi
   renderWithApi(
     <ChapterReview review={review} position={0} onNavigate={onNavigate} onExit={() => {}} />,
   );
-  expect(screen.getByRole("heading", { name: "2 moved blocks" })).toBeDefined();
+  // One move, listed at each of its two ends: the heading counts moves.
+  expect(screen.getByRole("heading", { name: "1 moved block" })).toBeDefined();
+  expect(screen.getAllByTitle(/^src\/(cart\/cart|money)\.ts, lines/)).toHaveLength(2);
   fireEvent.click(screen.getByText("Show where it is now"));
   expect(onNavigate).not.toHaveBeenCalled();
   expect(document.querySelector('[data-file-path="src/money.ts"] [data-focused]')).not.toBeNull();

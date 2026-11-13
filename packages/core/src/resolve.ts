@@ -340,7 +340,7 @@ function resolveMoves(
       kind: m.kind,
       from: { ...m.from, chapterIndex: from },
       to: { ...m.to, chapterIndex: to },
-      ...(m.reindented ? { reindented: true } : {}),
+      ...(m.whitespaceChanged ? { whitespaceChanged: true } : {}),
     });
   }
   return moves;

@@ -405,7 +405,7 @@ export const FileDiffCard = memo(function FileDiffCard({
               variant="outline"
               className="shrink-0 rounded px-1.5 py-0.5 font-mono text-[0.6rem] uppercase tracking-[0.06em]"
               title={
-                "Lines that only changed place, marked in the diff: " +
+                "Moved lines, marked in the diff: " +
                 [
                   movedIn > 0 && `${movedIn} of the added lines came from elsewhere`,
                   movedOut > 0 && `${movedOut} of the removed lines went elsewhere`,

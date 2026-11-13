@@ -277,8 +277,8 @@ export function Overview({
 
       {moves !== "" && (
         <p className="mt-6 text-sm text-muted-foreground">
-          <span className="font-medium text-foreground">{moves}.</span> Code that only changed place
-          is marked in the diff, with a link to its other place — no need to read it twice.
+          <span className="font-medium text-foreground">{moves}.</span> Moved code is marked in the
+          diff, with a link to its other place. Each mark says if the lines are identical.
         </p>
       )}
 

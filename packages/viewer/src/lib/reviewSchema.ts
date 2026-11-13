@@ -135,7 +135,7 @@ const ResolvedMoveSchema = z.object({
   kind: z.enum(["moved", "copied"]),
   from: MoveEndSchema,
   to: MoveEndSchema,
-  reindented: z.boolean().optional(),
+  whitespaceChanged: z.boolean().optional(),
 });
 
 const ReviewCommentSchema = z.object({

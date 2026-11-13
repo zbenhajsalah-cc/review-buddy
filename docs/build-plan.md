@@ -142,8 +142,9 @@ project's own harness (bug hunting, running checks, `REVIEW.md` tooling) and why
 that were removed in one place and added in another, unchanged
 (`packages/core/src/moves.ts`, from the real diff — never the agent), and
 `resolveReview` gives each end its chapter (`ResolvedReview.moves`). The viewer puts a
-note under each end ("31 lines moved here from … — identical", or "only the indentation
-differs") with a jump to the other end, a **moved code** badge on the file, a list in
+note under each end ("31 lines moved here from … — identical"; when the lines match
+only with their leading and trailing whitespace ignored, "not identical … check it",
+because that can change a multiline string or Python/YAML structure) with a jump to the other end, a **moved code** badge on the file, a list in
 the chapter sidebar and one line on the Overview. A move with small edits is marked as
 its unchanged parts. Not yet: dimming or folding the moved lines, copies of code that
 was not removed (their source is not in the diff), whole-file copies, moved lines in

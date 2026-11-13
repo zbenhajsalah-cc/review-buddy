@@ -1,7 +1,8 @@
 /**
  * Moved and copied blocks (`ResolvedReview.moves`, found by the tool in the
  * real diff — `core/moves.ts`) as the viewer shows them: a note under the last
- * line of each end, so the reviewer knows the lines above only changed place.
+ * line of each end, so the reviewer knows the lines above were moved, and
+ * whether they are identical.
  */
 import type { MoveEnd, ResolvedMove } from "@review-buddy/core/types";
 import type { CommentSide } from "./comments.ts";
@@ -28,6 +29,10 @@ export function markPosition(mark: MoveMark): { side: CommentSide; line: number 
   const end = mark.move[mark.side];
   return { side: diffSide(mark.side), line: end.start + end.lines - 1 };
 }
+
+/** How many moves (not ends) a list of marks is about. */
+export const distinctMoves = (marks: readonly MoveMark[]) =>
+  new Set(marks.map((m) => m.move.id)).size;
 
 /** The marks a chapter shows, in file and line order. */
 export function chapterMoveMarks(
@@ -66,9 +71,16 @@ export function markVerb(mark: MoveMark): string {
   return mark.side === "to" ? `${lines} moved here from` : `${lines} moved to`;
 }
 
-/** "identical" or "only the indentation differs". */
+/**
+ * How alike the two ends are. "identical" is exact. Otherwise the lines match
+ * only with the whitespace at their start and end ignored: that is often
+ * re-indentation, but it changes a multiline string's value and the structure
+ * of Python or YAML, so the reviewer is told to look — never that it is safe.
+ */
 export const markSameness = (move: ResolvedMove) =>
-  move.reindented ? "only the indentation differs" : "identical";
+  move.whitespaceChanged
+    ? "not identical: the whitespace at the start or end of lines differs, check it"
+    : "identical";
 
 /** "3 moved blocks (120 lines)" for the whole review; "" with none. */
 export function movesSummary(moves: readonly ResolvedMove[] | undefined): string {

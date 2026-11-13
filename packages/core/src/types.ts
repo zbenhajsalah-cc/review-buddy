@@ -245,8 +245,13 @@ export interface ResolvedMove {
   from: MoveEnd;
   /** Where they are now (new line numbers). */
   to: MoveEnd;
-  /** Only indentation or trailing spaces differ. Absent: the lines are identical. */
-  reindented?: boolean;
+  /**
+   * Absent: the two ends are identical, character for character. True: they
+   * match only with leading and trailing whitespace ignored — which can be
+   * plain re-indentation, or a real change (a multiline string's value,
+   * Python or YAML structure). The tool cannot tell; the viewer says so.
+   */
+  whitespaceChanged?: boolean;
 }
 
 /** A resolved hunk: anchor + real content attached from git diff (B). */

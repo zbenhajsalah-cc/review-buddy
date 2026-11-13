@@ -362,16 +362,16 @@ test("a moved block: a note under its last line, a badge, and a jump to the othe
   expect(onOpenMove).toHaveBeenCalledWith(mark);
 });
 
-test("a moved block inside one file names the lines, and says when it was re-indented", () => {
+test("a moved block inside one file names the lines, and says when the lines are not identical", () => {
   const move = {
     id: "m1",
     kind: "moved" as const,
     from: { path: "app.ts", start: 1, lines: 3, chapterIndex: 1 },
     to: { path: "app.ts", start: 40, lines: 3, chapterIndex: 1 },
-    reindented: true,
+    whitespaceChanged: true,
   };
   renderCard({ moves: [{ move, side: "from" }] });
   expect(screen.getByLabelText("Moved code").textContent).toContain(
-    "3 lines moved to lines 40–42 of this file — only the indentation differs",
+    "3 lines moved to lines 40–42 of this file — not identical: the whitespace at the start or end of lines differs, check it",
   );
 });

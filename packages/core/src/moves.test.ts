@@ -27,7 +27,7 @@ describe("detectMoves", () => {
         kind: "moved",
         from: { path: "src/cart.ts", start: 11, lines: 4 },
         to: { path: "src/money.ts", start: 2, lines: 4 },
-        reindented: false,
+        whitespaceChanged: false,
       },
     ]);
   });
@@ -46,9 +46,21 @@ describe("detectMoves", () => {
         kind: "moved",
         from: { path: "src/cart.ts", start: 6, lines: 4 },
         to: { path: "src/cart.ts", start: 37, lines: 4 },
-        reindented: true,
+        whitespaceChanged: true,
       },
     ]);
+  });
+
+  test("a multiline string whose leading spaces changed is found, but flagged as not identical", () => {
+    // The spaces before "Product" are part of the string's value: trimming
+    // finds the block, and the flag stops the viewer from calling it identical.
+    const before = "const label = `\n  Product name and price\n  Total with tax\n`;";
+    const after = "const label = `\nProduct name and price\nTotal with tax\n`;";
+    const diff =
+      fileDiff("a.ts", `@@ -1,4 +0,0 @@\n${signed("-", before)}`) +
+      fileDiff("b.ts", `@@ -0,0 +1,4 @@\n${signed("+", after)}`);
+    const [move] = detectMoves(parseDiff(diff));
+    expect(move?.whitespaceChanged).toBe(true);
   });
 
   test("a block re-indented in place is not a move", () => {
