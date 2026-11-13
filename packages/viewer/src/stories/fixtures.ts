@@ -285,6 +285,79 @@ export const fakeReviewWithFindings: ResolvedReview = {
   ],
 };
 
+const MOVED_BLOCK = [
+  "export function formatPrice(amount: number): string {",
+  "  const rounded = Math.round(amount * 100) / 100;",
+  "  return String(rounded.toFixed(2));",
+  "}",
+];
+
+/** `formatPrice` leaves this file… */
+export const fakeMovedFromFile: ResolvedFile = {
+  path: "src/cart/cart.ts",
+  change_type: "modified",
+  additions: 1,
+  deletions: 4,
+  language: "typescript",
+  hunks: [
+    {
+      old_start: 1,
+      old_lines: 6,
+      new_start: 1,
+      new_lines: 3,
+      header: "@@ -1,6 +1,3 @@",
+      lines: [
+        '+import { formatPrice } from "../money.ts";',
+        " ",
+        ...MOVED_BLOCK.map((l) => `-${l}`),
+        " export const cart = [];",
+      ],
+    },
+  ],
+};
+
+/** …and arrives in this one, unchanged. */
+export const fakeMovedToFile: ResolvedFile = {
+  path: "src/money.ts",
+  change_type: "modified",
+  additions: 4,
+  deletions: 0,
+  language: "typescript",
+  hunks: [
+    {
+      old_start: 1,
+      old_lines: 2,
+      new_start: 1,
+      new_lines: 6,
+      header: "@@ -1,2 +1,6 @@",
+      lines: [" export const CURRENCY = 'USD';", ...MOVED_BLOCK.map((l) => `+${l}`), " "],
+    },
+  ],
+};
+
+/**
+ * A block moved between two chapters: removed in chapter 1, added in chapter 3.
+ * The tool found the move (`core/moves.ts`); the agent said nothing about it.
+ */
+export const fakeReviewWithMoves: ResolvedReview = {
+  ...fakeResolvedReview,
+  chapters: fakeResolvedReview.chapters.map((ch) =>
+    ch.index === 1
+      ? { ...ch, fileCount: 2, files: [...ch.files, fakeMovedFromFile] }
+      : ch.index === 3
+        ? { ...ch, fileCount: 2, files: [...ch.files, fakeMovedToFile] }
+        : ch,
+  ),
+  moves: [
+    {
+      id: "m1",
+      kind: "moved",
+      from: { path: "src/cart/cart.ts", start: 2, lines: 4, chapterIndex: 1 },
+      to: { path: "src/money.ts", start: 2, lines: 4, chapterIndex: 3 },
+    },
+  ],
+};
+
 /**
  * Round 2 of the same change: the agent touched the auth middleware again, so
  * that file is new work; the others keep the marks the reviewer gave them.

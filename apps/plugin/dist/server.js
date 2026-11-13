@@ -24312,6 +24312,137 @@ function isNoiseFile(path) {
   return NOISE_EXTENSIONS.some((ext) => basename.endsWith(ext));
 }
 
+// ../../packages/core/src/moves.ts
+var MIN_LINES = 3;
+var MIN_CHARS = 40;
+var MAX_CANDIDATES = 200;
+var MAX_CHANGED_LINES = 1e5;
+function collectRuns(files) {
+  const removed = [];
+  const added = [];
+  let group = 0;
+  for (const file2 of files) {
+    if (file2.binary || isNoiseFile(file2.path))
+      continue;
+    for (const hunk of file2.hunks) {
+      let oldNo = hunk.oldStart;
+      let newNo = hunk.newStart;
+      let del = null;
+      let add = null;
+      for (const line of hunk.lines) {
+        const sign = line[0];
+        if (sign === "\\")
+          continue;
+        if (sign === "-" || sign === "+") {
+          if (!del && !add)
+            group++;
+          const raw = line.slice(1);
+          const entry = { raw, key: raw.trim() };
+          if (sign === "-") {
+            if (!del) {
+              del = { path: file2.path, group, lines: [] };
+              removed.push(del);
+            }
+            del.lines.push({ no: oldNo++, ...entry });
+          } else {
+            if (!add) {
+              add = { path: file2.path, group, lines: [] };
+              added.push(add);
+            }
+            add.lines.push({ no: newNo++, ...entry });
+          }
+        } else {
+          del = null;
+          add = null;
+          oldNo++;
+          newNo++;
+        }
+      }
+    }
+  }
+  return { removed, added };
+}
+function significant(lines, from, length) {
+  let withText = 0;
+  let chars = 0;
+  for (let i = from;i < from + length; i++) {
+    const key = lines[i].key;
+    if (key === "")
+      continue;
+    withText++;
+    chars += key.length;
+  }
+  return withText >= MIN_LINES && chars >= MIN_CHARS;
+}
+function detectMoves(files) {
+  const { removed, added } = collectRuns(files);
+  const changed = removed.reduce((n, r) => n + r.lines.length, 0) + added.reduce((n, r) => n + r.lines.length, 0);
+  if (removed.length === 0 || added.length === 0 || changed > MAX_CHANGED_LINES)
+    return [];
+  const places = new Map;
+  removed.forEach((run2, r) => {
+    run2.lines.forEach((line, p) => {
+      if (line.key === "")
+        return;
+      const list = places.get(line.key);
+      if (list)
+        list.push([r, p]);
+      else
+        places.set(line.key, [[r, p]]);
+    });
+  });
+  const taken = new Set;
+  const isTaken = (r, p, length) => {
+    for (let i = 0;i < length; i++)
+      if (taken.has(`${r}:${p + i}`))
+        return true;
+    return false;
+  };
+  const moves = [];
+  for (const run2 of added) {
+    let i = 0;
+    while (i < run2.lines.length) {
+      const candidates = run2.lines[i].key === "" ? undefined : places.get(run2.lines[i].key);
+      let best = null;
+      for (const [r, p] of candidates?.slice(0, MAX_CANDIDATES) ?? []) {
+        const source2 = removed[r];
+        if (source2.group === run2.group)
+          continue;
+        let length = 0;
+        while (i + length < run2.lines.length && p + length < source2.lines.length && run2.lines[i + length].key === source2.lines[p + length].key) {
+          length++;
+        }
+        while (length > 0 && run2.lines[i + length - 1].key === "")
+          length--;
+        if (best && length < best.length)
+          continue;
+        const free = !isTaken(r, p, length);
+        if (!best || length > best.length || free && !best.free)
+          best = { r, p, length, free };
+      }
+      if (!best || !significant(run2.lines, i, best.length)) {
+        i++;
+        continue;
+      }
+      const source = removed[best.r];
+      let whitespaceChanged = false;
+      for (let k = 0;k < best.length; k++) {
+        if (run2.lines[i + k].raw !== source.lines[best.p + k].raw)
+          whitespaceChanged = true;
+        taken.add(`${best.r}:${best.p + k}`);
+      }
+      moves.push({
+        kind: best.free ? "moved" : "copied",
+        from: { path: source.path, start: source.lines[best.p].no, lines: best.length },
+        to: { path: run2.path, start: run2.lines[i].no, lines: best.length },
+        whitespaceChanged
+      });
+      i += best.length;
+    }
+  }
+  return moves;
+}
+
 // ../../packages/core/src/resolve.ts
 var UNSORTED_TITLE = "Unsorted changes";
 var NOISE_TITLE = "Generated & noise files";
@@ -24472,6 +24603,7 @@ function resolveReview(agent, rawDiff, meta3, pr) {
     filesChanged: parsedFiles.length
   };
   const findings = resolveFindings(agent.findings ?? [], chapters, (path) => byPath.get(normalizePath(path)));
+  const moves = resolveMoves(detectMoves(parsedFiles), chapters);
   return {
     review: {
       meta: meta3,
@@ -24481,6 +24613,7 @@ function resolveReview(agent, rawDiff, meta3, pr) {
       chapters,
       ...agent.verification ? { verification: agent.verification } : {},
       ...findings.length > 0 ? { findings } : {},
+      ...moves.length > 0 ? { moves } : {},
       warnings
     },
     warnings
@@ -24497,6 +24630,24 @@ function shortHash(text) {
 function hunkCovers(h, side, line) {
   const [start, count] = side === "new" ? [h.new_start, h.new_lines] : [h.old_start, h.old_lines];
   return count > 0 && line >= start && line < start + count;
+}
+function resolveMoves(detected, chapters) {
+  const chapterOf = (end, side) => chapters.find((ch) => ch.files.some((f) => f.path === end.path && f.hunks.some((h) => hunkCovers(h, side, end.start))))?.index;
+  const moves = [];
+  for (const m of detected) {
+    const from = chapterOf(m.from, "old");
+    const to = chapterOf(m.to, "new");
+    if (from === undefined || to === undefined)
+      continue;
+    moves.push({
+      id: `m${moves.length + 1}`,
+      kind: m.kind,
+      from: { ...m.from, chapterIndex: from },
+      to: { ...m.to, chapterIndex: to },
+      ...m.whitespaceChanged ? { whitespaceChanged: true } : {}
+    });
+  }
+  return moves;
 }
 function resolveFindings(agentFindings, chapters, exactFile) {
   const seen = new Map;

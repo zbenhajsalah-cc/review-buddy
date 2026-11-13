@@ -31,6 +31,14 @@ import {
   useFindingAnswers,
 } from "../lib/findings.ts";
 import { keepFileInView, keepInView } from "../lib/keepFileInView.ts";
+import {
+  chapterMoveMarks,
+  distinctMoves,
+  endLines,
+  type MoveMark,
+  markId,
+  otherSide,
+} from "../lib/moves.ts";
 import { reviewProgress } from "../lib/progress.ts";
 import { chapterToMarkdown } from "../lib/reviewMarkdown.ts";
 import {
@@ -62,6 +70,7 @@ export function ChapterReview({
   review,
   position,
   openFile,
+  openMove: openMoveId,
   requestNote,
   onNavigate,
   onExit,
@@ -74,12 +83,20 @@ export function ChapterReview({
   /** Focus this file and scroll to it when the chapter opens (if it has it). */
   openFile?: string;
   /**
+   * Scroll to this end of a moved block when the chapter opens (a `markId`,
+   * "m1-to"): the other end's "Show where it is now" in another chapter.
+   */
+  openMove?: string;
+  /**
    * Open the request-changes note with this text (an open question the
    * reviewer raised from the overview). Shown only with round-trip on.
    */
   requestNote?: string;
-  /** `file`: open the chapter at that file (a comment from the last round). */
-  onNavigate: (position: number, file?: string) => void;
+  /**
+   * `file`: open the chapter at that file (a comment from the last round).
+   * `move`: open it at that end of a moved block instead.
+   */
+  onNavigate: (position: number, file?: string, move?: string) => void;
   onExit: () => void;
   /**
    * afterDone "keep": the review was marked done. Kept by the parent, so it
@@ -99,6 +116,7 @@ export function ChapterReview({
       review={review}
       position={position}
       openFile={openFile}
+      openMove={openMoveId}
       requestNote={requestNote}
       onNavigate={onNavigate}
       onExit={onExit}
@@ -123,6 +141,7 @@ function ChapterReviewBody({
   review,
   position,
   openFile,
+  openMove: openMoveId,
   requestNote,
   onNavigate,
   onExit,
@@ -134,8 +153,9 @@ function ChapterReviewBody({
   review: ResolvedReview;
   position: number;
   openFile?: string;
+  openMove?: string;
   requestNote?: string;
-  onNavigate: (position: number, file?: string) => void;
+  onNavigate: (position: number, file?: string, move?: string) => void;
   onExit: () => void;
   chapter: ResolvedChapter;
   markedDone?: boolean;
@@ -216,6 +236,20 @@ function ChapterReviewBody({
     for (const f of findings) byPath.set(f.path, [...(byPath.get(f.path) ?? []), f]);
     return byPath;
   }, [findings]);
+  const moveMarks = useMemo(
+    () => chapterMoveMarks(review.moves, chapterIndex),
+    [review.moves, chapterIndex],
+  );
+  // A move with both ends in this chapter is one block, listed at each end.
+  const movedBlocks = distinctMoves(moveMarks);
+  const movesByPath = useMemo(() => {
+    const byPath = new Map<string, MoveMark[]>();
+    for (const mark of moveMarks) {
+      const path = mark.move[mark.side].path;
+      byPath.set(path, [...(byPath.get(path) ?? []), mark]);
+    }
+    return byPath;
+  }, [moveMarks]);
   const commentsByPath = useMemo(() => {
     const byPath = new Map<string, LineComment[]>();
     for (const c of chapterComments) byPath.set(c.path, [...(byPath.get(c.path) ?? []), c]);
@@ -347,6 +381,32 @@ function ChapterReviewBody({
     const at = firstChapterWith(chapters, comment.path);
     if (at >= 0) onNavigate(at, comment.path);
   };
+  const openMove = (mark: MoveMark) =>
+    openItem(mark.move[mark.side].path, `[data-move-id="${CSS.escape(markId(mark))}"]`);
+  // The other end of a move: in this chapter, scroll to its note; in another
+  // one, open that chapter at the note (not at the file's header: the block
+  // can be hundreds of lines down).
+  const openOtherEnd = (mark: MoveMark) => {
+    const other: MoveMark = { move: mark.move, side: otherSide(mark.side) };
+    const end = other.move[other.side];
+    if (end.chapterIndex === chapterIndex) {
+      openMove(other);
+      return;
+    }
+    const target = chapters.findIndex((ch) => ch.index === end.chapterIndex);
+    if (target !== -1) onNavigate(target, undefined, markId(other));
+  };
+  // FileDiffCard is memoized: it gets one callback for the whole chapter.
+  const openOtherEndRef = useRef(openOtherEnd);
+  openOtherEndRef.current = openOtherEnd;
+  const handleOpenMove = useCallback((mark: MoveMark) => openOtherEndRef.current(mark), []);
+  // The chapter was opened at one end of a move. After the chapter-change
+  // effect above (it clears `opened`), so this one wins.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: only when the chapter or the move to open changes
+  useEffect(() => {
+    const mark = openMoveId && moveMarks.find((m) => markId(m) === openMoveId);
+    if (mark) openMove(mark);
+  }, [chapterIndex, openMoveId]);
   // After the filter reset above (its effect clears the focus), so the
   // comment's file keeps it.
   // biome-ignore lint/correctness/useExhaustiveDependencies: only when an item is opened from the list
@@ -765,6 +825,40 @@ function ChapterReviewBody({
             </>
           )}
 
+          {moveMarks.length > 0 && (
+            <>
+              <h2 className="mt-6 mb-2 font-mono text-[0.66rem] font-medium uppercase tracking-[0.09em] text-muted-foreground">
+                {movedBlocks} moved block{movedBlocks === 1 ? "" : "s"}
+              </h2>
+              <ul className="space-y-0.5">
+                {moveMarks.map((mark) => {
+                  const here = mark.move[mark.side];
+                  const there = mark.move[otherSide(mark.side)];
+                  const verb = mark.move.kind === "copied" ? "copied" : "moved";
+                  return (
+                    <li key={markId(mark)}>
+                      <button
+                        type="button"
+                        onClick={() => openMove(mark)}
+                        title={`${here.path}, ${endLines(here)}`}
+                        className="w-full rounded-md px-2 py-1.5 text-left text-xs transition-colors hover:bg-background"
+                      >
+                        <span className="block truncate font-mono">
+                          {here.path.slice(here.path.lastIndexOf("/") + 1)}:{here.start}
+                        </span>
+                        <span className="block truncate text-muted-foreground">
+                          {here.lines} line{here.lines === 1 ? "" : "s"} {verb}{" "}
+                          {mark.side === "to" ? "from" : "to"}{" "}
+                          {there.path.slice(there.path.lastIndexOf("/") + 1)}:{there.start}
+                        </span>
+                      </button>
+                    </li>
+                  );
+                })}
+              </ul>
+            </>
+          )}
+
           {chapterComments.length > 0 && (
             <>
               <h2 className="mt-6 mb-2 font-mono text-[0.66rem] font-medium uppercase tracking-[0.09em] text-muted-foreground">
@@ -831,6 +925,8 @@ function ChapterReviewBody({
                     comments={commentsByPath.get(f.path)}
                     findings={findingsByPath.get(f.path)}
                     answers={answers}
+                    moves={movesByPath.get(f.path)}
+                    onOpenMove={handleOpenMove}
                     onAddComment={handleAddComment}
                     onEditComment={editComment}
                     onDeleteComment={removeComment}

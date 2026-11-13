@@ -71,6 +71,7 @@ review-buddy/
 │   ├── src/diff.ts            # git diff parser
 │   ├── src/resolve.ts         # chapter resolution (anchors → real hunks) + file allowlist
 │   ├── src/noise.ts           # generated/noise file heuristic
+│   ├── src/moves.ts           # move detection: blocks removed in one place and added in another (tool-side, from the real diff)
 │   ├── src/validate.ts        # zod backstop for the agent payload
 │   ├── src/messages.ts        # agent-facing feedback text (resolution notes, request-changes)
 │   ├── src/meta.ts            # review meta
@@ -136,7 +137,13 @@ from round 4 on to talk about the approach, and drops findings dismissed earlier
 `submit_review` — path and line only, never code text) are shown under their line with a
 severity tag, listed in the sidebar and counted on the Overview, and **answered** by the
 reviewer (Fix, or Dismiss with a reason) with the answers going to the agent with the
-verdict, so a dismissed one is not raised again.
+verdict, so a dismissed one is not raised again; and **moved code** (plan 022): the tool —
+not the agent — finds blocks that were removed in one place and added in another,
+unchanged (`core/moves.ts` → `ResolvedReview.moves`, line ranges only), and the viewer
+puts a note under each end with a jump to the other one, so the reviewer does not read
+the same code twice ("identical" only for an exact match; a match that needed its
+leading/trailing whitespace ignored is `whitespaceChanged` and says "not identical …
+check it" — never "only the indentation changed", which the tool cannot know).
 
 **Deferred to later phases** (per PRD): posting line comments to GitHub (the desktop app posts the verdict and summary only), GitHub collaboration (open PR, copy branch, reviewers, CI), Activity view, Chat, conversational AI assistant.
 

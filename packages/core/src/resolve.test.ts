@@ -691,3 +691,69 @@ index 5555555..6666666 100644
     expect("findings" in resolveReview(AGENT, SAMPLE, META, PR).review).toBe(false);
   });
 });
+
+describe("moves", () => {
+  const BLOCK = [
+    "export function formatPrice(amount: number): string {",
+    "  const rounded = Math.round(amount * 100) / 100;",
+    "  return String(rounded);",
+    "}",
+  ];
+  const MOVE_DIFF = `diff --git a/src/cart.ts b/src/cart.ts
+index 1111111..2222222 100644
+--- a/src/cart.ts
++++ b/src/cart.ts
+@@ -10,6 +10,2 @@
+ ctx
+${BLOCK.map((l) => `-${l}`).join("\n")}
+ ctx
+diff --git a/src/money.ts b/src/money.ts
+index 1111111..2222222 100644
+--- a/src/money.ts
++++ b/src/money.ts
+@@ -1,2 +1,6 @@
+ ctx
+${BLOCK.map((l) => `+${l}`).join("\n")}
+ ctx
+`;
+  const chapter = (index: number, path: string) => ({
+    index,
+    title: `c${index}`,
+    risk: "Low" as const,
+    risk_reason: "r",
+    description: "d",
+    files: [{ path, change_type: "modified" as const }],
+  });
+
+  test("each end of a move gets the chapter that shows its lines", () => {
+    const { review } = resolveReview(
+      { ...AGENT, chapters: [chapter(1, "src/money.ts"), chapter(2, "src/cart.ts")] },
+      MOVE_DIFF,
+      META,
+      PR,
+    );
+    expect(review.moves).toEqual([
+      {
+        id: "m1",
+        kind: "moved",
+        from: { path: "src/cart.ts", start: 11, lines: 4, chapterIndex: 2 },
+        to: { path: "src/money.ts", start: 2, lines: 4, chapterIndex: 1 },
+      },
+    ]);
+  });
+
+  test("an end the agent left out is in the Unsorted chapter", () => {
+    const { review } = resolveReview(
+      { ...AGENT, chapters: [chapter(1, "src/money.ts")] },
+      MOVE_DIFF,
+      META,
+      PR,
+    );
+    expect(review.moves?.[0]?.from.chapterIndex).toBe(2);
+    expect(review.chapters[1]?.title).toBe("Unsorted changes");
+  });
+
+  test("no moves: the field is absent", () => {
+    expect(resolveReview(AGENT, SAMPLE, META, PR).review.moves).toBeUndefined();
+  });
+});
