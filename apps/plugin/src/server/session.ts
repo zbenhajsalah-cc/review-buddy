@@ -20,13 +20,21 @@ import { repoToplevel } from "@review-buddy/core/node/git";
 import { localGitSource } from "@review-buddy/core/node/local-source";
 import { resolveReview } from "@review-buddy/core/resolve";
 import {
+  type FindingIdentity,
   fileFingerprints,
+  findingIdentities,
   nextRoundState,
+  type RememberedFinding,
   roundInfo,
   sharesAnyPath,
   withoutDismissed,
 } from "@review-buddy/core/rounds";
-import type { AgentReview, ResolvedReview, RoundInfo } from "@review-buddy/core/types";
+import type {
+  AgentReview,
+  ResolvedFinding,
+  ResolvedReview,
+  RoundInfo,
+} from "@review-buddy/core/types";
 import { pluginRoot } from "../plugin-root.ts";
 import { openBrowser } from "./browser.ts";
 import { type DoneResult, type RunningServer, startServer } from "./http.ts";
@@ -76,13 +84,21 @@ export function openRounds(
   cwd: string,
   agent: AgentReview,
   diff: string,
-): { info?: RoundInfo; dismissed: string[]; save: (result: DoneResult) => void } {
+  findings?: readonly ResolvedFinding[],
+): {
+  info?: RoundInfo;
+  identities: FindingIdentity[];
+  memory: RememberedFinding[];
+  save: (result: DoneResult) => void;
+} {
   // Keyed by the repository, not by where the agent happened to run: the hook
   // passes its own cwd, so two directories of one repo would otherwise be two
   // chains and a re-review from a subdirectory would start over at round 1.
   const store = roundStore(repoToplevel(cwd) ?? cwd, agent.source);
   cleanupRounds();
-  const current = fileFingerprints(parseDiff(diff));
+  const parsed = parseDiff(diff);
+  const current = fileFingerprints(parsed);
+  const identities = findingIdentities(findings, parsed);
   let previous = store.read();
   // A worktree review has no ref, so all of them in one repo share this file.
   // A diff that shares no path with the last round is another change: it
@@ -92,7 +108,8 @@ export function openRounds(
   const info = roundInfo(previous, current);
   return {
     info,
-    dismissed: previous?.dismissedFindings ?? [],
+    identities,
+    memory: previous?.findingMemory ?? [],
     /**
      * "Request changes" starts another round, so the state is written; an
      * approval ends the chain, so it is cleared. A Done with no verdict (no
@@ -108,6 +125,7 @@ export function openRounds(
             viewed: result.viewed,
             comments: result.comments,
             dismissed: result.findings?.filter((a) => a.decision === "dismiss").map((a) => a.id),
+            identities,
           },
           previous,
         ),
@@ -123,10 +141,14 @@ export function openRounds(
  */
 export function applyRound(
   review: ResolvedReview,
-  rounds: { info?: RoundInfo; dismissed: readonly string[] },
+  rounds: {
+    info?: RoundInfo;
+    identities: readonly FindingIdentity[];
+    memory: readonly RememberedFinding[];
+  },
 ): void {
   if (!rounds.info) return;
-  const { findings, hidden } = withoutDismissed(review.findings, rounds.dismissed);
+  const { findings, hidden } = withoutDismissed(review.findings, rounds.identities, rounds.memory);
   if (findings.length > 0) review.findings = findings;
   else delete review.findings;
   review.round = hidden > 0 ? { ...rounds.info, hiddenFindings: hidden } : rounds.info;
@@ -165,7 +187,8 @@ export async function openReviewSession(
   // A round only exists where a verdict can travel: with no round-trip there
   // is no "request changes", so there is never a second round to compare with.
   const roundtrip = opts.roundtrip ?? roundtripEnabled();
-  const rounds = (opts.rounds ?? roundtrip) ? openRounds(cwd, agent, diff) : undefined;
+  const rounds =
+    (opts.rounds ?? roundtrip) ? openRounds(cwd, agent, diff, review.findings) : undefined;
   if (rounds) applyRound(review, rounds);
 
   const server = startServer({

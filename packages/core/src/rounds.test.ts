@@ -4,9 +4,11 @@ import {
   commentStatus,
   compareRounds,
   fileFingerprints,
+  findingIdentities,
   nextRoundState,
   parseRoundState,
   type RoundState,
+  rememberFindings,
   roundInfo,
   sharesAnyPath,
   UNCOMPARABLE,
@@ -245,7 +247,7 @@ test("sharesAnyPath: one path in common is the same change; none is another", ()
   expect(sharesAnyPath(previous, {})).toBe(false);
 });
 
-test("withoutDismissed: drops dismissed ids and counts them", () => {
+test("withoutDismissed: matches code identities, not occurrence ids", () => {
   const finding = (id: string): ResolvedFinding => ({
     id,
     path: "src/a.ts",
@@ -255,10 +257,149 @@ test("withoutDismissed: drops dismissed ids and counts them", () => {
     title: id,
   });
   const all = [finding("f-1"), finding("f-2"), finding("f-3")];
-  expect(withoutDismissed(all, ["f-2", "f-9"])).toEqual({
+  const identities = findingIdentities(all, [file()]);
+  const memory = rememberFindings(identities, ["f-2", "f-9"]);
+  expect(withoutDismissed(all, identities, memory)).toEqual({
     findings: [finding("f-1"), finding("f-3")],
     hidden: 1,
   });
-  expect(withoutDismissed(all, [])).toEqual({ findings: all, hidden: 0 });
-  expect(withoutDismissed(undefined, ["f-1"])).toEqual({ findings: [], hidden: 0 });
+  expect(withoutDismissed(all, identities, [])).toEqual({ findings: all, hidden: 0 });
+  expect(withoutDismissed(undefined, [], memory)).toEqual({ findings: [], hidden: 0 });
+});
+
+const findingFile = (lines: string[]): ParsedFile =>
+  file({
+    hunks: [
+      {
+        ...file().hunks[0]!,
+        newStart: 1,
+        newLines: lines.length,
+        lines: lines.map((l) => `+${l}`),
+      },
+    ],
+  });
+const occurrences = (lines: number[]): ResolvedFinding[] =>
+  lines.map((line, i) => ({
+    id: i === 0 ? "f-same" : `f-same-${i + 1}`,
+    path: "src/a.ts",
+    title: "Missing error handling",
+    severity: "important",
+    side: "new",
+    line,
+  }));
+
+for (const dismissed of [1, 2]) {
+  for (const survivor of [1, 2]) {
+    test(`dismissed occurrence ${dismissed}, only occurrence ${survivor} survives`, () => {
+      const files = [findingFile(["firstOperation();", "secondOperation();"])];
+      const before = occurrences([1, 2]);
+      const memory = rememberFindings(findingIdentities(before, files), [
+        before[dismissed - 1]!.id,
+      ]);
+      const after = occurrences([survivor]);
+      expect(withoutDismissed(after, findingIdentities(after, files), memory)).toEqual({
+        findings: survivor === dismissed ? [] : after,
+        hidden: survivor === dismissed ? 1 : 0,
+      });
+    });
+  }
+
+  test(`reordering duplicates preserves dismissal of occurrence ${dismissed}`, () => {
+    const files = [findingFile(["firstOperation();", "secondOperation();"])];
+    const before = occurrences([1, 2]);
+    const memory = rememberFindings(findingIdentities(before, files), [before[dismissed - 1]!.id]);
+    const after = occurrences([2, 1]);
+    expect(
+      withoutDismissed(after, findingIdentities(after, files), memory).findings.map((f) => f.line),
+    ).toEqual([dismissed === 1 ? 2 : 1]);
+  });
+}
+
+test("code identities survive inserted lines and an absent intermediate round", () => {
+  const before = occurrences([1, 2]);
+  const files = [findingFile(["firstOperation();", "secondOperation();"])];
+  const first = nextRoundState(
+    undefined,
+    {},
+    {
+      identities: findingIdentities(before, files),
+      dismissed: [before[1]!.id],
+    },
+  );
+  const gap = nextRoundState(undefined, {}, {}, parseRoundState(JSON.parse(JSON.stringify(first))));
+  const shifted = occurrences([4]);
+  const shiftedFiles = [
+    findingFile(["inserted();", "another();", "firstOperation();", "secondOperation();"]),
+  ];
+  expect(
+    withoutDismissed(shifted, findingIdentities(shifted, shiftedFiles), gap.findingMemory!),
+  ).toEqual({ findings: [], hidden: 1 });
+  expect(JSON.stringify(first)).not.toContain("secondOperation");
+});
+
+test("indistinguishable occurrences stay visible even after one disappears", () => {
+  const files = [findingFile(["sameOperation();", "sameOperation();"])];
+  for (const dismissed of [0, 1]) {
+    const before = occurrences([1, 2]);
+    const memory = rememberFindings(findingIdentities(before, files), [before[dismissed]!.id]);
+    const after = occurrences([2]);
+    expect(withoutDismissed(after, findingIdentities(after, files), memory)).toEqual({
+      findings: after,
+      hidden: 0,
+    });
+  }
+  // A new ambiguity also prevents hiding either current occurrence.
+  const single = occurrences([1]);
+  const memory = rememberFindings(findingIdentities(single, files), [single[0]!.id]);
+  const both = occurrences([1, 2]);
+  expect(withoutDismissed(both, findingIdentities(both, files), memory)).toEqual({
+    findings: both,
+    hidden: 0,
+  });
+});
+
+test("edited, missing or partially available code cannot inherit a dismissal", () => {
+  const before = occurrences([1]);
+  const files = [findingFile(["oldOperation();"])];
+  const memory = rememberFindings(findingIdentities(before, files), [before[0]!.id]);
+  for (const changedFiles of [[], [findingFile(["newOperation();"])]]) {
+    expect(withoutDismissed(before, findingIdentities(before, changedFiles), memory)).toEqual({
+      findings: before,
+      hidden: 0,
+    });
+  }
+  const range = [{ ...before[0]!, start_line: 1, line: 2 }];
+  expect(findingIdentities(range, files)).toEqual([]);
+  // Old versions saved only ids; those cannot establish occurrence identity.
+  expect(
+    withoutDismissed(before, findingIdentities(before, files), stored().findingMemory ?? []),
+  ).toEqual({ findings: before, hidden: 0 });
+});
+
+test("code identities distinguish sides and fingerprint entire ranges", () => {
+  const files = [
+    file({ hunks: [{ ...file().hunks[0]!, lines: [" ctx", "-old", "+added", "+last"] }] }),
+  ];
+  const findings = [
+    { ...occurrences([2])[0]!, side: "old" as const },
+    occurrences([2])[0]!,
+    { ...occurrences([3])[0]!, start_line: 2 },
+  ];
+  const identities = findingIdentities(findings, files);
+  expect(identities).toHaveLength(3);
+  expect(new Set(identities.map((f) => f.key)).size).toBe(3);
+  expect(JSON.stringify(identities)).not.toContain("added");
+});
+
+test("parseRoundState: invalid finding memory cannot enable suppression", () => {
+  const parsed = parseRoundState({
+    ...stored(),
+    findingMemory: [
+      { key: "good", dismissed: true, ambiguous: false, ignored: "drop" },
+      { key: "missing-ambiguity", dismissed: true },
+      { key: "wrong-flag", dismissed: "true", ambiguous: false },
+      null,
+    ],
+  });
+  expect(parsed?.findingMemory).toEqual([{ key: "good", dismissed: true, ambiguous: false }]);
 });

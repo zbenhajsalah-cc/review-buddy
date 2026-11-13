@@ -3,7 +3,10 @@ import { execFileSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { AgentReview, ResolvedReview } from "@review-buddy/core/types";
+import { parseDiff } from "@review-buddy/core/diff";
+import { resolveReview } from "@review-buddy/core/resolve";
+import { findingIdentities, rememberFindings } from "@review-buddy/core/rounds";
+import type { AgentReview, ResolvedFinding, ResolvedReview } from "@review-buddy/core/types";
 import { roundStore } from "./round-store.ts";
 import { applyRound, openRounds, roundtripEnabled } from "./session.ts";
 
@@ -192,14 +195,20 @@ test("openRounds: a PR keeps its chain even when the paths all change", () => {
 
 test("openRounds: dismissed findings carry to the next round", () => {
   withStateDir(() => {
-    openRounds("/repo", agent, DIFF).save({
+    const findings: ResolvedFinding[] = [
+      { id: "f-1", path: "src/a.ts", title: "A", line: 2, side: "new", severity: "nit" },
+      { id: "f-2", path: "src/b.ts", title: "B", line: 2, side: "new", severity: "nit" },
+    ];
+    openRounds("/repo", agent, DIFF, findings).save({
       verdict: "request_changes",
       findings: [
         { id: "f-1", decision: "dismiss", reason: "not a bug" },
         { id: "f-2", decision: "fix" },
       ],
     });
-    expect(openRounds("/repo", agent, DIFF).dismissed).toEqual(["f-1"]);
+    const review = { findings } as ResolvedReview;
+    applyRound(review, openRounds("/repo", agent, DIFF, findings));
+    expect(review.findings?.map((f) => f.id)).toEqual(["f-2"]);
   });
 });
 
@@ -210,16 +219,78 @@ test("applyRound: drops dismissed findings and says how many", () => {
     findings: [finding("f-1"), finding("f-2")],
   } as unknown as ResolvedReview;
   const info = { number: 2, changedPaths: [], viewedPaths: [], previousComments: [] };
-  applyRound(review, { info, dismissed: ["f-1"] });
+  const identities = findingIdentities(review.findings, parseDiff(DIFF));
+  const memory = rememberFindings(identities, ["f-1"]);
+  applyRound(review, { info, identities, memory });
   expect(review.findings?.map((f) => f.id)).toEqual(["f-2"]);
   expect(review.round).toEqual({ ...info, hiddenFindings: 1 });
 
   const allGone = { findings: [finding("f-1")] } as unknown as ResolvedReview;
-  applyRound(allGone, { info, dismissed: ["f-1"] });
+  applyRound(allGone, { info, identities, memory });
   expect(allGone.findings).toBeUndefined();
 
   const first = { findings: [finding("f-1")] } as unknown as ResolvedReview;
-  applyRound(first, { dismissed: ["f-1"] });
+  applyRound(first, { identities, memory });
   expect(first.round).toBeUndefined();
   expect(first.findings).toHaveLength(1);
+});
+
+test("real resolved duplicate ids may change without transferring a dismissal", () => {
+  withStateDir(() => {
+    const reviewAt = (lines: number[], diff = DIFF): ResolvedReview =>
+      resolveReview(
+        {
+          ...agent,
+          prologue: {
+            why: "why",
+            what: "what",
+            key_changes: [],
+            review_focus: { summary: "look", file: "src/a.ts" },
+          },
+          chapters: [],
+          findings: lines.map((line) => ({
+            path: "src/a.ts",
+            line,
+            title: "Missing error handling",
+            severity: "important",
+          })),
+        },
+        diff,
+        { aiGenerated: true, generatedBy: "test", generatedAt: "now", promptVersion: "1" },
+        {
+          title: "t",
+          description: "d",
+          author: "a",
+          createdAt: "now",
+          base: "main",
+          head: "feature",
+        },
+      ).review;
+
+    for (const dismissedLine of [1, 2]) {
+      roundStore("/repo", agent.source).clear();
+      const first = reviewAt([1, 2]);
+      const dismissedId = first.findings![dismissedLine - 1]!.id;
+      const rounds = openRounds("/repo", agent, DIFF, first.findings);
+      applyRound(first, rounds);
+      rounds.save({
+        verdict: "request_changes",
+        findings: [{ id: dismissedId, decision: "dismiss" }],
+      });
+
+      // Only the second occurrence remains, and inherits the first one's id.
+      const second = reviewAt([2]);
+      expect(second.findings![0]!.id).toBe(first.findings![0]!.id);
+      const next = openRounds("/repo", agent, DIFF, second.findings);
+      applyRound(second, next);
+      expect(second.findings?.length ?? 0).toBe(dismissedLine === 2 ? 0 : 1);
+      next.save({ verdict: "request_changes" });
+
+      // Its line shifts and the dismissed occurrence returns in round 3.
+      const shiftedDiff = DIFF.replace("+added", "+inserted\n+added").replace("+1,3", "+1,4");
+      const third = reviewAt([3, 1], shiftedDiff);
+      applyRound(third, openRounds("/repo", agent, shiftedDiff, third.findings));
+      expect(third.findings?.map((f) => f.line)).toEqual([dismissedLine === 2 ? 1 : 3]);
+    }
+  });
 });

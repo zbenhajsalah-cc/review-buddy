@@ -58,7 +58,10 @@ Content:
   "files": { "src/a.ts": "<hash of the file's diff>" },
   "viewed": ["src/a.ts"],
   "comments": [ { "path": "…", "side": "new", "line": 12, "body": "…" } ],
-  "dismissedFindings": ["<finding id>"]
+  "dismissedFindings": ["<legacy per-submission finding id>"],
+  "findingMemory": [
+    { "key": "<path, title, side, code fingerprint>", "dismissed": true, "ambiguous": false }
+  ]
 }
 ```
 
@@ -110,8 +113,17 @@ Hashing in runtime-neutral code: a small FNV-1a string hash in core is enough
 
 ### Findings (plan 019)
 
-`dismissedFindings` keeps the ids of dismissed findings. In the next round,
-`resolveReview` drops findings with those ids ("no repeats").
+Finding ids distinguish occurrences only within one submission: same-path,
+same-title findings get suffixes based on their order. They cannot identify a
+dismissal across rounds. `findingMemory` instead records path, title, side and
+a hash of the exact source-B lines under each finding, including undismissed
+occurrences. The server suppresses only a unique match to a remembered dismissal.
+Reordering, removing another finding or inserting lines before it leaves that
+match intact. Indistinguishable duplicates remain visible, even if one later
+disappears; edited ranges and ranges not fully present in the diff also remain
+visible. The memory survives rounds where a finding is absent. Legacy state
+with only `dismissedFindings` cannot safely suppress anything until a reviewer
+dismisses the finding again; it still carries viewed marks and comments.
 
 ### Other modes
 
